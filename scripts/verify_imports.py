@@ -36,7 +36,7 @@ def main() -> int:
         except Exception as exc:
             failures.append((name, f"{type(exc).__name__}: {exc}"))
 
-    print(f"SHA-256 {sha256.__version__}")
+    print(f"sha256 {sha256.__version__}")
     print(f"modules discovered: {len(module_names)}")
 
     for name in module_names:

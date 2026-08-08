@@ -5,7 +5,7 @@
 
 ## Context
 
-SHA-256 must support many avatars — dozens eventually — with per-avatar models,
+sha256 must support many avatars — dozens eventually — with per-avatar models,
 configuration, previews, and versions. Adding one must not require changing
 application code, and the layout has to survive avatars being added, removed,
 updated, and (later) distributed as downloadable packs.

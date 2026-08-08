@@ -1,6 +1,6 @@
-# SHA-256 — Privacy
+# sha256 — Privacy
 
-SHA-256 processes a webcam feed — among the most sensitive data streams a
+sha256 processes a webcam feed — among the most sensitive data streams a
 desktop application can touch. This document states what happens to it.
 
 **Scope note:** this describes the design and the current foundation build,
@@ -20,7 +20,7 @@ a privacy regression requiring an explicit decision recorded in
 `docs/decisions/`.
 
 Everything the real-time pipeline needs — capture, tracking, animation,
-rendering, output — is designed to run locally. **SHA-256 does not require a
+rendering, output — is designed to run locally. **sha256 does not require a
 cloud service to function, and is not intended to ever require one.**
 
 ---
@@ -65,7 +65,7 @@ model fetching is implemented, it is off unless explicitly enabled.
 ### On the virtual camera
 
 The rendered avatar is the one thing that *is* meant to leave — that is the
-product. It goes to whichever application you select the SHA-256 camera in:
+product. It goes to whichever application you select the sha256 camera in:
 Meet, Zoom, Discord, OBS. **What that application does with it is governed by
 its own privacy policy, not this one.**
 
@@ -99,12 +99,12 @@ word "metrics" in this codebase means "numbers on your screen".
 
 ## 5. Avatars are fictional
 
-Every avatar in SHA-256 is a fictional, AI-generated identity. Manifests carry
+Every avatar in sha256 is a fictional, AI-generated identity. Manifests carry
 an explicit `fictional: true` assertion.
 
 This is a stated intent rather than a technical enforcement — the application
 cannot verify that an image is not of a real person. It is recorded because it
-governs what the project is for. **SHA-256 is not built for impersonating real
+governs what the project is for. **sha256 is not built for impersonating real
 people**, and features that would primarily serve that purpose are out of scope.
 
 Avatar assets you add are yours. They stay on your disk, are not uploaded, and
@@ -153,7 +153,7 @@ visible change to a reviewed contract.
 | Network access | `SHA256_MODELS__ALLOW_DOWNLOADS=false` by default |
 | Remove everything | Delete the application directory and the user data directory |
 
-SHA-256 stores nothing outside its own directories and writes nothing to the
+sha256 stores nothing outside its own directories and writes nothing to the
 registry.
 
 ---
@@ -162,7 +162,7 @@ registry.
 
 The current runtime dependencies are PySide6 (Qt), pydantic, pydantic-settings,
 numpy, and platformdirs. None performs network access as part of the operations
-SHA-256 uses.
+sha256 uses.
 
 Future AI components — face trackers, avatar engines — run **local inference on
 local weights**. Their licensing is analysed in
@@ -176,13 +176,13 @@ commitment regardless of its quality.
 
 Stated so the commitments above are not read more broadly than they are meant:
 
-- SHA-256 cannot control what the video-call application receiving the virtual
+- sha256 cannot control what the video-call application receiving the virtual
   camera does with the frames.
 - It cannot prevent other software on your machine from accessing your webcam.
 - It does not encrypt avatar assets or configuration at rest; they have the same
   protection as any other file in your user profile.
 - Operating-system-level camera indicators and permissions are Windows's
-  responsibility, and SHA-256 does not attempt to circumvent them.
+  responsibility, and sha256 does not attempt to circumvent them.
 
 ---
 

@@ -1,9 +1,9 @@
-# SHA-256 — Security
+# sha256 — Security
 
 **Status:** foundation. The mitigations marked *implemented* exist and are
 tested. Everything else is design intent for components that do not exist yet.
 
-SHA-256 is a local desktop application with no server, no accounts, and no
+sha256 is a local desktop application with no server, no accounts, and no
 network access. That removes whole categories of risk — and concentrates what
 remains in a few specific places.
 
@@ -37,7 +37,7 @@ graph TB
         CD[Camera device data]
     end
 
-    subgraph TRUSTED["SHA-256 process"]
+    subgraph TRUSTED["sha256 process"]
         VAL[Manifest + path validation]
         CFG[Config validation]
         PIPE[Processing pipeline]
@@ -118,7 +118,7 @@ considerably harder.
 **Notes:** this is largely the operating system's responsibility. The relevant
 project decision is that a native Media Foundation virtual camera is preferred
 over routing through a third-party application, partly because it keeps the
-device's ownership and lifetime under SHA-256's control. See
+device's ownership and lifetime under sha256's control. See
 `docs/decisions/ADR-0005-virtual-camera-strategy.md`.
 
 ### T5 — Sensitive data leaking into logs or crash reports
@@ -190,7 +190,7 @@ including camera access
 
 ## 4. Security posture summary
 
-**What SHA-256 does not do** — each of these removes a class of risk:
+**What sha256 does not do** — each of these removes a class of risk:
 
 - No network access
 - No telemetry, analytics, or crash reporting
@@ -248,9 +248,8 @@ Stated rather than implied:
 
 This is a pre-alpha project with no users and no release. If you find a security
 issue, open an issue at
-[github.com/innomdirector/sha256](https://github.com/innomdirector/sha256) —
-or, for anything you consider genuinely sensitive, contact the maintainer
-privately rather than filing publicly.
+the project's issue tracker — or, for anything you consider genuinely
+sensitive, contact the maintainer privately rather than filing publicly.
 
 A formal disclosure process should be established before any public release.
 

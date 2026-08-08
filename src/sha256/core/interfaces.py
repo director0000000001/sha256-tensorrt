@@ -1,9 +1,9 @@
 """Replaceable component contracts.
 
-Every swappable part of SHA-256 is declared here as a :class:`typing.Protocol`.
+Every swappable part of sha256 is declared here as a :class:`typing.Protocol`.
 Protocols rather than abstract base classes, because:
 
-* a backend adapter does not have to import (and therefore depend on) SHA-256
+* a backend adapter does not have to import (and therefore depend on) sha256
   types just to be usable — structural typing is enough;
 * test doubles are trivial to write;
 * no metaclass or MRO surprises when a backend already inherits from a
@@ -260,7 +260,7 @@ class Renderer(Component, Protocol):
 class VirtualCameraSink(Component, Protocol):
     """Publishes frames so other applications can consume them as a webcam.
 
-    Named a *sink* rather than a *provider* because from SHA-256's perspective
+    Named a *sink* rather than a *provider* because from sha256's perspective
     it consumes frames; it is only a provider from the operating system's side.
     Windows approaches are compared in
     ``docs/decisions/ADR-0005-virtual-camera-strategy.md``.

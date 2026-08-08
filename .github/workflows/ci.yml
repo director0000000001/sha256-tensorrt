@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # SHA-256 targets Windows, so CI runs there. A Linux runner would be cheaper
+  # sha256 targets Windows, so CI runs there. A Linux runner would be cheaper
   # and faster but would not exercise the platform the product ships on.
   UV_VERSION: "0.11.29"
 

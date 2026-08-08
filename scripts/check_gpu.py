@@ -4,7 +4,7 @@ Run before assuming any CUDA wheel works::
 
     uv run python scripts/check_gpu.py
 
-Why this exists: the SHA-256 reference machine has an RTX 50-series (Blackwell)
+Why this exists: the sha256 reference machine has an RTX 50-series (Blackwell)
 GPU with compute capability 12.0 / ``sm_120``. Frameworks need a CUDA 12.8-or-
 newer build to emit kernels for it, and a wheel built for older architectures
 will import fine, report ``cuda.is_available() == True``, and then fail at the
@@ -132,7 +132,7 @@ def check_onnxruntime() -> None:
 
 
 def main() -> int:
-    print("SHA-256 GPU capability report")
+    print("sha256 GPU capability report")
     print(f"Python {sys.version.split()[0]} on {sys.platform}")
 
     driver = check_driver()
@@ -141,7 +141,7 @@ def main() -> int:
 
     _heading("Summary")
     if driver is None:
-        print("  No NVIDIA GPU detected. SHA-256 will need a CPU fallback path.")
+        print("  No NVIDIA GPU detected. sha256 will need a CPU fallback path.")
         return 0
 
     name, compute = driver

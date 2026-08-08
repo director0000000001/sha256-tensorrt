@@ -5,7 +5,7 @@
 
 ## Context
 
-SHA-256 needs a Windows desktop UI: avatar gallery with image previews, live
+sha256 needs a Windows desktop UI: avatar gallery with image previews, live
 video preview, controls, and a diagnostics panel. It must not interfere with a
 real-time pipeline running alongside it.
 
@@ -34,7 +34,7 @@ The deciding factors, in order:
 
 1. **Licensing.** LGPL-3.0 permits use in a proprietary application provided
    relinking is possible — usually satisfied by dynamic linking. PyQt6's GPL-3.0
-   would impose copyleft on the whole application. With SHA-256's own license
+   would impose copyleft on the whole application. With sha256's own license
    still open (`LICENSE` is a restrictive placeholder), PySide6 preserves
    options that PyQt6 would foreclose.
 2. **Live video preview.** Displaying frames at 30 fps without fighting the

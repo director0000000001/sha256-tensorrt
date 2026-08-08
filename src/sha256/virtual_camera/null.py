@@ -20,7 +20,7 @@ __all__ = ["NullVirtualCameraSink"]
 class NullVirtualCameraSink:
     """Accepts frames and discards them, tracking counters for diagnostics."""
 
-    def __init__(self, *, device_name: str = "SHA-256 Virtual Camera (null)") -> None:
+    def __init__(self, *, device_name: str = "sha256 Virtual Camera (null)") -> None:
         self._device_name = device_name
         self._running = False
         self._configured = False

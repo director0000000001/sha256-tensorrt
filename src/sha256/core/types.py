@@ -1,4 +1,4 @@
-"""Stable data structures that flow through the SHA-256 pipeline.
+"""Stable data structures that flow through the sha256 pipeline.
 
 This module is the contract described in Phase 6 of the project brief:
 

@@ -78,7 +78,7 @@ class RenderingSettings(_Section):
 
 class VirtualCameraSettings(_Section):
     backend: str = Field(default="null")
-    device_name: str = Field(default="SHA-256 Virtual Camera")
+    device_name: str = Field(default="sha256 Virtual Camera")
     auto_start: bool = Field(
         default=False,
         description="Whether starting the pipeline also publishes to the virtual camera.",
@@ -140,7 +140,7 @@ class ModelSettings(_Section):
         default=False,
         description=(
             "Whether the app may fetch model files over the network. Off by "
-            "default; SHA-256 makes no network calls unless explicitly enabled. "
+            "default; sha256 makes no network calls unless explicitly enabled. "
             "See docs/PRIVACY.md."
         ),
     )

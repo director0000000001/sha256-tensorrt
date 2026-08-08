@@ -9,10 +9,10 @@ easiest `pip install`.
 
 ## Context
 
-SHA-256's output must appear to Windows as a webcam so Meet, Zoom, Discord, and
+sha256's output must appear to Windows as a webcam so Meet, Zoom, Discord, and
 OBS can consume it. This is the **only** part of the system where the obvious
 technical choice carries a licensing consequence for the whole project — and
-SHA-256's own license is not yet decided (`LICENSE` is a restrictive
+sha256's own license is not yet decided (`LICENSE` is a restrictive
 placeholder).
 
 ## Options
@@ -27,8 +27,8 @@ placeholder).
 
 Trivial to integrate. But linking a GPL-2.0 library into a distributed
 application has copyleft implications for the whole work — adopting it would
-decide SHA-256's license by default. It also requires the user to install OBS,
-which is a poor first-run experience and makes SHA-256 dependent on another
+decide sha256's license by default. It also requires the user to install OBS,
+which is a poor first-run experience and makes sha256 dependent on another
 application's install state.
 
 ### B. OBS virtual camera, used externally
@@ -80,7 +80,7 @@ later without the rest of the pipeline caring.
 
 ## Open questions
 
-1. **What license will SHA-256 adopt?** This determines whether option A is even
+1. **What license will sha256 adopt?** This determines whether option A is even
    permissible for distribution.
 2. **Is Windows 10 in scope?** Option C is Windows 11 only. Dropping Windows 10
    would be a product decision, not a technical one.

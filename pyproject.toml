@@ -1,11 +1,11 @@
 [project]
-name = "sha-256"
+name = "sha256"
 version = "0.1.0"
-description = "SHA-256 — a local-first, real-time AI avatar desktop application for Windows."
+description = "sha256 — a local-first, real-time AI avatar desktop application for Windows."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = { file = "LICENSE" }
-authors = [{ name = "SHA-256 Project" }]
+authors = [{ name = "sha256 Project" }]
 keywords = ["avatar", "face-tracking", "virtual-camera", "real-time", "local-first"]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
@@ -41,7 +41,7 @@ tracking = ["mediapipe>=0.10.14"]
 # (Blackwell, sm_120) requires a CUDA 12.8+ build. Verify with scripts/check_gpu.py.
 onnx = ["onnxruntime-gpu>=1.20"]
 
-# WARNING: pyvirtualcam is GPL-2.0. Linking it into SHA-256 has copyleft
+# WARNING: pyvirtualcam is GPL-2.0. Linking it into sha256 has copyleft
 # implications for distribution. Do not enable without reading
 # docs/decisions/ADR-0005-virtual-camera-strategy.md.
 vcam-gpl = ["pyvirtualcam>=0.12"]
@@ -59,8 +59,6 @@ dev = [
 [project.scripts]
 sha256 = "sha256.__main__:main"
 
-[project.urls]
-Repository = "https://github.com/innomdirector/sha256"
 
 [build-system]
 requires = ["hatchling"]

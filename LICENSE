@@ -1,12 +1,12 @@
-SHA-256
-Copyright (c) 2026 The SHA-256 Project. All rights reserved.
+sha256
+Copyright (c) 2026 The sha256 Project. All rights reserved.
 
 -------------------------------------------------------------------------------
 PLACEHOLDER — A LICENSING DECISION IS STILL OUTSTANDING
 -------------------------------------------------------------------------------
 
 This is an intentionally restrictive placeholder. No license has been chosen
-for SHA-256 yet, and this file grants no rights to anyone other than the
+for sha256 yet, and this file grants no rights to anyone other than the
 copyright holder.
 
 It is deliberately restrictive rather than permissive: granting rights is an
@@ -14,7 +14,7 @@ easy change to make later, whereas a permissive license that has already been
 published cannot be meaningfully withdrawn from copies already distributed.
 
 Before replacing this file, note that the choice is constrained by the
-third-party components SHA-256 ends up depending on. In particular:
+third-party components sha256 ends up depending on. In particular:
 
   * PySide6 is available under LGPL-3.0 or a commercial Qt license. LGPL
     imposes relinking obligations on distributed binaries.
@@ -28,4 +28,4 @@ These are analysed in docs/OPEN_SOURCE_EVALUATION.md, and the licensing
 implications of each are recorded in docs/decisions/.
 
 Do not assume any particular outcome from this file. Until it is replaced, treat
-SHA-256 as unlicensed proprietary software.
+sha256 as unlicensed proprietary software.

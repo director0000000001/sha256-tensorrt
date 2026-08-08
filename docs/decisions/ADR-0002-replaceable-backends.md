@@ -5,7 +5,7 @@
 
 ## Context
 
-The hard requirement: SHA-256 must not be tightly coupled to any specific AI
+The hard requirement: sha256 must not be tightly coupled to any specific AI
 model. MediaPipe, LivePortrait, and any future tracker or engine must be
 replaceable.
 
@@ -20,7 +20,7 @@ exactly the case where a tightly coupled design is most expensive.
 **Abstraction mechanism**
 
 - **Abstract base classes.** Familiar, explicit. But a backend must import
-  SHA-256 to subclass, and metaclass conflicts arise when it already inherits
+  sha256 to subclass, and metaclass conflicts arise when it already inherits
   from a vendor base class — which several candidates do.
 - **`typing.Protocol`.** Structural typing: a backend satisfies the contract
   without importing anything. Trivial test doubles. No MRO surprises.

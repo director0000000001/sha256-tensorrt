@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------
-# SHA-256 — baseline configuration (committed).
+# sha256 — baseline configuration (committed).
 #
 # Per-machine overrides belong in `configs/local.toml`, which is gitignored.
 # Environment variables (SHA256_*) override both. See docs/development/.
@@ -41,7 +41,7 @@ target_fps = 30.0
 
 [virtual_camera]
 backend = "null"
-device_name = "SHA-256 Virtual Camera"
+device_name = "sha256 Virtual Camera"
 auto_start = false
 
 [gpu]
@@ -64,5 +64,5 @@ system_sample_interval = 1.0
 
 [models]
 root_path = "models"
-# SHA-256 performs no network access unless this is explicitly enabled.
+# sha256 performs no network access unless this is explicitly enabled.
 allow_downloads = false

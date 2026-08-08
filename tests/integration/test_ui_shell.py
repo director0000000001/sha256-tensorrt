@@ -31,7 +31,7 @@ def window(qtbot, app_context: ApplicationContext):
 
 class TestConstruction:
     def test_window_builds_with_a_real_context(self, window):
-        assert "SHA-256" in window.windowTitle()
+        assert "sha256" in window.windowTitle()
 
     def test_avatar_selector_lists_discovered_avatars(self, window):
         labels = [window._avatar_combo.itemData(i) for i in range(window._avatar_combo.count())]

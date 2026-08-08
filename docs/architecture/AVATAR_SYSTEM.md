@@ -1,11 +1,11 @@
-# SHA-256 — Avatar System
+# sha256 — Avatar System
 
 **Status:** the representation, storage, discovery, validation, residency, and
 selection machinery is implemented and tested. What is *not* implemented is any
 engine that loads real weights — so the design below is exercised end-to-end,
 but only against placeholder avatars.
 
-The governing requirement: **SHA-256 must not be architected around a single
+The governing requirement: **sha256 must not be architected around a single
 avatar.** Adding an avatar must never require touching core application code.
 
 ---

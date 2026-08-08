@@ -1,6 +1,6 @@
 """Filesystem layout resolution.
 
-SHA-256 runs in two shapes and they need different roots:
+sha256 runs in two shapes and they need different roots:
 
 *   **Development** — run from a git checkout. Everything (avatars, models,
     logs, configs) lives inside the repository so a developer can see and edit
@@ -21,8 +21,8 @@ from platformdirs import PlatformDirs
 
 __all__ = ["AppPaths", "find_repo_root"]
 
-_APP_NAME = "SHA-256"
-_APP_AUTHOR = "SHA-256"
+_APP_NAME = "sha256"
+_APP_AUTHOR = "sha256"
 
 # A checkout is identified by these markers rather than by ``.git``: a source
 # tarball or an exported build tree is still "development", and CI checkouts
@@ -41,7 +41,7 @@ def find_repo_root(start: Path | None = None) -> Path | None:
 
 @dataclass(frozen=True, slots=True)
 class AppPaths:
-    """Resolved locations for everything SHA-256 reads or writes."""
+    """Resolved locations for everything sha256 reads or writes."""
 
     root: Path
     """Base directory: the repo root in development, user data dir when installed."""

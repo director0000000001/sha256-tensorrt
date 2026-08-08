@@ -1,4 +1,4 @@
-"""Stable enumerations shared across the SHA-256 pipeline.
+"""Stable enumerations shared across the sha256 pipeline.
 
 These names are part of the internal contract. Adding members is a
 backwards-compatible change; renaming or removing them is not.

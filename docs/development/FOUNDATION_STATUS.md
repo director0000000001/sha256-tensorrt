@@ -1,4 +1,4 @@
-# SHA-256 — Foundation Status
+# sha256 — Foundation Status
 
 **Date:** 2026-08-08 · **Version:** 0.1.0 · **Status:** foundation complete
 
@@ -32,7 +32,7 @@ constructed in a test:
 
 ```
 window visible      : True
-window title        : SHA-256 — foundation build
+window title        : sha256 — foundation build
 avatar entries      : 3          (none + 2 sample avatars)
 camera entries      : 1
 after start         : running
@@ -166,7 +166,7 @@ Each was a deliberate architectural judgement, documented where it was made.
 | Added `core/` | The proposal had no home for shared contracts; without one the dependency rule would be unenforceable |
 | Added `pipeline/` | Orchestration is neither a component nor UI |
 | `avatars/` at repo root, not under `assets/` | User data with its own lifecycle and gitignore rules; `assets/` is application chrome |
-| `VirtualCameraSink`, not `VirtualCameraProvider` | From SHA-256's side it consumes frames; the name should match the behaviour |
+| `VirtualCameraSink`, not `VirtualCameraProvider` | From sha256's side it consumes frames; the name should match the behaviour |
 | Metric result types in `core/`, collection in `performance/` | The monitor protocol must name its return type |
 
 ---

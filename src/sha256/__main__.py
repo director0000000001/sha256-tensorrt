@@ -18,9 +18,9 @@ from sha256 import __version__
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="sha256",
-        description="SHA-256 — local-first real-time AI avatar (foundation build).",
+        description="sha256 — local-first real-time AI avatar (foundation build).",
     )
-    parser.add_argument("--version", action="version", version=f"SHA-256 {__version__}")
+    parser.add_argument("--version", action="version", version=f"sha256 {__version__}")
     parser.add_argument(
         "--check",
         action="store_true",
@@ -70,7 +70,7 @@ def _print_diagnostics(context: object) -> None:
 
     assert isinstance(context, ApplicationContext)
 
-    print(f"SHA-256 {__version__} — foundation build")
+    print(f"sha256 {__version__} — foundation build")
     print(f"  environment    : {context.settings.environment}")
     print(f"  app root       : {context.paths.root}")
     print(f"  development    : {context.paths.is_development}")

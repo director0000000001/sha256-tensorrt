@@ -3,7 +3,7 @@
 Built on the standard library only — no extra dependency for something this
 well served by ``logging``.
 
-Two properties matter for SHA-256 specifically:
+Two properties matter for sha256 specifically:
 
 1.  **Nothing leaves the machine.** Handlers write to the console and to a
     rotating local file. There is no network handler, and adding one would be a

@@ -1,8 +1,8 @@
-# SHA-256
+# sha256
 
 A local-first, real-time AI avatar application for Windows.
 
-SHA-256 captures a webcam feed, tracks the user's face, drives a fictional
+sha256 captures a webcam feed, tracks the user's face, drives a fictional
 AI-generated avatar with that motion, and publishes the result as a virtual
 camera that Google Meet, Zoom, Discord, or OBS can consume like any other
 webcam.
@@ -98,7 +98,6 @@ Requires [uv](https://docs.astral.sh/uv/) and Git. uv provisions the Python
 interpreter itself, so no system Python is needed.
 
 ```powershell
-git clone https://github.com/innomdirector/sha256.git
 cd sha256
 
 uv sync --all-groups          # creates .venv and installs runtime + dev deps
@@ -226,6 +225,6 @@ Beyond the unimplemented components listed above:
 
 ## A note on the avatars
 
-Every avatar in SHA-256 is fictional and AI-generated. The project is not
+Every avatar in sha256 is fictional and AI-generated. The project is not
 intended for impersonating real people, and manifests carry an explicit
 `fictional` assertion. See [`docs/PRIVACY.md`](docs/PRIVACY.md).

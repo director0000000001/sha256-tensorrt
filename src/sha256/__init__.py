@@ -1,4 +1,4 @@
-"""SHA-256 — a local-first, real-time AI avatar application for Windows.
+"""sha256 — a local-first, real-time AI avatar application for Windows.
 
 Pipeline shape (target)::
 

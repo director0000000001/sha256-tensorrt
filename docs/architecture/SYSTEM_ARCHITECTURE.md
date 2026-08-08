@@ -1,4 +1,4 @@
-# SHA-256 — System Architecture
+# sha256 — System Architecture
 
 **Status:** foundation. The contracts described here exist and are tested; the
 real-time components behind them do not exist yet.
@@ -11,7 +11,7 @@ not built**, and what is **still undecided**.
 
 ## 1. The problem
 
-SHA-256 must move a webcam frame through face tracking, avatar animation,
+sha256 must move a webcam frame through face tracking, avatar animation,
 rendering, and out to a virtual camera, fast enough that a video call feels
 live. That imposes three constraints that shape everything else:
 
@@ -142,7 +142,7 @@ All defined in `src/sha256/core/interfaces.py` as `typing.Protocol`.
 
 ### Why protocols rather than abstract base classes
 
-A backend adapter does not need to import SHA-256 to satisfy a protocol —
+A backend adapter does not need to import sha256 to satisfy a protocol —
 structural typing is enough. Test doubles become trivial. And there is no
 metaclass conflict when a backend already inherits from a vendor base class,
 which several candidate libraries do.
@@ -295,7 +295,7 @@ docs/            architecture, decisions, benchmarks, development
 | Added `core/` | The proposal had no home for shared contracts. Without one they would have landed in `utils/`, and the dependency rule would have been unenforceable. |
 | Added `pipeline/` | Orchestration is neither a component nor the UI. Merging it into `app/` would have mixed wiring with runtime behaviour. |
 | `avatars/` at the repo root, not `assets/avatars/` | The avatar library is user data with its own lifecycle and its own gitignore rules. `assets/` is for application chrome (icons, samples) that ships with the build. |
-| `virtual_camera/` exposes a **Sink** | From SHA-256's side it consumes frames; it is only a "provider" from the OS's perspective. The name should match what the code does. |
+| `virtual_camera/` exposes a **Sink** | From sha256's side it consumes frames; it is only a "provider" from the OS's perspective. The name should match what the code does. |
 | Metric result types in `core/metrics.py`, collection in `performance/` | The monitor protocol has to name its return type. Splitting contract from machinery keeps `core` importable without the implementation. |
 
 ---

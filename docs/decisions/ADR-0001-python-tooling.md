@@ -5,7 +5,7 @@
 
 ## Context
 
-SHA-256 is Python-first on Windows, and will eventually depend on the CV/AI
+sha256 is Python-first on Windows, and will eventually depend on the CV/AI
 ecosystem — MediaPipe, ONNX Runtime, possibly PyTorch. Those wheels are the
 binding constraint on Python version: they lag new releases, and a version with
 no wheel means building from source on Windows, which is not viable.

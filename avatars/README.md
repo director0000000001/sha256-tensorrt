@@ -33,5 +33,5 @@ render through the null engine. They exist so discovery, validation, selection,
 and residency eviction are exercised by tests rather than assumed. Delete them
 once real avatars exist.
 
-All avatars in SHA-256 are fictional and AI-generated. Manifests carry a
+All avatars in sha256 are fictional and AI-generated. Manifests carry a
 `fictional: true` assertion; see `docs/PRIVACY.md`.

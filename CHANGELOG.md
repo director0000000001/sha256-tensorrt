@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to SHA-256 are recorded here.
+All notable changes to sha256 are recorded here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -97,5 +97,3 @@ avatar gallery UI. No performance figure is claimed anywhere in this release.
   evicted a real model.
 - Avatar loading still runs on the UI thread (marked `TODO(threading)`).
 
-[Unreleased]: https://github.com/innomdirector/sha256/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/innomdirector/sha256/releases/tag/v0.1.0

@@ -56,7 +56,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._context = context
 
-        self.setWindowTitle("SHA-256 — foundation build")
+        self.setWindowTitle("sha256 — foundation build")
         self.resize(900, 620)
 
         self._tabs = QTabWidget()

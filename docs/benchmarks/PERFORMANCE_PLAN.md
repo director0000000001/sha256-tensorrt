@@ -1,4 +1,4 @@
-# SHA-256 — Performance Plan
+# sha256 — Performance Plan
 
 **Status:** the measurement infrastructure is implemented and tested. **No
 benchmark has been run. No performance number is claimed anywhere in this
@@ -42,7 +42,7 @@ For a real-time avatar in a video call, in priority order:
    a ten-second benchmark.
 4. **Resource headroom** — the machine is simultaneously running a browser, a
    video-call application, and a desktop compositor. A pipeline that saturates
-   the GPU makes everything else stutter, which the user experiences as SHA-256
+   the GPU makes everything else stutter, which the user experiences as sha256
    being broken.
 
 Peak frame rate in isolation is the least interesting number and the easiest to
@@ -243,7 +243,7 @@ A number without these is not a result and must not be quoted.
 
 | Do not write | Write instead |
 |---|---|
-| "SHA-256 runs at 60 fps" | "S2 measured p50 16.2 ms / p95 21.4 ms over 5400 frames on the reference machine" |
+| "sha256 runs at 60 fps" | "S2 measured p50 16.2 ms / p95 21.4 ms over 5400 frames on the reference machine" |
 | "TensorRT is faster" | "TensorRT reduced animation p95 from X to Y under S2" |
 | "Optimised the pipeline" | "Change Z moved end-to-end p95 from X to Y" |
 

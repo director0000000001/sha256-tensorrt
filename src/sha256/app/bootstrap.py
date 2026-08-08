@@ -4,7 +4,7 @@ The single place where concrete implementations are chosen and wired. Every
 other module depends on protocols only; this one does the ``import`` and the
 ``registry.create(...)``.
 
-Keeping it in one file has a practical payoff: to find out what SHA-256 is
+Keeping it in one file has a practical payoff: to find out what sha256 is
 actually running, you read this file, and nothing else can quietly introduce a
 dependency on a specific tracker or engine behind your back.
 """
@@ -79,7 +79,7 @@ def register_builtin_backends(registries: Registries) -> None:
 
 @dataclass(slots=True)
 class ApplicationContext:
-    """Everything a running SHA-256 instance owns.
+    """Everything a running sha256 instance owns.
 
     Passed to the UI rather than reached for through globals, so a second
     instance (a benchmark harness, a test) is fully isolated.
@@ -175,7 +175,7 @@ def build_application(
     )
 
     _LOG.info(
-        "SHA-256 wired: camera=%s tracker=%s engine=%s renderer=%s vcam=%s",
+        "sha256 wired: camera=%s tracker=%s engine=%s renderer=%s vcam=%s",
         settings.camera.backend,
         settings.tracking.backend,
         settings.engine.backend,

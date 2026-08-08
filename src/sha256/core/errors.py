@@ -1,4 +1,4 @@
-"""Exception hierarchy for SHA-256.
+"""Exception hierarchy for sha256.
 
 Every error raised across a module boundary derives from :class:`Sha256Error`,
 so the application shell can catch one type and degrade gracefully instead of
@@ -13,7 +13,7 @@ from __future__ import annotations
 
 
 class Sha256Error(Exception):
-    """Base class for all SHA-256 errors."""
+    """Base class for all sha256 errors."""
 
 
 # --- configuration ---------------------------------------------------------

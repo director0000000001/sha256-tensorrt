@@ -1,11 +1,10 @@
-# Contributing to SHA-256
+# Contributing to sha256
 
 ## Setup
 
 Requires [uv](https://docs.astral.sh/uv/) and Git. uv provisions Python itself.
 
 ```powershell
-git clone https://github.com/innomdirector/sha256.git
 cd sha256
 uv sync --all-groups
 uv run pre-commit install

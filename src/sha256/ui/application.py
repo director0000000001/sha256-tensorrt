@@ -26,8 +26,8 @@ def run_ui(context: ApplicationContext) -> int:
     from sha256.ui.main_window import MainWindow
 
     app = QApplication.instance() or QApplication(sys.argv)
-    app.setApplicationName("SHA-256")
-    app.setOrganizationName("SHA-256")
+    app.setApplicationName("sha256")
+    app.setOrganizationName("sha256")
     app.setApplicationVersion(context.settings.environment)
 
     window = MainWindow(context)

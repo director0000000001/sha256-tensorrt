@@ -1,4 +1,4 @@
-# SHA-256 — Open-Source Technology Evaluation
+# sha256 — Open-Source Technology Evaluation
 
 **Date of research:** August 2026
 **Status:** research complete; **no candidate has been integrated or benchmarked
@@ -9,9 +9,9 @@ by this project.**
 ## How to read this document
 
 Every performance figure below is either **claimed by the project's own authors**
-or **reported by third parties**. None has been reproduced on the SHA-256
+or **reported by third parties**. None has been reproduced on the sha256
 reference machine. They are recorded as leads for benchmarking, not as facts
-about what SHA-256 will achieve. Where a number appears, its source is named.
+about what sha256 will achieve. Where a number appears, its source is named.
 
 **Licensing is reported at four separate levels**, because conflating them is
 the single most common and most expensive mistake in this space:
@@ -94,7 +94,7 @@ any candidate here, at either level.
 - Google has deprecated MediaPipe solutions before. The task API is the current
   supported surface, but this is a maintenance risk to watch.
 
-**Suitable for SHA-256:** yes — the strongest candidate.
+**Suitable for sha256:** yes — the strongest candidate.
 
 ## A2. OpenSeeFace
 
@@ -122,7 +122,7 @@ landmark→blendshape solver. That is genuine work of unknown quality, and it mu
 not be underestimated when treating this as a drop-in alternative. It is a
 backup that requires building something first.
 
-**Suitable for SHA-256:** yes as a backup, with the solver caveat stated
+**Suitable for sha256:** yes as a backup, with the solver caveat stated
 plainly.
 
 ## A3. Other options considered
@@ -152,7 +152,7 @@ plainly.
 
 **Why it leads on capability.** It is a stitching-and-retargeting approach rather
 than a diffusion model, which is precisely why it can run in real time at all.
-It is driven by a **video/face source**, matching SHA-256's webcam-driven
+It is driven by a **video/face source**, matching sha256's webcam-driven
 pipeline. Quality on portraits is widely regarded as the best available in the
 open-source real-time class.
 
@@ -178,7 +178,7 @@ is not resolvable by reading code.
   additional cost and a quality question.
 - VRAM footprint on this hardware is unmeasured.
 
-**Suitable for SHA-256:** yes as the primary candidate, **conditional on
+**Suitable for sha256:** yes as the primary candidate, **conditional on
 resolving the weight licensing** and replacing InsightFace.
 
 ## B2. FasterLivePortrait
@@ -207,7 +207,7 @@ research.
 It does **not** improve the licensing position. It inherits every question from
 B1.
 
-**Suitable for SHA-256:** yes — this is how LivePortrait should be adopted if
+**Suitable for sha256:** yes — this is how LivePortrait should be adopted if
 LivePortrait is adopted.
 
 ## B3. Ditto (`antgroup/ditto-talkinghead`)
@@ -222,7 +222,7 @@ LivePortrait is adopted.
 
 **Verdict: not suitable as a primary candidate**, for a structural reason rather
 than a quality one. Ditto is **audio-driven** — it synthesises a talking head
-from speech. SHA-256 is **motion-driven**: it reproduces the user's actual head
+from speech. sha256 is **motion-driven**: it reproduces the user's actual head
 pose and expressions from a webcam. These solve different problems. An
 audio-driven model cannot reproduce the user looking away, raising an eyebrow,
 or reacting silently.
@@ -258,7 +258,7 @@ recommendation below reflects that.
 # Part C — Virtual camera on Windows
 
 This is the area with the **least satisfying options** and the one with the
-largest bearing on SHA-256's own license.
+largest bearing on sha256's own license.
 
 ## C1. pyvirtualcam
 
@@ -277,12 +277,12 @@ decision by default.
 
 It is also not self-contained: the user must install OBS, start the virtual
 camera once, and stop it. That is a poor first-run experience for a consumer
-application, and it makes SHA-256 dependent on another application's install
+application, and it makes sha256 dependent on another application's install
 state.
 
 **Verdict:** excellent for **development and prototyping**, behind the
 `VirtualCameraSink` abstraction and in an optional extra (`vcam-gpl`) that makes
-the constraint visible. Not a shipping answer unless SHA-256 chooses to be GPL.
+the constraint visible. Not a shipping answer unless sha256 chooses to be GPL.
 
 ## C2. OBS virtual camera directly
 
@@ -419,7 +419,7 @@ option with no third-party licensing entanglement and no dependency on the user
 installing OBS.
 
 This is the decision most likely to need revisiting, and the one with the
-largest bearing on SHA-256's own license.
+largest bearing on sha256's own license.
 
 ---
 
@@ -440,7 +440,7 @@ largest bearing on SHA-256's own license.
 | OBS | GPL-2.0 | n/a | Copyleft; external-application use differs from linking |
 | PySide6 / Qt | **LGPL-3.0** or commercial Qt license | n/a | Yes, with LGPL relinking obligations |
 
-**Three items require a decision before SHA-256 can be distributed
+**Three items require a decision before sha256 can be distributed
 commercially:** LivePortrait's weight license (UNCLEAR), the InsightFace
 replacement (required), and the virtual camera approach (GPL vs native).
 
