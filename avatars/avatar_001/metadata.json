@@ -1,0 +1,26 @@
+{
+  "manifest_version": 1,
+  "id": "avatar_001",
+  "name": "Placeholder One",
+  "version": "1.0.0",
+  "description": "Sample avatar used to exercise discovery, validation, and selection. Renders as a schematic face via the null engine; it references no model weights.",
+  "tags": ["sample", "placeholder"],
+  "preview": null,
+  "assets": [],
+  "engine": {
+    "engine_id": "null",
+    "estimated_vram_mb": 0,
+    "device_preference": "auto"
+  },
+  "rendering": {
+    "output_width": 512,
+    "output_height": 512,
+    "background": "solid",
+    "background_color": "#101014",
+    "mirror": false,
+    "expression_scale": 1.0,
+    "head_motion_scale": 1.0
+  },
+  "engine_options": {},
+  "fictional": true
+}

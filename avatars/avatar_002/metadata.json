@@ -1,0 +1,26 @@
+{
+  "manifest_version": 1,
+  "id": "avatar_002",
+  "name": "Placeholder Two",
+  "version": "1.0.0",
+  "description": "Second sample avatar. Exists so that multi-avatar behaviour — discovery of several entries, switching the active avatar, and residency eviction — is exercised rather than assumed.",
+  "tags": ["sample", "placeholder"],
+  "preview": null,
+  "assets": [],
+  "engine": {
+    "engine_id": "null",
+    "estimated_vram_mb": 0,
+    "device_preference": "cpu"
+  },
+  "rendering": {
+    "output_width": 640,
+    "output_height": 640,
+    "background": "solid",
+    "background_color": "#141018",
+    "mirror": true,
+    "expression_scale": 1.4,
+    "head_motion_scale": 0.8
+  },
+  "engine_options": {},
+  "fictional": true
+}

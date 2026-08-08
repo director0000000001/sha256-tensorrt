@@ -1,0 +1,23 @@
+# Normalise line endings so a Windows checkout and a Linux CI runner agree.
+# Without this, every file shows as modified depending on who touched it last.
+* text=auto eol=lf
+
+# Windows-native scripts must keep CRLF or cmd.exe mis-parses them.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary assets — never diff, never convert.
+*.png binary
+*.jpg binary
+*.ico binary
+*.onnx binary
+*.pt binary
+*.pth binary
+*.safetensors binary
+*.engine binary
+*.task binary
+*.tflite binary
+
+# The lockfile is generated; collapse it in diffs and reviews.
+uv.lock linguist-generated=true

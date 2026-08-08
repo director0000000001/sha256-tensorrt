@@ -1,0 +1,155 @@
+[project]
+name = "sha-256"
+version = "0.1.0"
+description = "SHA-256 — a local-first, real-time AI avatar desktop application for Windows."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { file = "LICENSE" }
+authors = [{ name = "SHA-256 Project" }]
+keywords = ["avatar", "face-tracking", "virtual-camera", "real-time", "local-first"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: Developers",
+    "Operating System :: Microsoft :: Windows :: Windows 10",
+    "Operating System :: Microsoft :: Windows :: Windows 11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Video :: Capture",
+]
+
+# Runtime dependencies are deliberately minimal. Every heavy or
+# license-encumbered component (torch, mediapipe, onnxruntime, pyvirtualcam)
+# lives in an optional extra so the shell stays installable and testable
+# without pulling multi-gigabyte wheels. See docs/OPEN_SOURCE_EVALUATION.md.
+dependencies = [
+    "PySide6>=6.8,<7",
+    "pydantic>=2.9,<3",
+    "pydantic-settings>=2.5,<3",
+    "numpy>=1.26,<3",
+    "platformdirs>=4.2,<5",
+]
+
+[project.optional-dependencies]
+# --- Optional capability extras -------------------------------------------
+# NOT installed by default. Each carries its own license and size trade-offs
+# which are documented in docs/OPEN_SOURCE_EVALUATION.md before adoption.
+
+# Face tracking backends (Phase: tracking integration — NOT YET ENABLED)
+tracking = ["mediapipe>=0.10.14"]
+
+# Inference runtimes. CUDA wheels must match the local driver; the RTX 50-series
+# (Blackwell, sm_120) requires a CUDA 12.8+ build. Verify with scripts/check_gpu.py.
+onnx = ["onnxruntime-gpu>=1.20"]
+
+# WARNING: pyvirtualcam is GPL-2.0. Linking it into SHA-256 has copyleft
+# implications for distribution. Do not enable without reading
+# docs/decisions/ADR-0005-virtual-camera-strategy.md.
+vcam-gpl = ["pyvirtualcam>=0.12"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-cov>=5.0",
+    "pytest-qt>=4.4",
+    "ruff>=0.7",
+    "mypy>=1.13",
+    "pre-commit>=4.0",
+]
+
+[project.scripts]
+sha256 = "sha256.__main__:main"
+
+[project.urls]
+Repository = "https://github.com/innomdirector/sha256"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sha256"]
+
+# ---------------------------------------------------------------------------
+# Ruff — linting + formatting (replaces black/isort/flake8)
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # isort
+    "N",        # pep8-naming
+    "UP",       # pyupgrade
+    "B",        # bugbear
+    "A",        # builtins shadowing
+    "C4",       # comprehensions
+    "SIM",      # simplify
+    "PTH",      # use pathlib
+    "RUF",      # ruff-specific
+    "ANN",      # annotations
+    "TID",      # tidy imports
+]
+ignore = [
+    "ANN401",  # allow typing.Any where a boundary genuinely needs it
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ANN", "S101"]
+"scripts/**" = ["ANN"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "parents"
+
+[tool.ruff.format]
+quote-style = "double"
+
+# ---------------------------------------------------------------------------
+# mypy — strict on the contract layer, pragmatic elsewhere
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+files = ["src", "tests"]
+strict = true
+warn_unreachable = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+# Qt's generated stubs are incomplete; do not let them block the build.
+module = ["PySide6.*"]
+ignore_missing_imports = true
+follow_untyped_imports = true
+
+[[tool.mypy.overrides]]
+# Tests are checked, but not required to annotate every `def test_...() -> None`.
+# The value of strict typing is in the contracts; enforcing it on test bodies
+# is noise that discourages writing tests.
+module = ["tests.*"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_decorators = false
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --strict-config"
+markers = [
+    "gui: requires a Qt application instance (skipped when no display/offscreen)",
+    "integration: crosses module boundaries",
+    "slow: takes more than a second",
+    "requires_gpu: needs a CUDA device present",
+]
+
+[tool.coverage.run]
+source = ["src/sha256"]
+branch = true
+
+[tool.coverage.report]
+skip_empty = true
+exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:", "raise NotImplementedError", "\\.\\.\\."]

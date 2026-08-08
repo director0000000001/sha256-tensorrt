@@ -1,0 +1,68 @@
+# ---------------------------------------------------------------------------
+# SHA-256 — baseline configuration (committed).
+#
+# Per-machine overrides belong in `configs/local.toml`, which is gitignored.
+# Environment variables (SHA256_*) override both. See docs/development/.
+#
+# Every backend is `null` during the foundation phase: the placeholders keep
+# the application runnable end-to-end while real backends are still being
+# selected. See docs/OPEN_SOURCE_EVALUATION.md.
+# ---------------------------------------------------------------------------
+
+environment = "development"
+log_level = "INFO"
+log_json = false
+developer_mode = false
+
+[camera]
+backend = "null"
+device_index = 0
+width = 1280
+height = 720
+target_fps = 30.0
+mirror = true
+
+[tracking]
+backend = "null"
+min_detection_confidence = 0.5
+min_tracking_confidence = 0.5
+smoothing = 0.0
+
+[engine]
+backend = "null"
+device = "auto"
+precision = "auto"
+
+[rendering]
+backend = "null"
+output_width = 1280
+output_height = 720
+target_fps = 30.0
+
+[virtual_camera]
+backend = "null"
+device_name = "SHA-256 Virtual Camera"
+auto_start = false
+
+[gpu]
+# Conservative default for a 16 GB card: leaves headroom for the desktop
+# compositor, the browser running the video call, and the encoder.
+# Revisit once real engines have been profiled — see docs/benchmarks/.
+vram_budget_mb = 6144
+allow_fallback_to_cpu = true
+
+[avatars]
+library_path = "avatars"
+max_resident = 2
+verify_checksums = false
+
+[performance]
+enabled = true
+window_size = 240
+sample_system_metrics = false
+system_sample_interval = 1.0
+
+[models]
+root_path = "models"
+# SHA-256 performs no network access unless this is explicitly enabled.
+allow_downloads = false
