@@ -20,6 +20,7 @@ from sha256.avatar.engine_null import NullAvatarEngine
 from sha256.avatar.manager import AvatarManager
 from sha256.avatar.repository import FilesystemAvatarRepository
 from sha256.camera.null import NullCameraProvider
+from sha256.camera.opencv_capture import OpenCVCameraProvider
 from sha256.config.loader import load_settings
 from sha256.config.paths import AppPaths
 from sha256.config.schema import Settings
@@ -54,6 +55,12 @@ def register_builtin_backends(registries: Registries) -> None:
         "null",
         NullCameraProvider,
         description="Synthetic frame generator (no hardware required).",
+    )
+    registries.camera.register(
+        "opencv",
+        OpenCVCameraProvider,
+        description="Physical camera capture via OpenCV (Media Foundation / DirectShow).",
+        requires=("cv2",),
     )
     registries.tracker.register(
         "null",
@@ -143,9 +150,11 @@ def build_application(
 
     camera: CameraProvider = registries.camera.create(
         settings.camera.backend,
+        device_index=settings.camera.device_index,
         width=settings.camera.width,
         height=settings.camera.height,
         target_fps=settings.camera.target_fps,
+        use_mjpeg=settings.camera.use_mjpeg,
     )
     tracker: FaceTracker = registries.tracker.create(settings.tracking.backend)
     renderer: Renderer = registries.renderer.create(

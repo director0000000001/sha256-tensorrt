@@ -46,6 +46,14 @@ class CameraSettings(_Section):
     height: int = Field(default=720, gt=0, le=4320)
     target_fps: float = Field(default=30.0, gt=0, le=240)
     mirror: bool = Field(default=True, description="Mirror the preview, as users expect.")
+    use_mjpeg: bool = Field(
+        default=True,
+        description=(
+            "Request MJPEG from the camera. Most UVC devices only reach 30 fps at "
+            "higher resolutions with MJPEG; raw formats cap out far lower. Turn off "
+            "only if a specific camera misbehaves with it."
+        ),
+    )
 
 
 class TrackingSettings(_Section):

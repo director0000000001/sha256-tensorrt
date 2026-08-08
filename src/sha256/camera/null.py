@@ -51,7 +51,14 @@ class NullCameraProvider:
         height: int = 720,
         target_fps: float = 30.0,
         source_id: str = "null-camera",
+        device_index: int = 0,
+        use_mjpeg: bool = True,
     ) -> None:
+        # device_index and use_mjpeg are accepted and ignored: every camera
+        # backend is constructed from the same settings, and filtering kwargs
+        # per backend in the composition root would be worse than two unused
+        # parameters here.
+        del device_index, use_mjpeg
         self._width = width
         self._height = height
         self._target_fps = target_fps
