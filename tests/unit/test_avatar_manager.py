@@ -1,4 +1,4 @@
-﻿"""Tests for avatar lifecycle coordination."""
+"""Tests for avatar lifecycle coordination."""
 
 from __future__ import annotations
 
@@ -200,4 +200,3 @@ class TestStatuses:
         statuses = manager.statuses()
         assert {s.avatar_id for s in statuses} == {"avatar_001", "avatar_002"}
         assert all(s.is_usable for s in statuses)
-

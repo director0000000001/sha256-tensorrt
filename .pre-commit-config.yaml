@@ -1,0 +1,35 @@
+# Local pre-commit hooks. Install once with:
+#     uv run pre-commit install
+#
+# These mirror what CI enforces, so a failing push is caught before it is a
+# failing pipeline. mypy is intentionally NOT run here — it needs the full
+# environment and is slow enough to make committing painful; CI covers it.
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.2
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-toml
+      - id: check-json
+      - id: check-yaml
+      - id: check-merge-conflict
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+      # Model weights and avatar payloads must not enter Git history — once
+      # committed they are effectively permanent, and some model licenses do
+      # not permit redistribution at all.
+      - id: check-added-large-files
+        args: [--maxkb=2048]
+
+      # Never commit credentials. See docs/SECURITY.md.
+      - id: detect-private-key

@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # SHA-256 targets Windows, so CI runs there. A Linux runner would be cheaper
+  # and faster but would not exercise the platform the product ships on.
+  UV_VERSION: "0.11.29"
+
+jobs:
+  check:
+    name: Lint, type-check, test (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Install dependencies
+        # Only runtime + dev. The optional AI extras are deliberately excluded:
+        # CI must prove the foundation stands on its own, and multi-gigabyte
+        # CUDA wheels would make every run slow for no signal.
+        run: uv sync --all-groups --frozen
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Formatting
+        run: uv run ruff format --check .
+
+      - name: Type check
+        run: uv run mypy
+
+      - name: Tests
+        env:
+          # No display on a CI runner; Qt must render offscreen.
+          QT_QPA_PLATFORM: offscreen
+        run: uv run pytest --cov=sha256 --cov-report=term-missing
+
+      - name: Application smoke test
+        env:
+          QT_QPA_PLATFORM: offscreen
+        # Proves the whole object graph builds and avatars are discovered —
+        # the thing most likely to break without any test noticing.
+        run: uv run python -m sha256 --check
+
+  secrets-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan history for committed secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
