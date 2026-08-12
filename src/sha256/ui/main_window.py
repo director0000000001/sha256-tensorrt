@@ -11,8 +11,9 @@ Structural rules, which the finished UI inherits:
     the video or a translucent control surface — no opaque panel is allowed to
     cover it, which is the mistake the first version made.
 
-The shape is a start screen and a running screen: idle shows a title and one
-large Start button, running shows the video with a control bar beneath it.
+The shape is deliberately spare: before Start the window is the background
+image and a single control bar along the bottom, nothing else. No title, no
+tagline, no centred panel. Running swaps the empty area for the video.
 Diagnostics live behind the developer panel, which appears only when
 ``developer_mode`` is enabled in configuration.
 """
@@ -68,14 +69,7 @@ _STYLE = """
 QLabel { color: #f2f2f6; background: transparent; }
 QCheckBox { color: #e2e2ea; background: transparent; }
 
-#Title {
-    color: #ffffff;
-    font-size: 46px;
-    font-weight: 300;
-    letter-spacing: 10px;
-}
-#Subtitle { color: #b8b8c6; font-size: 14px; letter-spacing: 2px; }
-#StatusLine { color: #c8c8d4; font-size: 13px; }
+#StatusLine { color: #fca5a5; font-size: 13px; }
 #Fps { color: #6ee7b7; font-size: 14px; font-weight: 600; }
 
 #Bar {
@@ -96,16 +90,13 @@ QPushButton:hover { background-color: rgba(58, 58, 76, 225); }
 QPushButton:disabled { color: #74747f; background-color: rgba(30, 30, 38, 110); }
 
 #PrimaryButton {
-    font-size: 22px;
     font-weight: 600;
-    letter-spacing: 6px;
-    padding: 18px 76px;
-    border-radius: 12px;
     color: #06281c;
     background-color: rgba(110, 231, 183, 235);
     border: 1px solid rgba(255, 255, 255, 70);
 }
 #PrimaryButton:hover { background-color: rgba(140, 245, 205, 255); }
+#PrimaryButton:disabled { color: #5a6b64; background-color: rgba(110, 231, 183, 70); }
 
 QComboBox {
     color: #f2f2f6;
@@ -188,45 +179,13 @@ class MainWindow(QMainWindow):
         return page
 
     def _build_start_screen(self) -> QWidget:
+        """The idle screen: nothing at all.
+
+        Deliberately empty. Start and Stop live in the bar below, so before the
+        pipeline runs the window is the background image and nothing else.
+        """
         screen = QWidget()
         screen.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, on=True)
-
-        layout = QVBoxLayout(screen)
-        layout.setSpacing(10)
-        layout.addStretch(2)
-
-        title = QLabel("SHA256")
-        title.setObjectName("Title")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(title)
-
-        subtitle = QLabel("REAL-TIME AVATAR")
-        subtitle.setObjectName("Subtitle")
-        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(subtitle)
-
-        layout.addSpacing(34)
-
-        self._primary_button = QPushButton("START")
-        self._primary_button.setObjectName("PrimaryButton")
-        self._primary_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._primary_button.clicked.connect(self._on_start)
-
-        button_row = QHBoxLayout()
-        button_row.addStretch(1)
-        button_row.addWidget(self._primary_button)
-        button_row.addStretch(1)
-        layout.addLayout(button_row)
-
-        layout.addSpacing(18)
-
-        self._status_line = QLabel()
-        self._status_line.setObjectName("StatusLine")
-        self._status_line.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._status_line.setWordWrap(True)
-        layout.addWidget(self._status_line)
-
-        layout.addStretch(3)
         return screen
 
     def _build_bar(self) -> QWidget:
@@ -237,24 +196,38 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(16, 12, 16, 12)
         layout.setSpacing(10)
 
+        # Start and Stop first, at the bottom left, because that is where the
+        # eye goes and they are the only two controls that always matter.
+        self._primary_button = QPushButton("Start")
+        self._primary_button.setObjectName("PrimaryButton")
+        self._primary_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._primary_button.clicked.connect(self._on_start)
+        layout.addWidget(self._primary_button)
+
+        self._stop_button = QPushButton("Stop")
+        self._stop_button.clicked.connect(self._on_stop)
+        layout.addWidget(self._stop_button)
+
+        layout.addSpacing(18)
+
         layout.addWidget(QLabel("Camera"))
         self._camera_combo = QComboBox()
-        self._camera_combo.setMinimumWidth(150)
+        self._camera_combo.setMinimumWidth(130)
         layout.addWidget(self._camera_combo)
 
         layout.addSpacing(10)
 
         layout.addWidget(QLabel("Avatar"))
         self._avatar_combo = QComboBox()
-        self._avatar_combo.setMinimumWidth(150)
+        self._avatar_combo.setMinimumWidth(130)
         self._avatar_combo.currentIndexChanged.connect(self._on_avatar_changed)
         layout.addWidget(self._avatar_combo)
 
         layout.addSpacing(10)
 
+        # No label: the two entries name themselves.
         self._view_combo = QComboBox()
         self._view_combo.addItems([_VIEW_CAMERA, _VIEW_OUTPUT])
-        layout.addWidget(QLabel("View"))
         layout.addWidget(self._view_combo)
 
         self._landmarks_check = QCheckBox("Tracking")
@@ -271,13 +244,15 @@ class MainWindow(QMainWindow):
 
         layout.addStretch(1)
 
+        # Empty unless something went wrong, so the bar stays quiet in normal
+        # use but a failure is never silent.
+        self._status_line = QLabel()
+        self._status_line.setObjectName("StatusLine")
+        layout.addWidget(self._status_line)
+
         self._fps_label = QLabel()
         self._fps_label.setObjectName("Fps")
         layout.addWidget(self._fps_label)
-
-        self._stop_button = QPushButton("Stop")
-        self._stop_button.clicked.connect(self._on_stop)
-        layout.addWidget(self._stop_button)
 
         return bar
 
@@ -377,10 +352,7 @@ class MainWindow(QMainWindow):
             return
 
         self._fps_label.setText(f"{self._runner.fps:.1f} fps" if running else "")
-
-        camera = self._camera_combo.currentText() or "no camera"
-        avatar = self._context.avatars.active_id or "none selected"
-        self._status_line.setText(f"{camera}   ·   avatar: {avatar}")
+        self._status_line.setText("")
 
         if (
             self._context.settings.developer_mode
