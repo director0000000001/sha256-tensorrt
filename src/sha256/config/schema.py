@@ -59,6 +59,15 @@ class CameraSettings(_Section):
 class TrackingSettings(_Section):
     backend: str = Field(default="null")
     min_detection_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    min_presence_confidence: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Threshold for a face still being present in a tracked frame, as "
+            "opposed to the initial detection. MediaPipe separates the two."
+        ),
+    )
     min_tracking_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     smoothing: float = Field(
         default=0.0,
@@ -67,6 +76,28 @@ class TrackingSettings(_Section):
         description=(
             "Temporal smoothing factor. Higher is steadier but adds latency; "
             "the trade-off must be measured, not guessed."
+        ),
+    )
+    num_faces: int = Field(
+        default=1,
+        ge=1,
+        le=4,
+        description="Faces to track. One is the product case; more only costs time.",
+    )
+    delegate: Literal["auto", "cpu", "gpu"] = Field(
+        default="auto",
+        description=(
+            "Inference device for the tracker. 'auto' resolves to CPU on "
+            "Windows: the published MediaPipe wheel is built without a GPU "
+            "delegate (measured — see docs/benchmarks/B003-face-tracking.md)."
+        ),
+    )
+    model_path: str | None = Field(
+        default=None,
+        description=(
+            "Model bundle location, relative to the models root unless "
+            "absolute. Defaults to downloads/face_landmarker.task, which "
+            "scripts/fetch_face_landmarker.py writes."
         ),
     )
 

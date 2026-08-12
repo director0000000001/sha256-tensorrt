@@ -1,8 +1,9 @@
 # sha256 — Open-Source Technology Evaluation
 
 **Date of research:** August 2026
-**Status:** research complete; **no candidate has been integrated or benchmarked
-by this project.**
+**Status:** research complete. **One candidate — MediaPipe Face Landmarker — has
+since been integrated and benchmarked** (B003, 2026-08-13); its entry below is
+updated with measurements. Everything else remains unverified research.
 
 ---
 
@@ -81,20 +82,26 @@ a whole translation layer.
 Apache-2.0 on **both code and weights** is the cleanest licensing position of
 any candidate here, at either level.
 
-**Concerns.**
+**Concerns — both of the first two are now resolved by measurement (B003).**
 
-- **GPU acceleration on Windows Python is UNCLEAR.** MediaPipe's GPU delegate is
-  well documented for Android and web; whether the Windows Python wheel exposes
-  a usable GPU delegate could not be confirmed from primary sources. Assume
-  CPU/XNNPACK inference until measured. On an i7-14700KF this may well be
-  sufficient — but that is an assumption to test, not a finding.
-- **No latency benchmarks are published** in the official documentation. The
-  model is described as optimised for mobile GPU inference; what that means on
-  this hardware is unknown.
+- ~~**GPU acceleration on Windows Python is UNCLEAR.**~~ **RESOLVED: there is no
+  GPU delegate.** The published Windows wheel is built without one; requesting
+  it fails at graph construction with "GPU processing is disabled in build
+  flags". Inference is CPU/XNNPACK. Measured, not inferred — see
+  `docs/benchmarks/B003-face-tracking.md`.
+- ~~**No latency benchmarks are published.**~~ **RESOLVED: 6.30 ms mean,
+  6.93 ms p95** per frame on the reference machine at 1280×720, over 1747
+  frames, including colour conversion and adaptation. That is 21% of a 30 fps
+  frame budget, and it leaves the GPU free.
 - Google has deprecated MediaPipe solutions before. The task API is the current
   supported surface, but this is a maintenance risk to watch.
+- **Packaging hazard found during integration:** `mediapipe` declares a hard
+  dependency on `opencv-contrib-python`, which bundles Qt and conflicts with
+  PySide6. It must be installed with `--no-deps`. See `PROJECT_STATUS.md`.
+- **It emits no confidence score.** Detection is binary. Anything wanting a
+  graded tracking-quality signal has to derive one.
 
-**Suitable for sha256:** yes — the strongest candidate.
+**Suitable for sha256:** yes — **adopted**, B003.
 
 ## A2. OpenSeeFace
 
@@ -361,9 +368,12 @@ the architecture is built so that being wrong here is cheap.
 
 Apache-2.0 on **both code and weights**, the only candidate emitting blendshapes
 directly, ARKit-compatible naming that aligns with 3D avatar tooling, verified
-available for Python 3.12 on Windows, and actively maintained by Google. The
-open question is GPU acceleration on Windows Python; the i7-14700KF makes CPU
-inference a plausible fallback, but that must be measured.
+available for Python 3.12 on Windows, and actively maintained by Google.
+
+**Adopted and measured (B003):** 6.30 ms mean per frame on the CPU, because the
+Windows wheel has no GPU delegate at all. The i7-14700KF fallback was not merely
+plausible, it is the only option — and it turns out to be an advantage, since it
+leaves the whole GPU for the avatar engine.
 
 ### Backup face tracker — **OpenSeeFace**
 

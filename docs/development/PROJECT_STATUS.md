@@ -3,7 +3,7 @@
 **Living document.** Update it at the end of each working day. For the frozen
 record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
-**Last updated:** 2026-08-13 · **Day 2 of a 14-day plan**
+**Last updated:** 2026-08-13 · **Day 3 of a 14-day plan**
 
 ---
 
@@ -13,8 +13,8 @@ record of the foundation milestone see `FOUNDATION_STATUS.md`.
 |---|---|---|
 | 1 | GPU and toolchain verification | ✅ Done — B001 |
 | 2 | Real camera capture | ✅ Done — B002 |
-| **3** | **Face tracking (MediaPipe)** | **⬅️ next** |
-| 4 | Tracking → avatar engine, first moving avatar | |
+| 3 | Face tracking (MediaPipe) | ✅ Done — B003 |
+| **4** | **Tracking → avatar engine, first moving avatar** | **⬅️ next** |
 | 5 | Virtual camera | |
 | 6–10 | Quality iteration | |
 | 11–12 | UI, avatar gallery, licence server | |
@@ -43,12 +43,22 @@ record of the foundation milestone see `FOUNDATION_STATUS.md`.
 - 720p is a limit of the camera's USB Streaming, not the cable. Accepted —
   the engine works at 256×256 internally.
 
+**Face tracking** (B003)
+- MediaPipe Face Landmarker `1.0.0`: **6.30 ms mean / 6.93 ms p95** per frame
+  over 1747 frames, 100% detection, 478 landmarks + 52 blendshapes.
+- **No GPU delegate exists on the Windows Python wheel** — it is compiled out.
+  Tracking is CPU/XNNPACK, which leaves the GPU entirely free for the engine.
+- MediaPipe emits **no confidence score**. Detection is binary.
+- Colour conversion must use OpenCV, not numpy: 0.45 ms vs 2.90 ms per frame.
+- Head-pose signs are verified, not assumed. Two of three were wrong initially.
+
 **Budget**
 ```
 33.3 ms  frame budget at 30 fps
  2.0 ms  spent by the pipeline machinery (placeholders)
+ 6.3 ms  face tracking (p95 6.9 ms), on CPU
 -------
-~31 ms   available for MediaPipe + avatar engine
+~25 ms   available for the avatar engine
 ```
 
 ---
@@ -58,8 +68,10 @@ record of the foundation milestone see `FOUNDATION_STATUS.md`.
 - **Camera and USB latency.** Everything upstream of `read()` returning —
   sensor, in-camera processing, USB transfer, driver buffering. Needs an
   external reference (film a millisecond timer, compare).
-- Anything about avatar quality. No real tracker or engine exists yet.
-- Sustained behaviour beyond a few seconds.
+- Anything about avatar quality. No real engine exists yet.
+- **Tracker robustness** in poor light, motion blur, or occlusion (scenario S7).
+  100% detection so far is one cooperative subject in a well-lit room.
+- Sustained behaviour beyond one minute.
 
 ---
 
@@ -70,10 +82,22 @@ Already installed in `.venv` beyond the declared dependencies:
 ```
 torch 2.11.0+cu128 · torchvision · onnxruntime-gpu 1.28.0
 opencv-python-headless 5.0.0.93
+mediapipe 1.0.0 (installed --no-deps) + absl-py · certifi · matplotlib
 ```
 
 `opencv-python-headless` is deliberate — the normal `opencv-python` wheel
 bundles its own Qt and conflicts with PySide6.
+
+**MediaPipe must be installed with `--no-deps`.** It declares a hard dependency
+on `opencv-contrib-python`, which would replace the headless build and
+reintroduce exactly that Qt conflict. Its three genuinely required imports are
+installed separately:
+
+```powershell
+uv pip install mediapipe --no-deps
+uv pip install absl-py certifi matplotlib
+python scripts/fetch_face_landmarker.py    # model bundle, ~3.6 MiB, not in Git
+```
 
 `configs/local.toml` (gitignored) selects the real camera on this machine.
 
@@ -88,7 +112,7 @@ bundles its own Qt and conflicts with PySide6.
   percentiles. See `docs/benchmarks/PERFORMANCE_PLAN.md`.
 - **Benchmarks are numbered** `B00N-topic.md` in `docs/benchmarks/`.
 - Run after every change: `pytest` · `ruff check` · `ruff format` · `mypy`.
-  All four are currently clean; 202 tests pass.
+  All four are currently clean; 244 tests pass.
 - Commit messages explain *why*. Push to `origin main` (private repo).
 
 ---

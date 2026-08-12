@@ -35,6 +35,10 @@ from sha256.core.interfaces import (
 from sha256.performance.monitor import InProcessPerformanceMonitor, NullPerformanceMonitor
 from sha256.pipeline.controller import PipelineComponents, PipelineController
 from sha256.rendering.null import NullRenderer
+from sha256.tracking.mediapipe_tracker import (
+    DEFAULT_MODEL_RELATIVE_PATH,
+    MediaPipeFaceTracker,
+)
 from sha256.tracking.null import NullFaceTracker
 from sha256.utils.logging import configure_logging, get_logger
 from sha256.virtual_camera.null import NullVirtualCameraSink
@@ -66,6 +70,12 @@ def register_builtin_backends(registries: Registries) -> None:
         "null",
         NullFaceTracker,
         description="Synthetic tracking data. Not face tracking.",
+    )
+    registries.tracker.register(
+        "mediapipe",
+        MediaPipeFaceTracker,
+        description="MediaPipe Face Landmarker — 478 landmarks, 52 blendshapes, CPU.",
+        requires=("mediapipe",),
     )
     registries.engine.register(
         "null",
@@ -156,7 +166,7 @@ def build_application(
         target_fps=settings.camera.target_fps,
         use_mjpeg=settings.camera.use_mjpeg,
     )
-    tracker: FaceTracker = registries.tracker.create(settings.tracking.backend)
+    tracker: FaceTracker = _create_tracker(registries, settings, paths)
     renderer: Renderer = registries.renderer.create(
         settings.rendering.backend,
         width=settings.rendering.output_width,
@@ -200,6 +210,43 @@ def build_application(
         avatars=avatars,
         controller=controller,
     )
+
+
+def _create_tracker(registries: Registries, settings: Settings, paths: AppPaths) -> FaceTracker:
+    """Build the configured face tracker.
+
+    Camera backends share one constructor signature, so the camera is created
+    inline above. Trackers do not: MediaPipe needs a model bundle resolved
+    against the models root, and the placeholder needs nothing at all. Resolving
+    that difference is exactly the composition root's job — it is the one place
+    allowed to know which backend is which, and keeping it here is what stops
+    that knowledge leaking into the pipeline or the UI.
+    """
+    tracking = settings.tracking
+
+    if tracking.backend != "mediapipe":
+        placeholder: FaceTracker = registries.tracker.create(tracking.backend)
+        return placeholder
+
+    models_root = paths.resolve_relative(settings.models.root_path)
+    configured = tracking.model_path
+    model_path = (
+        models_root / DEFAULT_MODEL_RELATIVE_PATH
+        if configured is None
+        else (Path(configured) if Path(configured).is_absolute() else models_root / configured)
+    )
+
+    tracker: FaceTracker = registries.tracker.create(
+        "mediapipe",
+        model_path=model_path,
+        delegate=tracking.delegate,
+        num_faces=tracking.num_faces,
+        min_detection_confidence=tracking.min_detection_confidence,
+        min_presence_confidence=tracking.min_presence_confidence,
+        min_tracking_confidence=tracking.min_tracking_confidence,
+        smoothing=tracking.smoothing,
+    )
+    return tracker
 
 
 def _build_avatar_manager(

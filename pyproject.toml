@@ -34,8 +34,19 @@ dependencies = [
 # NOT installed by default. Each carries its own license and size trade-offs
 # which are documented in docs/OPEN_SOURCE_EVALUATION.md before adoption.
 
-# Face tracking backends (Phase: tracking integration — NOT YET ENABLED)
-tracking = ["mediapipe>=0.10.14"]
+# Face tracking backends.
+#
+# WARNING: mediapipe declares a hard dependency on `opencv-contrib-python`,
+# which ships its own Qt and breaks PySide6 — the exact reason this project
+# installs `opencv-python-headless`. Installing this extra the normal way will
+# replace the headless build. On the reference machine it is installed as:
+#
+#     uv pip install mediapipe --no-deps
+#     uv pip install absl-py certifi matplotlib
+#
+# (matplotlib and certifi are imported unconditionally by mediapipe's task
+# modules; sounddevice and opencv-contrib-python are not needed for vision.)
+tracking = ["mediapipe>=1.0,<2"]
 
 # Inference runtimes. CUDA wheels must match the local driver; the RTX 50-series
 # (Blackwell, sm_120) requires a CUDA 12.8+ build. Verify with scripts/check_gpu.py.
@@ -118,6 +129,13 @@ plugins = ["pydantic.mypy"]
 [[tool.mypy.overrides]]
 # Qt's generated stubs are incomplete; do not let them block the build.
 module = ["PySide6.*"]
+ignore_missing_imports = true
+follow_untyped_imports = true
+
+[[tool.mypy.overrides]]
+# MediaPipe ships no type information. The adapter confines it to one module and
+# re-exports only sha256 types, so the untyped surface stops at that boundary.
+module = ["mediapipe.*"]
 ignore_missing_imports = true
 follow_untyped_imports = true
 

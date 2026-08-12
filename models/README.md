@@ -19,6 +19,15 @@ worth keeping in history — they are how a build becomes reproducible without
 committing gigabytes.
 
 The application performs **no downloads** unless `models.allow_downloads` is
-explicitly enabled. It is `false` by default (`docs/PRIVACY.md`).
+explicitly enabled. It is `false` by default (`docs/PRIVACY.md`). Model files are
+fetched by explicit developer action, through a script, never by the running
+application.
 
-Nothing populates this directory yet.
+## What lives here
+
+| Artifact | Fetch with | Licence |
+|---|---|---|
+| `downloads/face_landmarker.task` | `python scripts/fetch_face_landmarker.py` | Apache-2.0 |
+
+`scripts/fetch_face_landmarker.py --verify` re-checks the local file against the
+recorded checksum.

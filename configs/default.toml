@@ -23,9 +23,21 @@ target_fps = 30.0
 mirror = true
 
 [tracking]
-backend = "null"
+# Real backend since day 3. Needs the model bundle on disk — fetch it once with
+#   python scripts/fetch_face_landmarker.py
+# Without it, starting the pipeline fails with a message naming that script.
+backend = "mediapipe"
 min_detection_confidence = 0.5
+min_presence_confidence = 0.5
 min_tracking_confidence = 0.5
+num_faces = 1
+
+# 'auto' resolves to CPU on Windows: the published MediaPipe wheel is built
+# without a GPU delegate. Measured, not assumed — docs/benchmarks/B003.
+delegate = "auto"
+
+# Off until the latency it costs has been measured against the steadiness it
+# buys. See docs/benchmarks/PERFORMANCE_PLAN.md.
 smoothing = 0.0
 
 [engine]
