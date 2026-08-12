@@ -55,12 +55,22 @@ class TestControls:
 
     def test_buttons_reflect_pipeline_state(self, window):
         window._on_stop()
-        assert window._start_button.isEnabled()
+        assert window._primary_button.isEnabled()
         assert not window._stop_button.isEnabled()
 
         window._on_start()
-        assert not window._start_button.isEnabled()
+        assert not window._primary_button.isEnabled()
         assert window._stop_button.isEnabled()
+
+    def test_starting_swaps_the_start_screen_for_the_preview(self, window):
+        """The start screen must get out of the way, not sit under the video."""
+        assert window._stack.currentIndex() == 0
+
+        window._on_start()
+        assert window._stack.currentWidget() is window._preview
+
+        window._on_stop()
+        assert window._stack.currentIndex() == 0
 
     def test_selecting_an_avatar_activates_it(self, window, app_context: ApplicationContext):
         index = window._avatar_combo.findData("avatar_002")

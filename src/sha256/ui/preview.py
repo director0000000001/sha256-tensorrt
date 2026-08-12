@@ -10,16 +10,22 @@ views, because at this stage they answer different questions:
     real engine exists this is the placeholder, which is worth knowing rather
     than being surprised by.
 
-The widget owns no timing and no pipeline state. It is handed a frame and paints
-it; the window decides when.
+**The widget paints nothing but the video.** No background, no border, no
+placeholder text. An opaque widget here would cover the window background
+image, and it is sized to expand, so it would cover nearly all of it. Only the
+video rectangle itself is drawn; everything around it is whatever the parent
+painted.
+
+The widget owns no timing and no pipeline state. It is handed a frame and
+paints it; the window decides when.
 """
 
 from __future__ import annotations
 
 import numpy as np
-from PySide6.QtCore import QPointF, Qt
-from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import QLabel, QSizePolicy, QWidget
+from PySide6.QtCore import QPointF, QRect, Qt
+from PySide6.QtGui import QColor, QImage, QPainter, QPaintEvent, QPen, QPixmap
+from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from sha256.core.enums import PixelFormat
 from sha256.core.types import FaceTrackingResult
@@ -27,32 +33,31 @@ from sha256.core.types import FaceTrackingResult
 __all__ = ["PreviewWidget"]
 
 _LANDMARK_COLOUR = QColor(64, 224, 160)
-_IDLE_BACKGROUND = QColor(16, 16, 20)
-_IDLE_TEXT = "Press Start"
+_FRAME_BORDER = QColor(255, 255, 255, 40)
 
 # Drawing all 478 points at 30 fps is visual noise as much as it is work. Every
 # third point still reads as a mesh on a face and costs a third as much.
 _LANDMARK_STRIDE = 3
 
 
-class PreviewWidget(QLabel):
-    """Displays pipeline frames, scaled to fit, with an optional overlay."""
+class PreviewWidget(QWidget):
+    """Paints pipeline frames, scaled to fit, over whatever is behind it."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setMinimumSize(480, 270)
+        self.setMinimumSize(320, 180)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setAutoFillBackground(True)
-        self.setStyleSheet(
-            f"background-color: {_IDLE_BACKGROUND.name()}; color: #8a8a95; font-size: 14px;"
-        )
-        self.setText(_IDLE_TEXT)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, on=True)
 
+        self._pixmap: QPixmap | None = None
         self._show_landmarks = True
         self._mirror = True
 
     # --- configuration -----------------------------------------------------
+
+    @property
+    def has_frame(self) -> bool:
+        return self._pixmap is not None
 
     def set_show_landmarks(self, enabled: bool) -> None:
         self._show_landmarks = enabled
@@ -68,10 +73,10 @@ class PreviewWidget(QLabel):
         self._mirror = enabled
 
     def clear_frame(self) -> None:
-        self.setPixmap(QPixmap())
-        self.setText(_IDLE_TEXT)
+        self._pixmap = None
+        self.update()
 
-    # --- painting ----------------------------------------------------------
+    # --- input -------------------------------------------------------------
 
     def show_frame(
         self,
@@ -79,7 +84,7 @@ class PreviewWidget(QLabel):
         pixel_format: PixelFormat,
         tracking: FaceTrackingResult | None = None,
     ) -> None:
-        """Display one frame, optionally with its tracking overlay."""
+        """Accept one frame, optionally with its tracking overlay."""
         image = _to_qimage(data, pixel_format)
         if image is None:
             return
@@ -92,13 +97,8 @@ class PreviewWidget(QLabel):
         if self._show_landmarks and tracking is not None and tracking.face_detected:
             self._draw_landmarks(pixmap, tracking)
 
-        self.setPixmap(
-            pixmap.scaled(
-                self.size(),
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-        )
+        self._pixmap = pixmap
+        self.update()
 
     def _draw_landmarks(self, pixmap: QPixmap, tracking: FaceTrackingResult) -> None:
         landmarks = tracking.landmarks
@@ -118,6 +118,38 @@ class PreviewWidget(QLabel):
             for x, y, _z in points:
                 screen_x = (1.0 - float(x)) * width if self._mirror else float(x) * width
                 painter.drawPoint(QPointF(screen_x, float(y) * height))
+        finally:
+            painter.end()
+
+    # --- painting ----------------------------------------------------------
+
+    def video_rect(self) -> QRect:
+        """Where the video is drawn, centred and aspect-preserved."""
+        if self._pixmap is None:
+            return QRect()
+
+        scaled = self._pixmap.size().scaled(self.size(), Qt.AspectRatioMode.KeepAspectRatio)
+        return QRect(
+            (self.width() - scaled.width()) // 2,
+            (self.height() - scaled.height()) // 2,
+            scaled.width(),
+            scaled.height(),
+        )
+
+    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802 - Qt naming
+        del event
+        if self._pixmap is None:
+            return
+
+        target = self.video_rect()
+        painter = QPainter(self)
+        try:
+            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, on=True)
+            painter.drawPixmap(target, self._pixmap)
+            # A hairline edge so the video reads as a panel sitting on the
+            # background rather than a hole cut out of it.
+            painter.setPen(QPen(_FRAME_BORDER, 1))
+            painter.drawRect(target.adjusted(0, 0, -1, -1))
         finally:
             painter.end()
 

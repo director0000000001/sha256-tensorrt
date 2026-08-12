@@ -7,11 +7,14 @@ Structural rules, which the finished UI inherits:
     :class:`~sha256.avatar.manager.AvatarManager` and displays their state.
 *   **Nothing slow runs on this thread.** The pipeline runs on its own thread;
     this one only paints the newest frame it finds.
-*   **One screen, few controls.** What a user needs is a picture, a camera, an
-    avatar, and a way to start. Everything diagnostic lives behind the developer
-    panel, which appears only when ``developer_mode`` is enabled in
-    configuration — so the normal window cannot accumulate debug widgets by
-    accident.
+*   **The background image is the window.** Everything on top of it is either
+    the video or a translucent control surface — no opaque panel is allowed to
+    cover it, which is the mistake the first version made.
+
+The shape is a start screen and a running screen: idle shows a title and one
+large Start button, running shows the video with a control bar beneath it.
+Diagnostics live behind the developer panel, which appears only when
+``developer_mode`` is enabled in configuration.
 """
 
 from __future__ import annotations
@@ -22,12 +25,13 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QMainWindow,
     QMessageBox,
     QPushButton,
-    QStatusBar,
+    QStackedWidget,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -57,31 +61,73 @@ _STATUS_INTERVAL_MS = 500
 _VIEW_CAMERA = "Camera + tracking"
 _VIEW_OUTPUT = "Avatar output"
 
-# Light text and semi-opaque control surfaces, so the window stays legible over
-# a background photograph of unknown brightness. Only labels are made
-# transparent — dropdowns and buttons keep a solid-enough backing to be read.
-_CONTROL_STYLE = """
-QLabel { color: #f0f0f4; background: transparent; }
-QCheckBox { color: #f0f0f4; background: transparent; }
-QComboBox, QPushButton {
-    color: #f0f0f4;
-    background-color: rgba(32, 32, 40, 200);
-    border: 1px solid rgba(255, 255, 255, 60);
-    border-radius: 4px;
-    padding: 5px 10px;
+# Everything is translucent so the background photograph stays visible through
+# it. Surfaces are dark enough that light text on them is readable over a photo
+# of unknown brightness — which the window cannot know in advance.
+_STYLE = """
+QLabel { color: #f2f2f6; background: transparent; }
+QCheckBox { color: #e2e2ea; background: transparent; }
+
+#Title {
+    color: #ffffff;
+    font-size: 46px;
+    font-weight: 300;
+    letter-spacing: 10px;
 }
-QPushButton:hover { background-color: rgba(52, 52, 64, 220); }
-QPushButton:disabled { color: #7a7a85; background-color: rgba(32, 32, 40, 120); }
+#Subtitle { color: #b8b8c6; font-size: 14px; letter-spacing: 2px; }
+#StatusLine { color: #c8c8d4; font-size: 13px; }
+#Fps { color: #6ee7b7; font-size: 14px; font-weight: 600; }
+
+#Bar {
+    background-color: rgba(12, 12, 18, 165);
+    border: 1px solid rgba(255, 255, 255, 28);
+    border-radius: 12px;
+}
+
+QPushButton {
+    color: #f2f2f6;
+    background-color: rgba(38, 38, 50, 200);
+    border: 1px solid rgba(255, 255, 255, 45);
+    border-radius: 8px;
+    padding: 8px 20px;
+    font-size: 14px;
+}
+QPushButton:hover { background-color: rgba(58, 58, 76, 225); }
+QPushButton:disabled { color: #74747f; background-color: rgba(30, 30, 38, 110); }
+
+#PrimaryButton {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: 6px;
+    padding: 18px 76px;
+    border-radius: 12px;
+    color: #06281c;
+    background-color: rgba(110, 231, 183, 235);
+    border: 1px solid rgba(255, 255, 255, 70);
+}
+#PrimaryButton:hover { background-color: rgba(140, 245, 205, 255); }
+
+QComboBox {
+    color: #f2f2f6;
+    background-color: rgba(38, 38, 50, 200);
+    border: 1px solid rgba(255, 255, 255, 45);
+    border-radius: 8px;
+    padding: 7px 12px;
+    font-size: 13px;
+}
+QComboBox:hover { background-color: rgba(58, 58, 76, 225); }
 QComboBox QAbstractItemView {
-    color: #f0f0f4;
-    background-color: #202028;
-    selection-background-color: #3a3a48;
+    color: #f2f2f6;
+    background-color: #1b1b24;
+    border: 1px solid rgba(255, 255, 255, 40);
+    selection-background-color: #38384a;
+    outline: none;
 }
 """
 
 
 class MainWindow(QMainWindow):
-    """One screen: a live preview, the two selectors, and Start/Stop."""
+    """Start screen and running screen, over a background image."""
 
     def __init__(self, context: ApplicationContext) -> None:
         super().__init__()
@@ -89,12 +135,12 @@ class MainWindow(QMainWindow):
         self._runner = PipelineRunner(context.controller)
 
         self.setWindowTitle("sha256")
-        self.resize(1080, 760)
+        self.resize(1120, 780)
 
         self._preview = PreviewWidget()
         self._debug_panel = DebugPanel(context)
 
-        session = self._build_session_tab()
+        session = self._build_session_page()
         if context.settings.developer_mode:
             tabs = QTabWidget()
             tabs.addTab(session, "Session")
@@ -102,9 +148,6 @@ class MainWindow(QMainWindow):
             self.setCentralWidget(tabs)
         else:
             self.setCentralWidget(session)
-
-        self._status_bar = QStatusBar()
-        self.setStatusBar(self._status_bar)
 
         self._preview_timer = QTimer(self)
         self._preview_timer.setInterval(_PREVIEW_INTERVAL_MS)
@@ -121,7 +164,7 @@ class MainWindow(QMainWindow):
 
     # --- construction ------------------------------------------------------
 
-    def _build_session_tab(self) -> QWidget:
+    def _build_session_page(self) -> QWidget:
         ui = self._context.settings.ui
         image = (
             self._context.paths.resolve_relative(ui.background_image)
@@ -129,76 +172,114 @@ class MainWindow(QMainWindow):
             else None
         )
         page = BackgroundPanel(image_path=image, dim=ui.background_dim, colour=ui.background_color)
-        page.setStyleSheet(_CONTROL_STYLE)
+        page.setStyleSheet(_STYLE)
 
         layout = QVBoxLayout(page)
-        layout.setSpacing(10)
-        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(14)
+        layout.setContentsMargins(28, 24, 28, 22)
 
-        layout.addWidget(self._preview, 1)
-        layout.addLayout(self._build_selector_row())
-        layout.addLayout(self._build_control_row())
+        self._stack = QStackedWidget()
+        self._stack.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, on=True)
+        self._stack.addWidget(self._build_start_screen())
+        self._stack.addWidget(self._preview)
+        layout.addWidget(self._stack, 1)
+
+        layout.addWidget(self._build_bar())
         return page
 
-    def _build_selector_row(self) -> QHBoxLayout:
-        row = QHBoxLayout()
-        row.setSpacing(8)
+    def _build_start_screen(self) -> QWidget:
+        screen = QWidget()
+        screen.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, on=True)
 
-        row.addWidget(QLabel("Camera:"))
+        layout = QVBoxLayout(screen)
+        layout.setSpacing(10)
+        layout.addStretch(2)
+
+        title = QLabel("SHA256")
+        title.setObjectName("Title")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title)
+
+        subtitle = QLabel("REAL-TIME AVATAR")
+        subtitle.setObjectName("Subtitle")
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(subtitle)
+
+        layout.addSpacing(34)
+
+        self._primary_button = QPushButton("START")
+        self._primary_button.setObjectName("PrimaryButton")
+        self._primary_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._primary_button.clicked.connect(self._on_start)
+
+        button_row = QHBoxLayout()
+        button_row.addStretch(1)
+        button_row.addWidget(self._primary_button)
+        button_row.addStretch(1)
+        layout.addLayout(button_row)
+
+        layout.addSpacing(18)
+
+        self._status_line = QLabel()
+        self._status_line.setObjectName("StatusLine")
+        self._status_line.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._status_line.setWordWrap(True)
+        layout.addWidget(self._status_line)
+
+        layout.addStretch(3)
+        return screen
+
+    def _build_bar(self) -> QWidget:
+        bar = QFrame()
+        bar.setObjectName("Bar")
+
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setSpacing(10)
+
+        layout.addWidget(QLabel("Camera"))
         self._camera_combo = QComboBox()
-        self._camera_combo.setMinimumWidth(220)
-        row.addWidget(self._camera_combo, 1)
+        self._camera_combo.setMinimumWidth(150)
+        layout.addWidget(self._camera_combo)
 
-        row.addSpacing(16)
+        layout.addSpacing(10)
 
-        row.addWidget(QLabel("Avatar:"))
+        layout.addWidget(QLabel("Avatar"))
         self._avatar_combo = QComboBox()
-        self._avatar_combo.setMinimumWidth(220)
+        self._avatar_combo.setMinimumWidth(150)
         self._avatar_combo.currentIndexChanged.connect(self._on_avatar_changed)
-        row.addWidget(self._avatar_combo, 1)
+        layout.addWidget(self._avatar_combo)
 
-        return row
-
-    def _build_control_row(self) -> QHBoxLayout:
-        row = QHBoxLayout()
-        row.setSpacing(8)
-
-        self._start_button = QPushButton("Start")
-        self._start_button.setMinimumWidth(110)
-        self._start_button.clicked.connect(self._on_start)
-        row.addWidget(self._start_button)
-
-        self._stop_button = QPushButton("Stop")
-        self._stop_button.setMinimumWidth(110)
-        self._stop_button.clicked.connect(self._on_stop)
-        row.addWidget(self._stop_button)
-
-        row.addSpacing(16)
+        layout.addSpacing(10)
 
         self._view_combo = QComboBox()
         self._view_combo.addItems([_VIEW_CAMERA, _VIEW_OUTPUT])
-        row.addWidget(QLabel("View:"))
-        row.addWidget(self._view_combo)
+        layout.addWidget(QLabel("View"))
+        layout.addWidget(self._view_combo)
 
-        self._landmarks_check = QCheckBox("Show tracking")
+        self._landmarks_check = QCheckBox("Tracking")
         self._landmarks_check.setChecked(True)
         self._landmarks_check.toggled.connect(self._preview.set_show_landmarks)
-        row.addWidget(self._landmarks_check)
+        layout.addWidget(self._landmarks_check)
 
         self._mirror_check = QCheckBox("Mirror")
         self._mirror_check.setChecked(self._context.settings.camera.mirror)
         self._mirror_check.setToolTip("Affects this preview only, not the published output.")
         self._mirror_check.toggled.connect(self._preview.set_mirror)
         self._preview.set_mirror(self._mirror_check.isChecked())
-        row.addWidget(self._mirror_check)
+        layout.addWidget(self._mirror_check)
 
-        row.addStretch(1)
+        layout.addStretch(1)
 
         self._fps_label = QLabel()
-        self._fps_label.setTextFormat(Qt.TextFormat.PlainText)
-        row.addWidget(self._fps_label)
+        self._fps_label.setObjectName("Fps")
+        layout.addWidget(self._fps_label)
 
-        return row
+        self._stop_button = QPushButton("Stop")
+        self._stop_button.clicked.connect(self._on_stop)
+        layout.addWidget(self._stop_button)
+
+        return bar
 
     # --- population --------------------------------------------------------
 
@@ -256,12 +337,14 @@ class MainWindow(QMainWindow):
             return
 
         self._preview_timer.start()
+        self._stack.setCurrentIndex(1)
         self._refresh_status()
 
     def _on_stop(self) -> None:
         self._preview_timer.stop()
         self._runner.stop()
         self._preview.clear_frame()
+        self._stack.setCurrentIndex(0)
         self._refresh_status()
 
     # --- display -----------------------------------------------------------
@@ -282,29 +365,27 @@ class MainWindow(QMainWindow):
 
     def _refresh_status(self) -> None:
         running = self._runner.is_running
-        self._start_button.setEnabled(not running)
         self._stop_button.setEnabled(running)
+        self._primary_button.setEnabled(not running)
 
         error = self._runner.last_error
         if error is not None:
             self._preview_timer.stop()
             self._fps_label.setText("")
-            self._status_bar.showMessage(f"Pipeline stopped: {error}")
+            self._stack.setCurrentIndex(0)
+            self._status_line.setText(f"Stopped: {error}")
             return
 
-        if running:
-            self._fps_label.setText(f"{self._runner.fps:.1f} fps")
-        else:
-            self._fps_label.setText("")
+        self._fps_label.setText(f"{self._runner.fps:.1f} fps" if running else "")
 
-        state = self._context.controller.state
-        avatar = self._context.avatars.active_id or "none"
-        tracker = self._context.controller.components.tracker.backend_id
-        self._status_bar.showMessage(
-            f"Pipeline: {state.value}   |   Tracker: {tracker}   |   Avatar: {avatar}"
-        )
+        camera = self._camera_combo.currentText() or "no camera"
+        avatar = self._context.avatars.active_id or "none selected"
+        self._status_line.setText(f"{camera}   ·   avatar: {avatar}")
 
-        if self._context.settings.developer_mode and state is PipelineState.RUNNING:
+        if (
+            self._context.settings.developer_mode
+            and self._context.controller.state is PipelineState.RUNNING
+        ):
             self._debug_panel.refresh()
 
     def closeEvent(self, event: object) -> None:  # noqa: N802 - Qt naming
