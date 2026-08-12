@@ -23,7 +23,7 @@ from sha256.core.interfaces import (
     Renderer,
     VirtualCameraSink,
 )
-from sha256.core.types import RenderedFrame
+from sha256.core.types import FaceTrackingResult, RenderedFrame, VideoFrame
 from sha256.utils.logging import get_logger
 
 __all__ = ["PipelineComponents", "PipelineController"]
@@ -56,6 +56,8 @@ class PipelineController:
         self._state = PipelineState.STOPPED
         self._last_error: str | None = None
         self._last_frame: RenderedFrame | None = None
+        self._last_source: VideoFrame | None = None
+        self._last_tracking: FaceTrackingResult | None = None
 
     @property
     def state(self) -> PipelineState:
@@ -73,6 +75,26 @@ class PipelineController:
     def last_frame(self) -> RenderedFrame | None:
         """Most recent rendered frame, for the preview widget."""
         return self._last_frame
+
+    @property
+    def last_source_frame(self) -> VideoFrame | None:
+        """Most recent *camera* frame, for a diagnostic preview.
+
+        The buffer is **borrowed**, following the rule on :class:`VideoFrame`: a
+        capture backend may reuse it for the next frame. Anything that needs the
+        pixels beyond the current tick must copy them.
+        """
+        return self._last_source
+
+    @property
+    def last_tracking(self) -> FaceTrackingResult | None:
+        """Most recent tracking result, for overlays and diagnostics.
+
+        Exposed so the preview can draw landmarks without running the tracker a
+        second time, and so "is it tracking my face right now" is answerable
+        from the UI rather than from a log file.
+        """
+        return self._last_tracking
 
     @property
     def components(self) -> PipelineComponents:
@@ -168,10 +190,12 @@ class PipelineController:
         if frame is None:
             return None
         monitor.record_frame(PipelineStage.CAPTURE)
+        self._last_source = frame
 
         with monitor.measure(PipelineStage.TRACKING):
             tracking = self._components.tracker.process(frame)
         monitor.record_frame(PipelineStage.TRACKING)
+        self._last_tracking = tracking
 
         engine = self._components.avatars.engine
         active = self._components.avatars.active

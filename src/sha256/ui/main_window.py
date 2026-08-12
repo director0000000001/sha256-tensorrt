@@ -1,18 +1,17 @@
 """Main application window.
 
-Intentionally plain. The goal of this milestone is correct structure, not
-visual design: no stylesheet, no custom painting, no icons.
+Structural rules, which the finished UI inherits:
 
-Structural rules being established here, which the real UI will inherit:
-
-*   **The window owns no pipeline logic.** It calls into
-    :class:`~sha256.pipeline.controller.PipelineController` and
-    :class:`~sha256.avatar.manager.AvatarManager` and renders their state.
-*   **Panels are independent widgets.** Each takes the context and can be
-    tested, replaced, or moved without touching the others.
-*   **Nothing slow runs on this thread.** Avatar loading is slow; today the
-    placeholder engine makes it instant, and the call site is marked so the
-    threading work lands in one obvious place.
+*   **The window owns no pipeline logic.** It drives
+    :class:`~sha256.pipeline.runner.PipelineRunner` and
+    :class:`~sha256.avatar.manager.AvatarManager` and displays their state.
+*   **Nothing slow runs on this thread.** The pipeline runs on its own thread;
+    this one only paints the newest frame it finds.
+*   **One screen, few controls.** What a user needs is a picture, a camera, an
+    avatar, and a way to start. Everything diagnostic lives behind the developer
+    panel, which appears only when ``developer_mode`` is enabled in
+    configuration — so the normal window cannot accumulate debug widgets by
+    accident.
 """
 
 from __future__ import annotations
@@ -21,8 +20,8 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -36,7 +35,9 @@ from PySide6.QtWidgets import (
 
 from sha256.core.enums import PipelineState
 from sha256.core.errors import Sha256Error
+from sha256.pipeline.runner import PipelineRunner
 from sha256.ui.panels.debug_panel import DebugPanel
+from sha256.ui.preview import PreviewWidget
 from sha256.utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -46,32 +47,50 @@ __all__ = ["MainWindow"]
 
 _LOG = get_logger(__name__)
 
-_STATUS_REFRESH_MS = 500
+# Painting faster than the pipeline produces frames only repaints the same
+# picture. 33 ms matches a 30 fps source; the preview simply shows whatever the
+# newest frame is when it wakes.
+_PREVIEW_INTERVAL_MS = 33
+_STATUS_INTERVAL_MS = 500
+
+_VIEW_CAMERA = "Camera + tracking"
+_VIEW_OUTPUT = "Avatar output"
 
 
 class MainWindow(QMainWindow):
-    """Shell window: selectors, start/stop, and a developer panel."""
+    """One screen: a live preview, the two selectors, and Start/Stop."""
 
     def __init__(self, context: ApplicationContext) -> None:
         super().__init__()
         self._context = context
+        self._runner = PipelineRunner(context.controller)
 
-        self.setWindowTitle("sha256 — foundation build")
-        self.resize(900, 620)
+        self.setWindowTitle("sha256")
+        self.resize(1080, 760)
 
-        self._tabs = QTabWidget()
-        self._tabs.addTab(self._build_session_tab(), "Session")
+        self._preview = PreviewWidget()
         self._debug_panel = DebugPanel(context)
-        self._tabs.addTab(self._debug_panel, "Developer")
-        self.setCentralWidget(self._tabs)
+
+        session = self._build_session_tab()
+        if context.settings.developer_mode:
+            tabs = QTabWidget()
+            tabs.addTab(session, "Session")
+            tabs.addTab(self._debug_panel, "Developer")
+            self.setCentralWidget(tabs)
+        else:
+            self.setCentralWidget(session)
 
         self._status_bar = QStatusBar()
         self.setStatusBar(self._status_bar)
 
-        self._refresh_timer = QTimer(self)
-        self._refresh_timer.setInterval(_STATUS_REFRESH_MS)
-        self._refresh_timer.timeout.connect(self._refresh_status)
-        self._refresh_timer.start()
+        self._preview_timer = QTimer(self)
+        self._preview_timer.setInterval(_PREVIEW_INTERVAL_MS)
+        self._preview_timer.timeout.connect(self._refresh_preview)
+
+        self._status_timer = QTimer(self)
+        self._status_timer.setInterval(_STATUS_INTERVAL_MS)
+        self._status_timer.timeout.connect(self._refresh_status)
+        self._status_timer.start()
 
         self._populate_avatars()
         self._populate_cameras()
@@ -82,77 +101,73 @@ class MainWindow(QMainWindow):
     def _build_session_tab(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setSpacing(12)
+        layout.setSpacing(10)
+        layout.setContentsMargins(12, 12, 12, 12)
 
-        layout.addWidget(self._build_notice())
-        layout.addWidget(self._build_selectors())
-        layout.addWidget(self._build_controls())
-        layout.addStretch(1)
+        layout.addWidget(self._preview, 1)
+        layout.addLayout(self._build_selector_row())
+        layout.addLayout(self._build_control_row())
         return page
 
-    def _build_notice(self) -> QWidget:
-        notice = QLabel(
-            "Foundation build — no face tracking, no avatar inference, and no "
-            "virtual camera are implemented yet.\nAll backends are placeholders; "
-            "Start exercises the wiring only."
-        )
-        notice.setWordWrap(True)
-        notice.setTextFormat(Qt.TextFormat.PlainText)
-        return notice
+    def _build_selector_row(self) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.setSpacing(8)
 
-    def _build_selectors(self) -> QWidget:
-        box = QGroupBox("Sources")
-        layout = QVBoxLayout(box)
-
-        avatar_row = QHBoxLayout()
-        avatar_row.addWidget(QLabel("Avatar:"))
-        self._avatar_combo = QComboBox()
-        self._avatar_combo.setMinimumWidth(280)
-        self._avatar_combo.currentIndexChanged.connect(self._on_avatar_changed)
-        avatar_row.addWidget(self._avatar_combo, 1)
-        layout.addLayout(avatar_row)
-
-        camera_row = QHBoxLayout()
-        camera_row.addWidget(QLabel("Camera:"))
+        row.addWidget(QLabel("Camera:"))
         self._camera_combo = QComboBox()
-        self._camera_combo.setMinimumWidth(280)
-        camera_row.addWidget(self._camera_combo, 1)
-        layout.addLayout(camera_row)
+        self._camera_combo.setMinimumWidth(220)
+        row.addWidget(self._camera_combo, 1)
 
-        # Placeholder for the avatar gallery this becomes later. Deliberately a
-        # combo box today — a gallery needs previews, loading states, and
-        # background loading, which are the next milestone's work.
-        hint = QLabel("Avatar gallery with previews replaces this selector in a later milestone.")
-        hint.setWordWrap(True)
-        layout.addWidget(hint)
+        row.addSpacing(16)
 
-        return box
+        row.addWidget(QLabel("Avatar:"))
+        self._avatar_combo = QComboBox()
+        self._avatar_combo.setMinimumWidth(220)
+        self._avatar_combo.currentIndexChanged.connect(self._on_avatar_changed)
+        row.addWidget(self._avatar_combo, 1)
 
-    def _build_controls(self) -> QWidget:
-        box = QGroupBox("Pipeline")
-        layout = QHBoxLayout(box)
+        return row
+
+    def _build_control_row(self) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.setSpacing(8)
 
         self._start_button = QPushButton("Start")
+        self._start_button.setMinimumWidth(110)
         self._start_button.clicked.connect(self._on_start)
-        layout.addWidget(self._start_button)
+        row.addWidget(self._start_button)
 
         self._stop_button = QPushButton("Stop")
+        self._stop_button.setMinimumWidth(110)
         self._stop_button.clicked.connect(self._on_stop)
-        layout.addWidget(self._stop_button)
+        row.addWidget(self._stop_button)
 
-        self._step_button = QPushButton("Step one frame")
-        self._step_button.setToolTip(
-            "Run a single frame through the placeholder stages. "
-            "The continuous real-time loop is a later milestone."
-        )
-        self._step_button.clicked.connect(self._on_step)
-        layout.addWidget(self._step_button)
+        row.addSpacing(16)
 
-        layout.addStretch(1)
+        self._view_combo = QComboBox()
+        self._view_combo.addItems([_VIEW_CAMERA, _VIEW_OUTPUT])
+        row.addWidget(QLabel("View:"))
+        row.addWidget(self._view_combo)
 
-        self._state_label = QLabel()
-        layout.addWidget(self._state_label)
-        return box
+        self._landmarks_check = QCheckBox("Show tracking")
+        self._landmarks_check.setChecked(True)
+        self._landmarks_check.toggled.connect(self._preview.set_show_landmarks)
+        row.addWidget(self._landmarks_check)
+
+        self._mirror_check = QCheckBox("Mirror")
+        self._mirror_check.setChecked(self._context.settings.camera.mirror)
+        self._mirror_check.setToolTip("Affects this preview only, not the published output.")
+        self._mirror_check.toggled.connect(self._preview.set_mirror)
+        self._preview.set_mirror(self._mirror_check.isChecked())
+        row.addWidget(self._mirror_check)
+
+        row.addStretch(1)
+
+        self._fps_label = QLabel()
+        self._fps_label.setTextFormat(Qt.TextFormat.PlainText)
+        row.addWidget(self._fps_label)
+
+        return row
 
     # --- population --------------------------------------------------------
 
@@ -162,9 +177,7 @@ class MainWindow(QMainWindow):
         self._avatar_combo.addItem("— none —", userData=None)
 
         for status in self._context.avatars.statuses():
-            label = f"{status.name}  [{status.avatar_id}]"
-            if not status.is_usable:
-                label += "  (error)"
+            label = status.name if status.is_usable else f"{status.name}  (error)"
             self._avatar_combo.addItem(label, userData=status.avatar_id)
 
         active = self._context.avatars.active_id
@@ -204,53 +217,68 @@ class MainWindow(QMainWindow):
 
     def _on_start(self) -> None:
         try:
-            self._context.controller.start()
+            self._runner.start()
         except Exception as exc:
             _LOG.exception("Pipeline start failed")
             QMessageBox.critical(self, "Could not start", str(exc))
+            self._refresh_status()
+            return
+
+        self._preview_timer.start()
         self._refresh_status()
 
     def _on_stop(self) -> None:
-        self._context.controller.stop()
+        self._preview_timer.stop()
+        self._runner.stop()
+        self._preview.clear_frame()
         self._refresh_status()
 
-    def _on_step(self) -> None:
-        controller = self._context.controller
-        if not controller.is_running:
-            QMessageBox.information(self, "Not running", "Start the pipeline first.")
+    # --- display -----------------------------------------------------------
+
+    def _refresh_preview(self) -> None:
+        snapshot = self._runner.latest()
+        if snapshot is None:
             return
 
-        frame = controller.process_once()
-        if frame is None:
-            self._status_bar.showMessage("No frame ready yet — try again.", 2000)
-        else:
-            self._status_bar.showMessage(
-                f"Frame {frame.metadata.frame_id}: "
-                f"{frame.width}x{frame.height}, "
-                f"latency {frame.pipeline_latency * 1000:.1f} ms",
-                3000,
+        if self._view_combo.currentText() == _VIEW_CAMERA and snapshot.source is not None:
+            self._preview.show_frame(
+                snapshot.source.data, snapshot.source.pixel_format, snapshot.tracking
             )
-        self._debug_panel.refresh()
-
-    # --- status ------------------------------------------------------------
+        elif snapshot.frame is not None:
+            # The rendered frame is already composited; landmarks would be drawn
+            # against a picture they do not correspond to.
+            self._preview.show_frame(snapshot.frame.data, snapshot.frame.pixel_format, None)
 
     def _refresh_status(self) -> None:
-        state = self._context.controller.state
-        self._state_label.setText(f"State: {state.value}")
-
-        running = state is PipelineState.RUNNING
+        running = self._runner.is_running
         self._start_button.setEnabled(not running)
         self._stop_button.setEnabled(running)
-        self._step_button.setEnabled(running)
 
-        active = self._context.avatars.active_id or "none"
-        message = f"Avatar: {active}   |   Pipeline: {state.value}"
-        if state is PipelineState.FAILED and self._context.controller.last_error:
-            message += f"   |   {self._context.controller.last_error}"
-        self._status_bar.showMessage(message)
+        error = self._runner.last_error
+        if error is not None:
+            self._preview_timer.stop()
+            self._fps_label.setText("")
+            self._status_bar.showMessage(f"Pipeline stopped: {error}")
+            return
+
+        if running:
+            self._fps_label.setText(f"{self._runner.fps:.1f} fps")
+        else:
+            self._fps_label.setText("")
+
+        state = self._context.controller.state
+        avatar = self._context.avatars.active_id or "none"
+        tracker = self._context.controller.components.tracker.backend_id
+        self._status_bar.showMessage(
+            f"Pipeline: {state.value}   |   Tracker: {tracker}   |   Avatar: {avatar}"
+        )
+
+        if self._context.settings.developer_mode and state is PipelineState.RUNNING:
+            self._debug_panel.refresh()
 
     def closeEvent(self, event: object) -> None:  # noqa: N802 - Qt naming
         """Stop the pipeline before the window goes away."""
-        self._refresh_timer.stop()
-        self._context.controller.stop()
+        self._preview_timer.stop()
+        self._status_timer.stop()
+        self._runner.stop()
         super().closeEvent(event)  # type: ignore[arg-type]
