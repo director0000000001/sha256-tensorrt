@@ -57,10 +57,17 @@ def enumerate_cameras() -> tuple[CameraDeviceInfo, ...]:
     refresh, and a driver hiccup there must not take the application down.
     """
     try:
+        from PySide6.QtCore import QCoreApplication
         from PySide6.QtMultimedia import QMediaDevices
     except ImportError:
         _LOG.warning("PySide6.QtMultimedia unavailable; cannot enumerate cameras")
         return ()
+
+    # Qt's multimedia plugin needs an application object before it will
+    # initialise. In the UI there always is one; in a script, a benchmark, or a
+    # test there may not be, and without this the call warns and can misbehave.
+    if QCoreApplication.instance() is None:
+        QCoreApplication([])
 
     try:
         devices = QMediaDevices.videoInputs()
