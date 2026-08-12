@@ -26,6 +26,7 @@ __all__ = [
     "RenderingSettings",
     "Settings",
     "TrackingSettings",
+    "UiSettings",
     "VirtualCameraSettings",
 ]
 
@@ -171,6 +172,33 @@ class PerformanceSettings(_Section):
     system_sample_interval: float = Field(default=1.0, gt=0.0, le=60.0)
 
 
+class UiSettings(_Section):
+    background_image: str | None = Field(
+        default=None,
+        description=(
+            "Background image for the window, relative to the app root unless "
+            "absolute. A missing file falls back to the plain background rather "
+            "than failing to start — an unreadable decoration must never stop "
+            "the application."
+        ),
+    )
+    background_dim: float = Field(
+        default=0.55,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "How much to darken the background image, 0 = untouched, 1 = black. "
+            "Controls sit on top of it and have to stay readable over a photo "
+            "whose brightness nobody can predict."
+        ),
+    )
+    background_color: str = Field(
+        default="#101014",
+        pattern=r"^#[0-9a-fA-F]{6}$",
+        description="Window background when no image is configured.",
+    )
+
+
 class ModelSettings(_Section):
     root_path: str = Field(
         default="models", description="Model artifact root, relative to the app root."
@@ -223,6 +251,7 @@ class Settings(BaseSettings):
     avatars: AvatarSettings = Field(default_factory=AvatarSettings)
     performance: PerformanceSettings = Field(default_factory=PerformanceSettings)
     models: ModelSettings = Field(default_factory=ModelSettings)
+    ui: UiSettings = Field(default_factory=UiSettings)
 
     _warnings: tuple[str, ...] = PrivateAttr(default=())
 

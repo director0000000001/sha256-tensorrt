@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
 from sha256.core.enums import PipelineState
 from sha256.core.errors import Sha256Error
 from sha256.pipeline.runner import PipelineRunner
+from sha256.ui.background import BackgroundPanel
 from sha256.ui.panels.debug_panel import DebugPanel
 from sha256.ui.preview import PreviewWidget
 from sha256.utils.logging import get_logger
@@ -55,6 +56,28 @@ _STATUS_INTERVAL_MS = 500
 
 _VIEW_CAMERA = "Camera + tracking"
 _VIEW_OUTPUT = "Avatar output"
+
+# Light text and semi-opaque control surfaces, so the window stays legible over
+# a background photograph of unknown brightness. Only labels are made
+# transparent — dropdowns and buttons keep a solid-enough backing to be read.
+_CONTROL_STYLE = """
+QLabel { color: #f0f0f4; background: transparent; }
+QCheckBox { color: #f0f0f4; background: transparent; }
+QComboBox, QPushButton {
+    color: #f0f0f4;
+    background-color: rgba(32, 32, 40, 200);
+    border: 1px solid rgba(255, 255, 255, 60);
+    border-radius: 4px;
+    padding: 5px 10px;
+}
+QPushButton:hover { background-color: rgba(52, 52, 64, 220); }
+QPushButton:disabled { color: #7a7a85; background-color: rgba(32, 32, 40, 120); }
+QComboBox QAbstractItemView {
+    color: #f0f0f4;
+    background-color: #202028;
+    selection-background-color: #3a3a48;
+}
+"""
 
 
 class MainWindow(QMainWindow):
@@ -99,7 +122,15 @@ class MainWindow(QMainWindow):
     # --- construction ------------------------------------------------------
 
     def _build_session_tab(self) -> QWidget:
-        page = QWidget()
+        ui = self._context.settings.ui
+        image = (
+            self._context.paths.resolve_relative(ui.background_image)
+            if ui.background_image
+            else None
+        )
+        page = BackgroundPanel(image_path=image, dim=ui.background_dim, colour=ui.background_color)
+        page.setStyleSheet(_CONTROL_STYLE)
+
         layout = QVBoxLayout(page)
         layout.setSpacing(10)
         layout.setContentsMargins(12, 12, 12, 12)

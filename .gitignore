@@ -83,3 +83,7 @@ Desktop.ini
 .vscode/
 .idea/
 *.swp
+
+# Owner-supplied window background. The path is referenced by the default
+# config; the image itself is a personal choice, not project content.
+assets/background.*

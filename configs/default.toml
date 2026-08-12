@@ -74,6 +74,22 @@ window_size = 240
 sample_system_metrics = false
 system_sample_interval = 1.0
 
+[ui]
+# Background photograph for the window. Drop a file at this path and it is
+# used; leave the path empty, or the file absent, and the plain colour is used
+# instead. Pointing at a file that does not exist is deliberately harmless —
+# decoration must never stop the application from starting.
+#
+# Recommended: 1920x1080 (16:9), JPG or PNG. The image is scaled to cover the
+# window and cropped from the centre, so keep anything important away from the
+# edges.
+background_image = "assets/background.jpg"
+
+# How much to darken the photo before controls are drawn on top. The window has
+# light text; over a bright photo without this it becomes unreadable.
+background_dim = 0.55
+background_color = "#101014"
+
 [models]
 root_path = "models"
 # sha256 performs no network access unless this is explicitly enabled.
