@@ -267,6 +267,38 @@ since it is a genuine model output.
 
 ---
 
+## Result 7 — It holds inside the real pipeline
+
+The numbers above time the tracker directly. This one runs the whole
+application — `build_application()`, the real camera, the real tracker, the
+placeholder engine and renderer — for 20 seconds through
+`PipelineController.process_once()`, measured by the application's own
+`PerformanceMonitor`. 593 frames rendered.
+
+| stage | mean | p50 | p95 | p99 | max | n |
+|---|---|---|---|---|---|---|
+| capture | 25.69 ms | 25.01 | 33.94 | 61.32 | 64.61 | 240 |
+| **tracking** | **6.37 ms** | 6.34 | **6.96** | 7.11 | 7.42 | 240 |
+| animation (placeholder) | 1.55 ms | 1.52 | 1.74 | 1.98 | 2.33 | 240 |
+| rendering (placeholder) | 0.17 ms | 0.16 | 0.20 | 0.25 | 0.34 | 240 |
+| end-to-end | 33.80 ms | 33.27 | 42.13 | 69.35 | 73.02 | 240 |
+
+Throughput: **29.50 fps**, held for the whole run.
+
+Two things worth reading off this:
+
+- **Tracking costs 6.37 ms here against 6.30 ms measured standalone.** The
+  integration adds nothing detectable, which is the point of measuring both.
+- As in B002, `capture` is mostly *waiting* for the camera, not working. The
+  pipeline's real spend is `6.37 + 1.55 + 0.17 = 8.09 ms` of the 33.3 ms budget,
+  and the placeholder engine accounts for 1.55 ms of that.
+
+The 61–65 ms capture outliers are the same single skipped frame B002 saw
+(64.79 ms max there). Unchanged by the tracker, still not investigated, still
+worth watching if it becomes frequent.
+
+---
+
 ## Budget impact
 
 ```

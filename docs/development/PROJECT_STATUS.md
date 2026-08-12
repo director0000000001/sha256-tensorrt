@@ -51,6 +51,9 @@ record of the foundation milestone see `FOUNDATION_STATUS.md`.
 - MediaPipe emits **no confidence score**. Detection is binary.
 - Colour conversion must use OpenCV, not numpy: 0.45 ms vs 2.90 ms per frame.
 - Head-pose signs are verified, not assumed. Two of three were wrong initially.
+- **Full pipeline with the real tracker: 29.50 fps sustained**, tracking 6.37 ms
+  inside the application versus 6.30 ms standalone — integration costs nothing
+  measurable.
 
 **Budget**
 ```
