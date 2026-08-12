@@ -87,3 +87,11 @@ Desktop.ini
 # Owner-supplied window background. The path is referenced by the default
 # config; the image itself is a personal choice, not project content.
 assets/background.*
+
+# Avatar source portraits. Owner/client content, and a real deliverable of the
+# project rather than part of it. Manifests stay tracked so the library layout
+# is reviewable.
+avatars/**/*.png
+avatars/**/*.jpg
+avatars/**/*.jpeg
+avatars/**/*.webp

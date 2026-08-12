@@ -1,0 +1,32 @@
+{
+  "manifest_version": 1,
+  "id": "my_avatar",
+  "name": "My Avatar",
+  "version": "1.0.0",
+  "description": "The first real avatar. Drop the source portrait in this directory as portrait.png; the engine that consumes it is wired on day 4.",
+  "tags": ["owner"],
+  "preview": null,
+  "assets": [
+    {
+      "path": "portrait.png",
+      "role": "source_portrait",
+      "optional": true
+    }
+  ],
+  "engine": {
+    "engine_id": "null",
+    "estimated_vram_mb": 0,
+    "device_preference": "auto"
+  },
+  "rendering": {
+    "output_width": 512,
+    "output_height": 512,
+    "background": "solid",
+    "background_color": "#101014",
+    "mirror": false,
+    "expression_scale": 1.0,
+    "head_motion_scale": 1.0
+  },
+  "engine_options": {},
+  "fictional": true
+}
