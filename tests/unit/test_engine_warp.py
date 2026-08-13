@@ -25,6 +25,7 @@ from sha256.avatar.engine_warp import (
     MESH_INDICES,
     WarpAvatarEngine,
     _blend_sources,
+    _Neutral,
     _source_weights,
 )
 from sha256.core.avatar import AvatarDescriptor, AvatarManifest
@@ -101,6 +102,46 @@ def synthetic_landmarks(*, centre: tuple[float, float] = (0.5, 0.5), scale: floa
     return points
 
 
+def relaxed_like(tracking: FaceTrackingResult) -> FaceTrackingResult:
+    """The same face at rest: every signal it carries, all of them quiet.
+
+    Needed because the engine measures expression *relative to rest*, so it has
+    to have seen rest. The blendshape names must match — a resting face that
+    reports no signals at all teaches the engine nothing about them.
+    """
+    from sha256.core.types import BlendshapeSet, HeadPose
+
+    shapes = tracking.blendshapes
+    names = shapes.names if shapes is not None else ()
+    return FaceTrackingResult(
+        metadata=tracking.metadata,
+        face_detected=True,
+        landmarks=tracking.landmarks,
+        head_pose=HeadPose(yaw=0.0, pitch=0.0, roll=0.0),
+        blendshapes=BlendshapeSet(
+            names=names,
+            weights=np.zeros(len(names), dtype=np.float32),
+            scheme="mediapipe_52",
+        ),
+        confidence=1.0,
+    )
+
+
+def weights_from_rest(
+    tracking: FaceTrackingResult, *, full_gap: float = 0.0947
+) -> dict[str, float]:
+    """Weights for ``tracking``, after the engine has been shown a resting face.
+
+    A single frame in isolation is by definition neutral — that is the whole
+    point of the change these tests describe — so a test that wants an
+    expression to register has to establish rest first, exactly as the engine
+    does on its first frame.
+    """
+    neutral = _Neutral()
+    _source_weights(relaxed_like(tracking), full_gap, neutral)
+    return _source_weights(tracking, full_gap, neutral)
+
+
 def expressive_tracking(
     *,
     gap: float = 0.08,
@@ -108,6 +149,7 @@ def expressive_tracking(
     smile: float | None = None,
     jaw: float | None = None,
     blink: tuple[float, float] | None = None,
+    extra: dict[str, float] | None = None,
     **shapes: float,
 ) -> FaceTrackingResult:
     """Tracking with a controllable lip gap, pose, and blendshapes.
@@ -119,7 +161,13 @@ def expressive_tracking(
 
     ``gap`` defaults to open: the teeth-bearing photographs are gated on the
     lips being parted, so a test about mouth expressions has to say so.
+
+    ``extra`` takes blendshapes whose names a test computes rather than writes,
+    which ``**shapes`` cannot express without also being able to collide with
+    the named arguments above.
     """
+    if extra:
+        shapes.update(extra)
     if smile is not None:
         shapes["mouthSmileLeft"] = shapes["mouthSmileRight"] = smile
     if jaw is not None:
@@ -432,8 +480,8 @@ class TestSourceSelection:
         assert "source_eyes_closed" not in weights
 
     def test_yaw_picks_the_side_it_turned_towards(self):
-        left = _source_weights(expressive_tracking(yaw=20.0))
-        right = _source_weights(expressive_tracking(yaw=-20.0))
+        left = weights_from_rest(expressive_tracking(yaw=20.0))
+        right = weights_from_rest(expressive_tracking(yaw=-20.0))
 
         assert left["source_turn_left"] > 0.5
         assert "source_turn_right" not in left
@@ -625,7 +673,7 @@ class TestMouthInterior:
 
 class TestBrowSource:
     def test_raised_brows_call_for_the_raised_brow_photo(self):
-        weights = _source_weights(expressive_tracking(gap=0.0, browInnerUp=0.6))
+        weights = weights_from_rest(expressive_tracking(gap=0.0, browInnerUp=0.6))
 
         assert weights["source_brows_up"] > 0.9
 
@@ -642,10 +690,54 @@ class TestExpandedSourceSet:
     avatar looks left when you look right, or pulls a face you are not pulling.
     """
 
+    def test_a_face_that_is_not_moving_asks_for_no_photographs(self):
+        """The regression that made the avatar a double exposure of itself.
+
+        A relaxed face does not read as zero, and a webcam above a monitor never
+        reads zero pose. Driven absolutely, a motionless person scored eleven
+        simultaneous expressions and the base portrait was blended away to
+        nothing. Held still, the answer must be: use the portrait.
+        """
+        resting = expressive_tracking(
+            gap=0.0,
+            yaw=19.0,
+            eyeSquintLeft=0.52,
+            eyeSquintRight=0.5,
+            eyeLookDownLeft=0.4,
+            browInnerUp=0.3,
+        )
+        neutral = _Neutral()
+
+        for _ in range(30):
+            weights = _source_weights(resting, 0.0947, neutral)
+
+        assert weights == {}, f"a still face asked for {sorted(weights)}"
+
+    @pytest.mark.parametrize(
+        ("left_role", "right_role", "left_shape", "right_shape"),
+        [
+            ("source_look_left", "source_look_right", "eyeLookOutLeft", "eyeLookOutRight"),
+            ("source_look_up", "source_look_down", "eyeLookUpLeft", "eyeLookDownLeft"),
+            ("source_brows_up", "source_brows_down", "browInnerUp", "browDownLeft"),
+        ],
+    )
+    def test_opposing_photographs_are_never_both_used(
+        self, left_role, right_role, left_shape, right_shape
+    ):
+        """Measured on a real face: left and right gaze were both active on 98%
+        of frames, up and down on 100%. Averaging opposites gave eyes that
+        pointed nowhere, which is why they stopped looking real."""
+        weights = weights_from_rest(
+            expressive_tracking(gap=0.0, extra={left_shape: 0.5, right_shape: 0.35})
+        )
+
+        assert weights.get(right_role, 0.0) == 0.0
+        assert weights.get(left_role, 0.0) > 0.0
+
     def test_gaze_left_and_right_are_not_swapped(self):
         """Looking one way must not fetch the photograph of the other."""
-        left = _source_weights(expressive_tracking(gap=0.0, eyeLookOutLeft=0.6))
-        right = _source_weights(expressive_tracking(gap=0.0, eyeLookOutRight=0.6))
+        left = weights_from_rest(expressive_tracking(gap=0.0, eyeLookOutLeft=0.6))
+        right = weights_from_rest(expressive_tracking(gap=0.0, eyeLookOutRight=0.6))
 
         assert left["source_look_left"] > 0.9
         assert "source_look_right" not in left
@@ -653,8 +745,8 @@ class TestExpandedSourceSet:
         assert "source_look_left" not in right
 
     def test_looking_up_and_down(self):
-        up = _source_weights(expressive_tracking(gap=0.0, eyeLookUpLeft=0.6))
-        down = _source_weights(expressive_tracking(gap=0.0, eyeLookDownLeft=0.6))
+        up = weights_from_rest(expressive_tracking(gap=0.0, eyeLookUpLeft=0.6))
+        down = weights_from_rest(expressive_tracking(gap=0.0, eyeLookDownLeft=0.6))
 
         assert up["source_look_up"] > 0.9
         assert down["source_look_down"] > 0.9
@@ -672,23 +764,23 @@ class TestExpandedSourceSet:
         assert weights["source_smile"] > weights.get("source_smile_closed", 0.0)
 
     def test_a_far_turn_brings_in_the_far_photograph(self):
-        near = _source_weights(expressive_tracking(gap=0.0, yaw=20.0))
-        far = _source_weights(expressive_tracking(gap=0.0, yaw=38.0))
+        near = weights_from_rest(expressive_tracking(gap=0.0, yaw=20.0))
+        far = weights_from_rest(expressive_tracking(gap=0.0, yaw=38.0))
 
         assert far["source_turn_left_far"] > near.get("source_turn_left_far", 0.0)
         assert "source_turn_right_far" not in far
 
     def test_tilting_up_and_down_are_not_swapped(self):
-        up = _source_weights(expressive_tracking(gap=0.0, yaw=0.0))
-        up_pose = _source_weights(_pitched(18.0))
-        down_pose = _source_weights(_pitched(-18.0))
+        up = weights_from_rest(expressive_tracking(gap=0.0, yaw=0.0))
+        up_pose = weights_from_rest(_pitched(18.0))
+        down_pose = weights_from_rest(_pitched(-18.0))
 
         assert "source_tilt_up" not in up
         assert up_pose["source_tilt_up"] > 0.9
         assert down_pose["source_tilt_down"] > 0.9
 
     def test_brows_down_is_separate_from_brows_up(self):
-        weights = _source_weights(expressive_tracking(gap=0.0, browDownLeft=0.6))
+        weights = weights_from_rest(expressive_tracking(gap=0.0, browDownLeft=0.6))
 
         assert weights["source_brows_down"] > 0.9
         assert "source_brows_up" not in weights

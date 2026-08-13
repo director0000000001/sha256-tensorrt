@@ -271,6 +271,76 @@ addressed in `85cc6d6` because none could be excluded without watching it:
 **Still open: the owner is verifying whether it is gone.** If it persists it is
 a fourth cause, and the three above are then known-good rather than suspected.
 
+## 8. The avatar stopped looking like its own portrait — FIXED 2026-08-14
+
+**Seen:** the owner, on the first real look at the 20-source avatar: *"the
+quality is catastrophic — compared to the photograph it looks like 144p. The
+eyes are completely different and do not look real."*
+
+**Why, measured on a motionless subject.** A resting face was scoring **eleven
+simultaneous expressions**:
+
+| role | weight | % of frames active |
+|---|---|---|
+| `source_turn_left` | 0.95 | 100% |
+| `source_tilt_down` | 0.95 | 100% |
+| `source_squint` | 0.95 | 100% |
+| `source_look_down` | 0.90 | 100% |
+| `source_mouth_pressed` | 0.59 | 100% |
+| `source_brows_up` | 0.51 | 100% |
+| `source_look_left` | 0.50 | 100% |
+| `source_brows_down` | 0.40 | 100% |
+| `source_look_up` | 0.36 | 100% |
+
+Two independent mistakes, and each is worth stating plainly because both look
+reasonable in the code:
+
+1. **Expression was measured absolutely, not against rest.** MediaPipe's
+   blendshapes are not zero on a relaxed face, and its head pose is not zero
+   unless the camera is exactly on axis — which no webcam above a monitor is.
+   The person was sitting still and the engine read "squinting hard, looking
+   down and left, turned 19°, tilted 18°".
+2. **Opposing photographs were blended together.** Look-left and look-right
+   were both active on **98%** of frames, look-up and look-down on **100%**,
+   brows-up and brows-down on **100%**. The engine averaged four gaze
+   directions into eyes that pointed nowhere. *That is the eyes complaint,
+   exactly.*
+
+The result was a weighted average of eleven photographs in which the base
+portrait's share had been renormalised to nearly zero. Sharpness of the blended
+source measured **17 against the portrait's 62** — a literal multiple exposure,
+which is what reads as "144p".
+
+**Fixed.**
+
+- `_Neutral` learns the resting face and every expression is measured above it.
+  Blendshapes get a floor that follows a new low in about a quarter of a second
+  and creeps up over twenty, so a relaxed face is learned quickly but a held
+  expression cannot become the new normal. Head pose gets a slow mean. Both are
+  seeded from the first frame, so frame one is already correct.
+- Opposing photographs are one signed quantity: the stronger side wins and the
+  other is zero by construction.
+
+**Measured after**, driven with the same readings taken off the real camera:
+
+| | before | after |
+|---|---|---|
+| Sources active, at rest | 11 | **0** |
+| Blended source | sharpness 17 | **byte-identical to the portrait** (62) |
+| Sources active, smiling and turned 22° | ~12 | **3** |
+| Blend cost, at rest | 6.75 ms | **0.02 ms** |
+| Blend cost, in motion | 6.75 ms | **2.04 ms** |
+
+A still face now gets its own photograph back, unmodified. That also removes
+most of item 7 — the blend is no longer rebuilt on nearly every frame because
+at rest there is nothing to rebuild.
+
+**Still to confirm by eye:** whether this also removes the fourth flicker
+cause. The weights were swinging violently frame to frame — `source_look_left`
+ranged 0.05 to 0.92 on a still subject — which changed the face's appearance
+every frame. That is a flicker by any definition, and it appeared when
+multi-source landed. Plausible, not proven; the owner has to look.
+
 ## 7. The source blend outgrew its cache — opened day 5
 
 The owner supplied the full photograph set on day 5 and 20 sources are wired in.

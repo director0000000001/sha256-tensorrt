@@ -122,6 +122,19 @@ _EXPRESSION_FULL = 0.55
 # is performing rather than talking.
 _MAX_VARIANT_WEIGHT = 0.95
 
+# How the resting face is learned. See :class:`_Neutral`.
+#
+# A blendshape floor follows a new low within about a quarter of a second and
+# creeps upward over twenty, so a relaxed face is learned quickly and an
+# expression held for several seconds cannot become the new normal.
+_FLOOR_FALL = 0.15
+_FLOOR_RISE = 0.0015
+
+# The head-pose neutral is a slow mean — roughly a seventeen-second time
+# constant at 30 fps. Holding a turn for half a minute does move it, which is
+# correct: by then the turn has become how the person is sitting.
+_POSE_RATE = 0.002
+
 # Inner-lip landmarks, and the gap between them at which the mouth counts as
 # open, as a fraction of face height. Measured on the avatar's own photographs:
 # closed reads 0.0010, the smiling-with-teeth photo 0.0591, the open-mouth photo
@@ -267,6 +280,64 @@ _BROW_FOLLOW = 0.5
 _WEIGHT_QUANTUM = 0.02
 
 
+class _Neutral:
+    """The user's resting face, learned while they sit in front of the camera.
+
+    MediaPipe's blendshapes are **not zero on a relaxed face**, and its head
+    pose is not zero unless the camera is exactly on axis — which no webcam
+    above a monitor ever is. Driving photographs from those raw numbers meant a
+    person sitting still was read as squinting hard, looking down and to the
+    left, brows both raised *and* lowered, turned 19° and tilted 18°. Measured,
+    on a still subject: eleven photographs blended into every frame of a neutral
+    face, so the avatar stopped looking like its own portrait and started
+    looking like a double exposure of eleven of them.
+
+    The fix is to measure expression *relative to rest* rather than absolutely.
+    Two kinds of signal need two estimators:
+
+    *   **Blendshapes only rise from rest**, so their neutral is a *floor*.
+        Tracked asymmetrically — follow a new low quickly, drift up slowly — so
+        a relaxed face is learned in about a second while an expression held for
+        several seconds cannot be mistaken for one.
+    *   **Head pose is signed** and its neutral is wherever the person happens
+        to sit, so it is a slow mean.
+
+    Both are seeded from the first frame, which is what makes the very first
+    frame correct rather than merely eventually correct: with the estimate equal
+    to the reading, every variant weight starts at zero and the avatar starts as
+    its own photograph.
+    """
+
+    __slots__ = ("_floors", "_pose")
+
+    def __init__(self) -> None:
+        self._floors: dict[str, float] = {}
+        self._pose: dict[str, float] = {}
+
+    def relative_expression(self, name: str, value: float) -> float:
+        """``value`` above this signal's learned resting floor, never below zero."""
+        floor = self._floors.get(name)
+        if floor is None:
+            self._floors[name] = value
+            return 0.0
+
+        rate = _FLOOR_FALL if value < floor else _FLOOR_RISE
+        floor += rate * (value - floor)
+        self._floors[name] = floor
+        return max(value - floor, 0.0)
+
+    def relative_pose(self, name: str, value: float) -> float:
+        """``value`` as an offset from the resting head angle. Signed."""
+        rest = self._pose.get(name)
+        if rest is None:
+            self._pose[name] = value
+            return 0.0
+
+        rest += _POSE_RATE * (value - rest)
+        self._pose[name] = rest
+        return value - rest
+
+
 class _LoadedAvatar:
     """Everything precomputed for one avatar, held for the life of the load.
 
@@ -284,6 +355,7 @@ class _LoadedAvatar:
         "full_gap",
         "image",
         "mouth_mask",
+        "neutral",
         "points",
         "sources",
         "triangles",
@@ -316,6 +388,11 @@ class _LoadedAvatar:
 
         # The previous frame's relighting field, kept at its small working size.
         self.correction: np.ndarray | None = None
+
+        # The driver's resting face. Held per load rather than per process so
+        # that reselecting an avatar starts the estimate again, which is the
+        # cheapest possible "recalibrate" for a user who has moved their chair.
+        self.neutral = _Neutral()
 
 
 class WarpAvatarEngine:
@@ -905,7 +982,9 @@ def _lip_gap(tracking: FaceTrackingResult) -> float:
 
 
 def _source_weights(
-    tracking: FaceTrackingResult, full_gap: float = _LIP_GAP_FULL
+    tracking: FaceTrackingResult,
+    full_gap: float = _LIP_GAP_FULL,
+    neutral: _Neutral | None = None,
 ) -> dict[str, float]:
     """How much each extra photograph should contribute to this frame.
 
@@ -913,9 +992,23 @@ def _source_weights(
     eye", the yaw was verified in B003, and the lip gap is measured from the
     landmarks. Nothing here needs a state machine, which is what keeps it from
     flickering between sources.
+
+    Two rules make the difference between a face and a double exposure, and both
+    were learned by measuring a still subject rather than by reasoning:
+
+    *   **Everything is relative to the resting face** (:class:`_Neutral`).
+        Absolute readings made a motionless person score eleven simultaneous
+        expressions, because a relaxed face does not read as zero and a webcam
+        is never exactly on axis.
+    *   **Opposing photographs are mutually exclusive.** Looking left and
+        looking right were both active on 98% of frames, and up and down on
+        100%, so the engine averaged four gaze directions into eyes that pointed
+        nowhere. Each pair is now one signed quantity: the stronger side wins and
+        the other is zero, by construction rather than by luck.
     """
     weights: dict[str, float] = {}
     shapes = tracking.blendshapes
+    neutral = neutral if neutral is not None else _Neutral()
 
     # Both photographs that contain teeth are driven by the lip gap. Neither can
     # contribute anything truthful while the mouth is shut, and blending them in
@@ -945,15 +1038,23 @@ def _source_weights(
         weights["source_eyes_closed"] = min(max(closed, 0.0), 1.0)
 
         def expression(*names: str) -> float:
-            """How far into an expression this frame is, from its blendshapes."""
-            return min(max(shapes.get(name) for name in names) / _EXPRESSION_FULL, 1.0)
+            """How far into an expression this frame is, above the resting face."""
+            above_rest = max(neutral.relative_expression(name, shapes.get(name)) for name in names)
+            return min(above_rest / _EXPRESSION_FULL, 1.0)
 
-        weights["source_brows_up"] = expression(
-            "browInnerUp", "browOuterUpLeft", "browOuterUpRight"
+        def opposed(positive: float, negative: float) -> tuple[float, float]:
+            """One signed quantity split into two photographs, never both at once."""
+            difference = positive - negative
+            return max(difference, 0.0), max(-difference, 0.0)
+
+        weights["source_brows_up"], weights["source_brows_down"] = opposed(
+            expression("browInnerUp", "browOuterUpLeft", "browOuterUpRight"),
+            expression("browDownLeft", "browDownRight"),
         )
-        weights["source_brows_down"] = expression("browDownLeft", "browDownRight")
-        weights["source_eyes_wide"] = expression("eyeWideLeft", "eyeWideRight")
-        weights["source_squint"] = expression("eyeSquintLeft", "eyeSquintRight")
+        weights["source_eyes_wide"], weights["source_squint"] = opposed(
+            expression("eyeWideLeft", "eyeWideRight"),
+            expression("eyeSquintLeft", "eyeSquintRight"),
+        )
         weights["source_frown"] = expression("mouthFrownLeft", "mouthFrownRight")
         weights["source_mouth_pressed"] = expression("mouthPressLeft", "mouthPressRight")
 
@@ -968,22 +1069,33 @@ def _source_weights(
 
         # Gaze. "In" and "out" are relative to each eye, so a look to the
         # viewer's left is the left eye looking out and the right eye looking in.
-        weights["source_look_left"] = expression("eyeLookOutLeft", "eyeLookInRight")
-        weights["source_look_right"] = expression("eyeLookOutRight", "eyeLookInLeft")
-        weights["source_look_up"] = expression("eyeLookUpLeft", "eyeLookUpRight")
-        weights["source_look_down"] = expression("eyeLookDownLeft", "eyeLookDownRight")
+        weights["source_look_left"], weights["source_look_right"] = opposed(
+            expression("eyeLookOutLeft", "eyeLookInRight"),
+            expression("eyeLookOutRight", "eyeLookInLeft"),
+        )
+        weights["source_look_up"], weights["source_look_down"] = opposed(
+            expression("eyeLookUpLeft", "eyeLookUpRight"),
+            expression("eyeLookDownLeft", "eyeLookDownRight"),
+        )
 
     pose = tracking.head_pose
     if pose is not None:
-        turn = pose.yaw / _TURN_FULL_DEGREES
+        # Relative to how this person sits, not to the camera's idea of straight
+        # ahead. A camera above a monitor reads a permanent downward tilt, and
+        # driving the tilt photographs from that put a permanent tilt in the
+        # avatar's face while the user was looking straight at them.
+        yaw = neutral.relative_pose("yaw", pose.yaw)
+        pitch = neutral.relative_pose("pitch", pose.pitch)
+
+        turn = yaw / _TURN_FULL_DEGREES
         weights["source_turn_left"] = turn
         weights["source_turn_right"] = -turn
 
-        far = pose.yaw / _TURN_FAR_DEGREES
+        far = yaw / _TURN_FAR_DEGREES
         weights["source_turn_left_far"] = far
         weights["source_turn_right_far"] = -far
 
-        tilt = pose.pitch / _TILT_FULL_DEGREES
+        tilt = pitch / _TILT_FULL_DEGREES
         weights["source_tilt_up"] = tilt
         weights["source_tilt_down"] = -tilt
 
@@ -1006,7 +1118,9 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
         return avatar.image
 
     weights = {
-        role: weight for role, weight in _source_weights(tracking).items() if role in avatar.sources
+        role: weight
+        for role, weight in _source_weights(tracking, avatar.full_gap, avatar.neutral).items()
+        if role in avatar.sources
     }
     if not weights:
         return avatar.image

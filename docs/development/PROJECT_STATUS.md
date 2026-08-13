@@ -25,10 +25,13 @@ record of the foundation milestone see `FOUNDATION_STATUS.md`.
 17–20° of yaw, which the ordinary turn photographs already cover, and they are
 swapped relative to their filenames. They need regenerating at roughly 40°.
 
-**New concern:** with 20 sources the animation stage costs 22.1 ms against
-13.8 ms with six, leaving ~2.5 ms of headroom instead of ~11.5 ms. Throughput
-still holds at 29.80 fps with nothing dropped, but the margin is gone. Cause
-measured, not guessed — see B004.
+**Day 6 — the avatar stopped looking like its own portrait, and is fixed.** A
+motionless face was scoring eleven simultaneous expressions, because expression
+was measured absolutely rather than against rest and opposing photographs were
+being averaged together. The blended source measured sharpness 17 against the
+portrait's 62 — a multiple exposure. Now: **0 sources at rest, byte-identical to
+the portrait**, 3 sources when actually smiling and turned. See
+`AVATAR_QUALITY_BACKLOG.md` item 8.
 
 ---
 
