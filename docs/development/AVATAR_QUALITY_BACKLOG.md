@@ -271,20 +271,49 @@ addressed in `85cc6d6` because none could be excluded without watching it:
 **Still open: the owner is verifying whether it is gone.** If it persists it is
 a fourth cause, and the three above are then known-good rather than suspected.
 
-## Blocked right now: `avatars/my_avatar/portrait.png` is missing
+## 7. The source blend outgrew its cache — opened day 5
 
-The manifest declares seven assets and six are on disk. The one absent is
-`portrait.png` — the neutral front source that every other photograph is aligned
-*to*. Without it the avatar fails validation and **nothing loads at all**: the
-application runs, tracks a face, publishes to the virtual camera, and shows the
-placeholder.
+The owner supplied the full photograph set on day 5 and 20 sources are wired in.
+That is the outcome items 2, 3 and 5 were waiting for, and it cost the frame
+budget.
 
-Two photographs on disk are not declared by the manifest
-(`portrait_smile_modest.png`, `portrait_mouth_open_narrow.png`), which suggests
-the set was regenerated and the base portrait was renamed or not carried over.
+**Seen:** the animation stage costs 22.1 ms with 20 sources against 13.8 ms with
+six. Headroom fell from ~11.5 ms to ~2.5 ms. Throughput still holds at 29.80 fps
+with nothing dropped, so nothing looks wrong yet — which is exactly why it is
+worth writing down now rather than after the first call that stutters.
 
-This is the first thing to fix, and only the owner can: it is a photograph, not
-code.
+**Why**, measured over 596 real frames rather than reasoned about:
+
+- **12.1 sources are active per frame** (min 8, max 15). Each costs one
+  full-image pass.
+- **The blend cache hits 2.3% of the time.** It is keyed on the weights
+  quantised to 0.02. Six sources changed slowly enough that the same key came
+  up again and again; twelve independent dials means at least one crosses a
+  step nearly every frame, so 97.7% of frames rebuild the whole blend.
+- The blend alone is **6.75 ms mean / 8.04 ms p95**, where it used to be
+  effectively free.
+
+**What will not fix it, measured before proposing it.** Keeping only the
+strongest N sources is the obvious move and it is a bad trade: the weight beyond
+the top six averages **0.59** of the total, so it is genuinely spread across
+photographs rather than concentrated. Keeping 6 saves 2.6 ms and moves pixels by
+up to 29 levels out of 255; keeping 10 is invisible but saves only 0.6 ms.
+
+**What probably will**, in the order worth trying:
+
+1. **Smooth the weights over time** the way landmarks are already smoothed. The
+   blendshapes jitter frame to frame, and that jitter is what breaks the cache.
+   Smoothing should raise the hit rate *and* steady the picture — the same fix
+   for a performance problem and a quality one.
+2. **Coarsen the quantum** for roles whose weight is small, since a 0.02 step
+   matters at weight 0.6 and not at 0.05.
+3. **Fuse the blend into one pass.** Twelve `addWeighted` calls each read and
+   write the whole accumulator; one weighted sum over twelve sources does not.
+   Roughly 22 million pixel-operations in 6.75 ms is well short of what this
+   machine can do, so there is real room here.
+
+None of these changes what the avatar can express. They change what it costs to
+express it.
 
 ---
 

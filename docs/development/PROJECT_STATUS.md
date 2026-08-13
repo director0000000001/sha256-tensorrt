@@ -20,9 +20,15 @@ record of the foundation milestone see `FOUNDATION_STATUS.md`.
 | 11–12 | UI, avatar gallery, licence server | |
 | 13–14 | Bugs, buffer | |
 
-**Blocked on the owner:** `avatars/my_avatar/portrait.png` is missing, so no
-avatar loads at all. Everything else runs — camera, tracking, publishing — and
-shows the placeholder. It is a photograph, not code.
+**The full set arrived on day 5.** All 22 photograph roles now have a file and
+20 are wired into the manifest. Two are held back: the far-turn pair measured
+17–20° of yaw, which the ordinary turn photographs already cover, and they are
+swapped relative to their filenames. They need regenerating at roughly 40°.
+
+**New concern:** with 20 sources the animation stage costs 22.1 ms against
+13.8 ms with six, leaving ~2.5 ms of headroom instead of ~11.5 ms. Throughput
+still holds at 29.80 fps with nothing dropped, but the margin is gone. Cause
+measured, not guessed — see B004.
 
 ---
 
@@ -97,16 +103,23 @@ shows the placeholder. It is a photograph, not code.
 - Publishing is a **checkbox in the window**, off until asked for, and it can be
   switched during a call.
 
-**Budget**
+**Budget** — every line from one run, 596 frames, 20 sources (B004)
 ```
-33.3 ms  frame budget at 30 fps
- 6.3 ms  face tracking (p95 6.9 ms), CPU — B003
-13.8 ms  avatar warp (p95 17.7 ms), CPU — day 4
- 0.3 ms  rendering
- 1.4 ms  virtual camera output (p95 1.5 ms) — B004
+33.6 ms  frame interval the camera actually delivers (29.77 fps)
+ 6.9 ms  face tracking (p95 8.1), CPU
+22.1 ms  avatar animation (p95 25.2), CPU  <- 6.8 of it is the source blend
+ 0.3 ms  rendering (p95 0.4)
+ 1.8 ms  virtual camera output (p95 2.7)
 -------
-21.8 ms  spent, ~11.5 ms headroom (26.4 ms if every stage hits its p95)
+31.1 ms  spent, ~2.5 ms headroom
 ```
+
+**The blend cache stopped working.** It is keyed on weights quantised to 0.02;
+with six sources it almost always hit, with 12.1 active per frame it hits 2.3%
+of the time and the blend is rebuilt on 97.7% of frames. Capping the source
+count was measured and rejected — the weight beyond the top six averages 0.59
+of the total, so cheap caps change the picture and safe caps save little. The
+lever is the cache and the per-pass cost. **First task for day 6.**
 
 ---
 
@@ -115,8 +128,6 @@ shows the placeholder. It is a photograph, not code.
 - **Camera and USB latency.** Everything upstream of `read()` returning —
   sensor, in-camera processing, USB transfer, driver buffering. Needs an
   external reference (film a millisecond timer, compare).
-- **The full pipeline with an avatar *and* publishing.** Blocked on the missing
-  `portrait.png`. B004's 29.65 fps was measured on placeholder frames.
 - **The virtual camera with a consumer attached.** Every B004 figure is sha256
   writing into the queue with nothing reading from it. Worth re-running with
   Meet open.

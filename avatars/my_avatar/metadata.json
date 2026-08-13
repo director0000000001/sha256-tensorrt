@@ -2,8 +2,8 @@
   "manifest_version": 1,
   "id": "my_avatar",
   "name": "My Avatar",
-  "version": "1.0.0",
-  "description": "The owner's avatar. Multiple source photographs of one identity: the engine uses the base today, and the variants as the multi-source work lands. See docs/development/AVATAR_QUALITY_BACKLOG.md.",
+  "version": "1.1.0",
+  "description": "The owner's avatar. Twenty sources of one identity, selected and blended per frame from tracked blendshapes and head pose. The two far-turn roles are deliberately absent: the photographs supplied for them measured 17-20 degrees, which is the angle the ordinary turn photographs already cover.",
   "tags": [
     "owner"
   ],
@@ -20,8 +20,33 @@
       "optional": true
     },
     {
+      "path": "portrait_smile_closed.jpg",
+      "role": "source_smile_closed",
+      "optional": true
+    },
+    {
       "path": "portrait_mouth_open.png",
       "role": "source_mouth_open",
+      "optional": true
+    },
+    {
+      "path": "portrait_mouth_o.jpg",
+      "role": "source_mouth_o",
+      "optional": true
+    },
+    {
+      "path": "portrait_mouth_wide.jpg",
+      "role": "source_mouth_wide",
+      "optional": true
+    },
+    {
+      "path": "portrait_mouth_pressed.jpg",
+      "role": "source_mouth_pressed",
+      "optional": true
+    },
+    {
+      "path": "portrait_frown.jpg",
+      "role": "source_frown",
       "optional": true
     },
     {
@@ -30,8 +55,43 @@
       "optional": true
     },
     {
+      "path": "portrait_eyes_wide.jpg",
+      "role": "source_eyes_wide",
+      "optional": true
+    },
+    {
+      "path": "portrait_squint.jpg",
+      "role": "source_squint",
+      "optional": true
+    },
+    {
       "path": "portrait_brows_up.png",
       "role": "source_brows_up",
+      "optional": true
+    },
+    {
+      "path": "portrait_brows_down.jpg",
+      "role": "source_brows_down",
+      "optional": true
+    },
+    {
+      "path": "portrait_look_left.jpg",
+      "role": "source_look_left",
+      "optional": true
+    },
+    {
+      "path": "portrait_look_right.jpg",
+      "role": "source_look_right",
+      "optional": true
+    },
+    {
+      "path": "portrait_look_up.jpg",
+      "role": "source_look_up",
+      "optional": true
+    },
+    {
+      "path": "portrait_look_down.jpg",
+      "role": "source_look_down",
       "optional": true
     },
     {
@@ -42,6 +102,16 @@
     {
       "path": "portrait_turn_right.png",
       "role": "source_turn_right",
+      "optional": true
+    },
+    {
+      "path": "portrait_tilt_up.jpg",
+      "role": "source_tilt_up",
+      "optional": true
+    },
+    {
+      "path": "portrait_tilt_down.jpg",
+      "role": "source_tilt_down",
       "optional": true
     }
   ],

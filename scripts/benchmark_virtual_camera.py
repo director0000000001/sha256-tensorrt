@@ -142,7 +142,7 @@ def measure_pipeline(seconds: float) -> dict[str, Any]:
         elapsed = seconds
         sink = controller.components.virtual_camera
         snapshot = context.monitor.snapshot()
-        return {
+        result: dict[str, Any] = {
             "camera_backend": settings.camera.backend,
             "engine_backend": settings.engine.backend,
             "avatar": context.avatars.active_id,
@@ -151,10 +151,20 @@ def measure_pipeline(seconds: float) -> dict[str, Any]:
             "fps": frames / elapsed,
             "frames_published": getattr(sink, "frames_sent", 0),
             "frames_dropped": getattr(sink, "frames_dropped", 0),
-            "output_ms_mean": snapshot.duration("output").mean * 1000.0,
-            "output_ms_p95": snapshot.duration("output").p95 * 1000.0,
-            "end_to_end_ms_p95": snapshot.duration("end_to_end").p95 * 1000.0,
         }
+
+        # Every stage, not just the output one. A pipeline that holds 30 fps
+        # because the avatar stopped animating is not the same result as one
+        # that holds 30 fps while animating, and the totals look identical.
+        for stage in ("capture", "tracking", "animation", "rendering", "output", "end_to_end"):
+            summary = snapshot.duration(stage)
+            result[f"{stage}_ms_mean"] = summary.mean * 1000.0
+            result[f"{stage}_ms_p95"] = summary.p95 * 1000.0
+            result[f"{stage}_samples"] = summary.count
+
+        tracking = controller.last_tracking
+        result["face_detected_on_last_frame"] = bool(tracking and tracking.face_detected)
+        return result
     finally:
         context.shutdown()
 

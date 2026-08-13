@@ -25,7 +25,8 @@ Everything here was measured on the reference machine with
 | Resolution | 1280×720 @ 30.00 fps |
 | Warm-up | 30 frames, discarded |
 | Samples | 1000 per format |
-| Consumer | **none attached** — see the caveat below |
+| Consumer | **none attached** during the timings — see section 4 and the caveats |
+| Avatar | `my_avatar`, 20 source photographs (section 3) |
 
 The device was verified present by reading the DirectShow capture-filter
 category from the registry, not by opening it. OBS Studio was installed but not
@@ -62,30 +63,64 @@ nothing.
 
 ## 3. Full pipeline with publishing on
 
-Real Sony ZV-E10, real MediaPipe tracker, real virtual camera, 20 seconds.
+Real Sony ZV-E10, real MediaPipe tracker, real virtual camera, real avatar with
+**20 source photographs**, face present and tracked. 20 seconds, 596 frames.
+
+| Stage | mean ms | p95 ms |
+|---|---|---|
+| capture (blocked waiting for the camera) | 2.11 | 9.44 |
+| tracking | 6.93 | 8.14 |
+| **animation** | **22.06** | **25.16** |
+| rendering | 0.33 | 0.41 |
+| output (virtual camera) | 1.82 | 2.70 |
+| end-to-end (capture → rendered) | 31.56 | 38.82 |
 
 | | |
 |---|---|
-| Frames | 593 |
-| **Sustained** | **29.65 fps** |
-| Frames published | 593 |
+| **Sustained** | **29.80 fps** |
+| Frames published | 596 |
 | Frames dropped by the sink | **0** |
-| Output stage | 2.03 ms mean, 2.26 ms p95 |
-| End-to-end p95 | 38.43 ms |
 
-**⚠ No avatar was loaded** — `avatars/my_avatar/portrait.png` is missing, so the
-warp engine had nothing to drive and the run published placeholder frames. That
-is why the output stage shows the RGB figure (2.03) rather than the BGR one, and
-it means **this run does not include the 13.8 ms the warp engine costs**.
+Throughput is intact — the camera supplies 29.77 fps and the pipeline keeps up
+with it, dropping nothing. **The headroom is not.** Work excluding the
+capture wait is 31.14 ms mean against a 33.6 ms frame interval: about 2.5 ms of
+margin, where day 4 had roughly 11.5 ms. At p95 the stages sum past the frame
+interval, which is the condition that produces occasional hitches under any
+additional system load — and a video call is additional system load.
 
-The end-to-end p95 of 38.43 ms is measured from capture timestamp to completed
-render and exceeds the 33.3 ms frame interval; sustained throughput was
-nonetheless 29.65 fps, which says the pipeline is pipelined against the camera's
-own cadence rather than falling behind. It is a latency figure, not a throughput
-one, and it is the one to watch when the avatar is added back.
+### Where it went: the source blend stopped being cached
 
-**This number has to be re-measured once the portrait exists.** It is the only
-claim in this document that is not yet the real thing.
+The animation stage was 13.8 ms with 6 source photographs and is 22.06 ms with
+20. Instrumented over 596 real frames:
+
+| | |
+|---|---|
+| Sources active per frame | **12.1 mean** (min 8, max 15) |
+| Blend cache hit rate | **2.3%** |
+| Blend cost | 6.75 ms mean, 8.04 ms p95 |
+
+The blend costs one full-image pass per active source, and its result is cached
+against weights quantised to 0.02. With six sources that cache almost always
+hit and the blend was effectively free. With twelve independent dials, at least
+one crosses a quantisation step nearly every frame, so the cache hits 2.3% of
+the time and the full blend is rebuilt on 97.7% of frames.
+
+**Capping the number of sources is not the answer**, which is worth recording
+because it is the obvious fix. Keeping only the strongest N and measuring the
+difference against the full blend, over 239 frames that had ≥8 active sources:
+
+| Keep | mean pixel difference | worst pixel difference | blend ms |
+|---|---|---|---|
+| 4 | 5.66 | 56 | 2.70 |
+| 6 | 2.77 | 29 | 3.65 |
+| 8 | 1.46 | 18 | 4.62 |
+| 10 | 0.80 | 10 | 5.68 |
+| all (12.1) | — | — | 6.28 |
+
+The weight beyond the top six averages **0.59** of the total — it is genuinely
+spread across many photographs rather than concentrated in a few, so the cheap
+caps change the picture and the safe caps save little. The lever is the cache
+and the per-pass cost, not the source count.
 
 ## 4. Round trip — does anything else actually see it?
 
@@ -114,21 +149,21 @@ the consumer picks; sha256 does not control that end.
 
 ## Budget
 
-Using the measured parts, with the day-4 warp figure carried over:
+All measured in the same run, with 20 source photographs:
 
 ```
-33.3 ms  frame budget at 30 fps
- 6.3 ms  face tracking (p95 6.9), CPU — B003
-13.8 ms  avatar warp (p95 17.7), CPU — day 4
- 0.3 ms  rendering
- 1.4 ms  virtual camera output (p95 1.5) — this benchmark
+33.6 ms  frame interval the camera actually delivers (29.77 fps)
+ 6.9 ms  face tracking (p95 8.1), CPU
+22.1 ms  avatar animation (p95 25.2), CPU  <- of which 6.8 ms is the source blend
+ 0.3 ms  rendering (p95 0.4)
+ 1.8 ms  virtual camera output (p95 2.7)
 -------
-21.8 ms  spent, ~11.5 ms headroom
+31.1 ms  spent, ~2.5 ms headroom
 ```
 
-At p95 throughout the sum is 26.4 ms, still inside 33.3. Publishing spends
-about **4% of the frame budget**, which was the thing worth knowing before
-committing to a backend.
+Publishing spends about **5% of the frame budget** — it was never the problem,
+and that was the thing worth knowing before committing to a backend. The
+animation stage is now 71% of it.
 
 ---
 
@@ -139,7 +174,9 @@ committing to a backend.
    taken with nothing reading from the queue. The OBS backend is designed so a
    reader cannot block the writer; that is a design claim, not a measurement.
    Worth re-running with Meet open.
-2. **No avatar in the pipeline run**, as above.
+2. **One face, one distance, one room.** The animation cost depends on how large
+   the face is in frame; a subject sitting closer costs more. Measured at
+   ordinary desk distance.
 3. **`pyvirtualcam` is GPL-2.0 and cannot ship.** These numbers characterise the
    *development* backend. A native `MFCreateVirtualCamera` component would have
    a different cost profile, though the dominant term — one 720p frame converted
