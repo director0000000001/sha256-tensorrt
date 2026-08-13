@@ -157,7 +157,11 @@ _SMILE_REFERENCE = 0.54
 
 # Eye closure is deliberately eager. A blink is fast and reads high, but holding
 # the eyes shut reads far lower, and the owner's eyes stayed open for it.
-_BLINK_START, _BLINK_FULL = 0.20, 0.60
+# How far a blink has to rise **above the resting eye** before the closed-eye
+# photograph starts to apply, and where it fully applies. Relative, not
+# absolute: a relaxed eye does not read zero, and treating its resting value as
+# a partial blink kept a shut eyelid permanently ghosted over an open one.
+_BLINK_START, _BLINK_FULL = 0.08, 0.50
 
 # The camera is **never** passed through once an avatar has been placed on a
 # face. Tracking drops out constantly, and every dropout used to show the user's
@@ -1016,11 +1020,24 @@ def _source_weights(
     gap = _lip_gap(tracking)
 
     if shapes is not None and shapes.names:
-        # How much of an *open mouth* this frame needs, measured against the
-        # open-mouth photograph's own gap. At full opening the base portrait
-        # must contribute nothing to the mouth: its lips are closed, and a
-        # closed mouth stretched across an open one is what produced fangs.
-        opening = (gap - _LIP_GAP_CLOSED) / max(full_gap - _LIP_GAP_CLOSED, 1e-6)
+        # How much of an *open mouth* this frame needs. At full opening the base
+        # portrait must contribute nothing to the mouth: its lips are closed, and
+        # a closed mouth stretched across an open one is what produced fangs.
+        #
+        # The reference is the *narrower* of the photograph's own gap and a
+        # normal wide-open speaking mouth. Both halves of that matter and each
+        # was learned the hard way:
+        #
+        # *   A photograph narrower than a speaking mouth cannot depict more
+        #     than it contains, so it must reach full weight at its own gap.
+        # *   A photograph *wider* must not push ordinary speech down the scale.
+        #     The owner's replacement open-mouth photograph measured 0.229
+        #     against the 0.095 of a normal opening, so dividing by it made a
+        #     smile score 0.13 and the teeth stopped appearing at all — the
+        #     photograph was there, and the weight that would have shown it was
+        #     being measured against a yawn.
+        reference = min(full_gap, _LIP_GAP_FULL)
+        opening = (gap - _LIP_GAP_CLOSED) / max(reference - _LIP_GAP_CLOSED, 1e-6)
         opening = min(max(opening, 0.0), 1.0)
 
         # Which of the two open-mouth photographs it should come from: a smile
@@ -1033,8 +1050,17 @@ def _source_weights(
 
         # min, not max, of the two eyes: a wink is one eye, and driving a
         # both-eyes-closed photograph from a wink closes the wrong one too.
+        #
+        # Measured against rest like every other expression, and it is the one
+        # that most needed it. A relaxed eye reads about 0.26 on this tracker,
+        # against a 0.20 threshold, so the closed-eye photograph was blended in
+        # permanently at roughly 15% — a translucent shut eyelid laid over an
+        # open eye, which is exactly the "two sets of eyes" the owner saw. Open
+        # eyes are the floor by construction, since blinking only moves this
+        # reading upward.
         blink = min(shapes.get("eyeBlinkLeft"), shapes.get("eyeBlinkRight"))
-        closed = (blink - _BLINK_START) / (_BLINK_FULL - _BLINK_START)
+        above_rest = neutral.relative_expression("eyeBlink", blink)
+        closed = (above_rest - _BLINK_START) / (_BLINK_FULL - _BLINK_START)
         weights["source_eyes_closed"] = min(max(closed, 0.0), 1.0)
 
         def expression(*names: str) -> float:

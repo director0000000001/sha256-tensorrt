@@ -463,13 +463,13 @@ class TestSourceSelection:
         assert weights["source_smile"] > weights.get("source_mouth_open", 0.0)
 
     def test_a_blink_calls_for_the_closed_eye_photo(self):
-        weights = _source_weights(expressive_tracking(blink=(0.9, 0.85)))
+        weights = weights_from_rest(expressive_tracking(blink=(0.9, 0.85)))
 
         assert weights["source_eyes_closed"] > 0.8
 
     def test_eyes_held_shut_close_as_firmly_as_a_blink(self):
         """A held closure reads much lower than a blink, and left the eyes open."""
-        weights = _source_weights(expressive_tracking(blink=(0.55, 0.5)))
+        weights = weights_from_rest(expressive_tracking(blink=(0.55, 0.5)))
 
         assert weights["source_eyes_closed"] > 0.7
 
@@ -689,6 +689,53 @@ class TestExpandedSourceSet:
     A wrong mapping here is invisible in a still and obvious in motion — the
     avatar looks left when you look right, or pulls a face you are not pulling.
     """
+
+    def test_open_eyes_never_ghost_the_closed_eye_photograph(self):
+        """The "two sets of eyes" the owner photographed.
+
+        A relaxed eye reads about 0.26 on this tracker. Measured against a fixed
+        0.20 threshold that scored a permanent 15% blink, so a shut eyelid was
+        laid over an open eye on every frame at partial opacity.
+        """
+        resting = expressive_tracking(gap=0.0, blink=(0.26, 0.25))
+        neutral = _Neutral()
+
+        for _ in range(30):
+            weights = _source_weights(resting, 0.0947, neutral)
+
+        assert "source_eyes_closed" not in weights
+
+    def test_a_real_blink_still_closes_the_eyes(self):
+        """The other half: relative must not mean insensitive."""
+        neutral = _Neutral()
+        for _ in range(30):
+            _source_weights(expressive_tracking(gap=0.0, blink=(0.26, 0.25)), 0.0947, neutral)
+
+        blinked = _source_weights(expressive_tracking(gap=0.0, blink=(0.95, 0.93)), 0.0947, neutral)
+
+        assert blinked["source_eyes_closed"] > 0.9
+
+    def test_a_wide_open_mouth_photograph_does_not_hide_the_teeth(self):
+        """A photograph of a yawn must not make ordinary speech score as closed.
+
+        The owner's replacement open-mouth photograph measured a lip gap of
+        0.229 against 0.095 for a normal opening. Dividing by it scored a smile
+        at 0.13 and the teeth stopped appearing — the photograph was loaded and
+        the weight that would have shown it was measured against a yawn.
+        """
+        smiling = expressive_tracking(gap=0.06, smile=0.6)
+
+        against_a_yawn = weights_from_rest(smiling, full_gap=0.2287)
+        against_normal = weights_from_rest(smiling, full_gap=0.095)
+
+        assert against_a_yawn["source_smile"] == pytest.approx(against_normal["source_smile"])
+        assert against_a_yawn["source_smile"] > 0.5
+
+    def test_a_narrow_photograph_still_reaches_full_weight_at_its_own_gap(self):
+        """The other half: a photograph cannot depict more than it contains."""
+        narrow = weights_from_rest(expressive_tracking(gap=0.05, jaw=0.5), full_gap=0.05)
+
+        assert narrow["source_mouth_open"] > 0.9
 
     def test_a_face_that_is_not_moving_asks_for_no_photographs(self):
         """The regression that made the avatar a double exposure of itself.
