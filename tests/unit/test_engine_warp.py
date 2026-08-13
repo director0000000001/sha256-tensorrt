@@ -609,11 +609,8 @@ class TestMouthInterior:
         distance = np.abs(result.data.astype(np.int16) - avatar.cavity.astype(np.int16))
         assert int((distance.sum(axis=2) < 30).sum()) > 0, "the opening was never filled"
 
-    def test_the_photographs_own_opening_sets_what_fully_open_means(self, engine, tmp_path):
+    def test_the_photographs_own_opening_sets_what_fully_open_means(self):
         """A wider photograph should extend the range, not need a constant changed."""
-        engine.load_avatar(make_descriptor(tmp_path))
-        avatar = engine._loaded["avatar_test"]
-
         narrow = _source_weights(expressive_tracking(gap=0.05, jaw=0.5), full_gap=0.05)
         wide = _source_weights(expressive_tracking(gap=0.05, jaw=0.5), full_gap=0.15)
 
