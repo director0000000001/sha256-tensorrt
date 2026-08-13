@@ -190,12 +190,13 @@ python scripts/fetch_face_landmarker.py    # model bundle, ~3.6 MiB, not in Git
 
 | Decision | State |
 |---|---|
+| **Neural engine (LivePortrait)** | ❌ **Closed, day 6 — B005.** Licence is fine; the frame rate is not. 38.4 ms model-only against a 33.3 ms budget |
 | Project licence | `LICENSE` is a restrictive placeholder. **Not GPL** — settled by the kill-switch requirement, see ADR-0005 |
 | Virtual camera — development | ✅ **Settled** — pyvirtualcam, day 5, B004 |
 | Virtual camera — shipping | ❌ **Open, due at the day 7 review.** Needs a native component; pyvirtualcam cannot ship |
 | Is Windows 10 in scope? | Open. `MFCreateVirtualCamera` is Windows 11 only, and it is the licence-clean option |
-| LivePortrait weight licence | **UNCLEAR** — unresolved, blocks commercial use |
-| InsightFace replacement | Required — its weights are non-commercial research only |
+| LivePortrait weight licence | ✅ **Resolved, day 6** — the model card declares `license: mit`. Commercial use permitted; a written confirmation request is still open upstream |
+| InsightFace replacement | ✅ **Moot** — never downloaded. MediaPipe already does that job, Apache-2.0 |
 
 ---
 

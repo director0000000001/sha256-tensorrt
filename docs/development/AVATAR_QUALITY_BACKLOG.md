@@ -341,6 +341,58 @@ ranged 0.05 to 0.92 on a still subject — which changed the face's appearance
 every frame. That is a flicker by any definition, and it appeared when
 multi-source landed. Plausible, not proven; the owner has to look.
 
+## 9. Every photograph changes the whole face — opened day 6
+
+**The one that decides whether more photographs help or hurt**, so it is the
+next piece of work.
+
+`_blend_sources` produces **one blended source image for the entire face**. A
+smile photograph does not change only the mouth; it changes the forehead, the
+ears, the jaw, the hair. So does every other. Twelve active sources meant twelve
+photographs averaged across every pixel — a multiple exposure — which is what
+the owner saw as "144p" and what the sharpness measurement showed as 62 → 17.
+
+Day 6's neutral-baseline fix removed the *unnecessary* sources: a resting face
+now uses none. But the moment the user genuinely smiles, turns and raises an
+eyebrow at once — which is most of talking — three or four photographs are
+legitimately active and they still fight over the whole face.
+
+**The owner asked whether 100–150 photographs would solve the quality problem.
+With this architecture they would make it worse**, and that is measured rather
+than argued: going from 6 to 20 took animation from 13.8 ms to 22.1 ms and
+sharpness from 62 to 17. More sources means more of them active at once, and
+every one of them repaints the entire face.
+
+There is also a ceiling no number of photographs reaches. Expressions
+**combine**: smiling *and* looking left *and* brows raised *and* head turned.
+Photographs cover axes; a face occupies their product. Four axes at five steps
+is 625 combinations, six axes is over 15,000. Twenty-two photographs cover each
+axis once. A hundred and fifty cover each axis more finely and still cannot
+cover a combination.
+
+**The fix: each photograph contributes only to its own region.** Mouth
+photographs to the mouth, eye photographs to the eyes, brow photographs to the
+brows, turn photographs to the whole face because that is genuinely what they
+describe. Regions come from landmarks the tracker already provides, feathered so
+no boundary shows.
+
+Three things follow, and the third is the point:
+
+1. **Ghosting stops**, because each region is drawn from one or two photographs
+   instead of twelve.
+2. **Cost falls**, because a mouth blend touches the mouth's pixels rather than
+   the whole face — and the mouth is a small fraction of it.
+3. **More photographs finally help.** Combinations stop being a problem, because
+   the mouth axis and the eye axis no longer interfere with each other: they are
+   composed rather than averaged. *This* is the change that has to land before
+   generating more photographs is worth anyone's time.
+
+Worth doing alongside it: the source is warped down by about **3×** (773 px face
+to 255 px on screen) with `INTER_LINEAR`, which samples 2×2 and discards the
+rest. Downscaling the blended source with `INTER_AREA` before the mesh warp is
+the correct filter for a reduction, and it makes the warp cheaper at the same
+time.
+
 ## 7. The source blend outgrew its cache — opened day 5
 
 The owner supplied the full photograph set on day 5 and 20 sources are wired in.

@@ -45,6 +45,14 @@ credentials.json
 # ---------------------------------------------------------------------------
 models/downloads/
 models/checkpoints/
+
+# LivePortrait's weights and the ONNX build of them: 1.2 GB, fetched by
+# scripts/fetch_liveportrait.py. Kept on disk so B005 can be reopened without
+# downloading again; never in Git. The whole directories are named rather than
+# relying on the extension patterns below, because they also carry a plugin DLL.
+models/liveportrait/
+models/liveportrait_onnx/
+
 *.onnx
 *.engine
 *.plan
