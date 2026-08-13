@@ -14,8 +14,8 @@ record of the foundation milestone see `FOUNDATION_STATUS.md`.
 | 1 | GPU and toolchain verification | ✅ Done — B001 |
 | 2 | Real camera capture | ✅ Done — B002 |
 | 3 | Face tracking (MediaPipe) | ✅ Done — B003 |
-| **4** | **Tracking → avatar engine, first moving avatar** | **⬅️ next** |
-| 5 | Virtual camera | |
+| 4 | Avatar engine — first moving avatar | ✅ Done — landmark warp |
+| **5** | **Virtual camera** | **⬅️ next** |
 | 6–10 | Quality iteration | |
 | 11–12 | UI, avatar gallery, licence server | |
 | 13–14 | Bugs, buffer | |
@@ -55,13 +55,24 @@ record of the foundation milestone see `FOUNDATION_STATUS.md`.
   inside the application versus 6.30 ms standalone — integration costs nothing
   measurable.
 
+**Avatar engine** (day 4)
+- **Landmark-warp engine**: the portrait is deformed per frame onto the tracked
+  face. No neural network, no model weights, **no licensing risk**.
+- 11.5 ms mean / 15.5 ms p95 per animated frame; 97 mesh points, 156 triangles.
+- Full pipeline holds **29.6 fps** with the avatar composited.
+- First version cost 42 ms at p95 — over budget. The fix was one warp per
+  triangle instead of two, and working inside the face's bounding box.
+- Not photorealistic synthesis. LivePortrait remains the quality target and is
+  still blocked on the weight-licence question.
+
 **Budget**
 ```
 33.3 ms  frame budget at 30 fps
- 2.0 ms  spent by the pipeline machinery (placeholders)
- 6.3 ms  face tracking (p95 6.9 ms), on CPU
+ 6.3 ms  face tracking (p95 6.9 ms), CPU
+11.5 ms  avatar warp (p95 15.5 ms), CPU
+ 0.3 ms  rendering
 -------
-~25 ms   available for the avatar engine
+~15 ms   headroom
 ```
 
 ---

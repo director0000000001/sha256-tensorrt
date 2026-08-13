@@ -3,18 +3,20 @@
   "id": "my_avatar",
   "name": "My Avatar",
   "version": "1.0.0",
-  "description": "The first real avatar. Drop the source portrait in this directory as portrait.png; the engine that consumes it is wired on day 4.",
-  "tags": ["owner"],
+  "description": "The owner's first real avatar, driven by the landmark-warp engine.",
+  "tags": [
+    "owner"
+  ],
   "preview": null,
   "assets": [
     {
       "path": "portrait.png",
       "role": "source_portrait",
-      "optional": true
+      "optional": false
     }
   ],
   "engine": {
-    "engine_id": "null",
+    "engine_id": "warp",
     "estimated_vram_mb": 0,
     "device_preference": "auto"
   },

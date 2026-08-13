@@ -41,7 +41,10 @@ delegate = "auto"
 smoothing = 0.0
 
 [engine]
-backend = "null"
+# Warps the avatar portrait onto the tracked face. Deterministic, CPU-only, and
+# free of model-weight licensing risk. Not photorealistic synthesis — see
+# docs/OPEN_SOURCE_EVALUATION.md for why LivePortrait is still the quality goal.
+backend = "warp"
 device = "auto"
 precision = "auto"
 

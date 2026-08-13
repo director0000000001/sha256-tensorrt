@@ -19,7 +19,7 @@ import numpy as np
 from sha256.core.avatar import AvatarDescriptor
 from sha256.core.enums import DeviceKind, PixelFormat
 from sha256.core.errors import AvatarLoadError
-from sha256.core.types import FaceTrackingResult, RenderedFrame
+from sha256.core.types import FaceTrackingResult, RenderedFrame, VideoFrame
 from sha256.utils.logging import get_logger
 from sha256.utils.timing import now
 
@@ -111,7 +111,10 @@ class NullAvatarEngine:
         """
         return None
 
-    def animate(self, avatar_id: str, tracking: FaceTrackingResult) -> RenderedFrame:
+    def animate(
+        self, avatar_id: str, tracking: FaceTrackingResult, frame: VideoFrame
+    ) -> RenderedFrame:
+        del frame  # this engine synthesises from tracking alone
         descriptor = self._loaded.get(avatar_id)
         if descriptor is None:
             msg = f"avatar {avatar_id!r} is not loaded"

@@ -17,6 +17,7 @@ from pathlib import Path
 from sha256.app.registry import Registries
 from sha256.avatar.cache import ResidencyCache
 from sha256.avatar.engine_null import NullAvatarEngine
+from sha256.avatar.engine_warp import WarpAvatarEngine
 from sha256.avatar.manager import AvatarManager
 from sha256.avatar.repository import FilesystemAvatarRepository
 from sha256.camera.null import NullCameraProvider
@@ -81,6 +82,12 @@ def register_builtin_backends(registries: Registries) -> None:
         "null",
         NullAvatarEngine,
         description="Procedural placeholder face. Runs no model.",
+    )
+    registries.engine.register(
+        "warp",
+        WarpAvatarEngine,
+        description="Warps a portrait photograph onto the tracked face. No model weights.",
+        requires=("cv2",),
     )
     registries.renderer.register(
         "null",
@@ -176,7 +183,7 @@ def build_application(
         settings.virtual_camera.backend,
         device_name=settings.virtual_camera.device_name,
     )
-    engine: AvatarEngine = registries.engine.create(settings.engine.backend)
+    engine: AvatarEngine = _create_engine(registries, settings, paths)
     engine.start()
 
     avatars = _build_avatar_manager(settings, paths, engine)
@@ -210,6 +217,24 @@ def build_application(
         avatars=avatars,
         controller=controller,
     )
+
+
+def _create_engine(registries: Registries, settings: Settings, paths: AppPaths) -> AvatarEngine:
+    """Build the configured avatar engine.
+
+    The warp engine needs the face-landmark model to read the avatar's own
+    landmarks when it loads a portrait — the same model the tracker uses, so the
+    two meshes are the same topology by construction.
+    """
+    if settings.engine.backend != "warp":
+        placeholder: AvatarEngine = registries.engine.create(settings.engine.backend)
+        return placeholder
+
+    models_root = paths.resolve_relative(settings.models.root_path)
+    engine: AvatarEngine = registries.engine.create(
+        "warp", model_path=models_root / DEFAULT_MODEL_RELATIVE_PATH
+    )
+    return engine
 
 
 def _create_tracker(registries: Registries, settings: Settings, paths: AppPaths) -> FaceTracker:

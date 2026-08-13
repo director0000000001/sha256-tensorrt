@@ -208,7 +208,7 @@ class PipelineController:
             )
         else:
             with monitor.measure(PipelineStage.ANIMATION):
-                animated = engine.animate(active.id, tracking)
+                animated = engine.animate(active.id, tracking, frame)
             with monitor.measure(PipelineStage.RENDERING):
                 rendered = self._components.renderer.render(animated)
 

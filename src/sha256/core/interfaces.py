@@ -208,8 +208,22 @@ class AvatarEngine(Component, Protocol):
         """
         ...
 
-    def animate(self, avatar_id: str, tracking: FaceTrackingResult) -> RenderedFrame:
-        """Produce one animated frame for ``avatar_id`` from ``tracking``."""
+    def animate(
+        self, avatar_id: str, tracking: FaceTrackingResult, frame: VideoFrame
+    ) -> RenderedFrame:
+        """Produce one animated frame for ``avatar_id``.
+
+        Both the tracking result *and* the camera frame it came from are passed.
+        The original contract offered tracking only, on the assumption that an
+        engine synthesises purely from pose and expression. That assumption was
+        wrong twice over: LivePortrait's motion extractor consumes the driving
+        image directly, and any engine that composites the avatar over the real
+        scene needs those pixels. Both would otherwise have had to reach around
+        the interface for the frame.
+
+        ``frame`` is **borrowed** — see :class:`VideoFrame`. An engine that keeps
+        it beyond the call must copy it.
+        """
         ...
 
 
