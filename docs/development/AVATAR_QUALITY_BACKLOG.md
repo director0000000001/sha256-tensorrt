@@ -341,6 +341,50 @@ ranged 0.05 to 0.92 on a still subject — which changed the face's appearance
 every frame. That is a flicker by any definition, and it appeared when
 multi-source landed. Plausible, not proven; the owner has to look.
 
+## 15. The wedge above a blinking eye — DIAGNOSED, NOT FIXED
+
+**Seen:** on every blink, a hard-edged light triangle between the brow and the
+closed lid. Found by replaying the owner's recorded clip, which is what that
+harness is for.
+
+**Where it is not.** Rendering the blended source at the same frame shows a
+clean, correct half-closed eye. The blend is right. The defect is created by the
+mesh warp that follows it — which is why three plausible fixes all failed:
+
+| tried | result |
+|---|---|
+| Iris collapsing to a degenerate point | no change |
+| `_BROW_FOLLOW` lowered to match `_EYE_FOLLOW` | no change |
+| Dropping triangles *inside* the eye opening, as the mouth does | no change |
+
+**Where it is.** Drawing the target mesh over a blinking frame answered it in
+one look, after three guesses had not: the triangulation anchors **long, thin
+triangles on the eye landmarks and runs them out across the cheek and brow**. A
+fan of them converges on each inner corner. When the lid closes, that anchor
+point travels, every triangle in the fan sweeps with it, and the sweep is the
+wedge.
+
+Six landmarks per eye is the cause, and not for the reason recorded in item 3.
+The problem is not that six points cannot describe a lid — the photographs carry
+the lid now. It is that six points leave the eye **connected to the rest of the
+face**, with nothing local for the triangulation to attach to.
+
+**The fix, and why it is not a constant.** The eye needs the full eyelid ring —
+sixteen points per eye, which MediaPipe already provides and this mesh has never
+used. Then the long triangles terminate on the ring instead of reaching through
+the eye.
+
+Tried, and it is the right direction: the wedge shrinks markedly. It is not
+finished — some of it survives, and changing the mesh invalidates ten tests that
+encode the six-point layout, including the whole iris-placement group. That is a
+piece of work with its own verification, not a tweak, so it is written down here
+rather than half-landed.
+
+**Method note, which is the transferable part.** Four attempts at this cost
+about an hour; the mesh drawing cost five minutes and ended it. When a defect
+has survived two hypotheses, stop proposing a third and render the thing that is
+actually being blamed.
+
 ## 14. Direct light and a camera in front of the face — the owner's finding
 
 Not a code defect, and worth recording because it changes what "good" costs.
