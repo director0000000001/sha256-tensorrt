@@ -1,0 +1,351 @@
+================================================================================
+AVATAR PHOTO PROMPTS — 22 versions of one face
+================================================================================
+
+HOW TO USE
+
+  1. Attach portrait.png (the ORIGINAL base photo) to EVERY prompt.
+     Never generate a variant from a previous variant — the drift compounds.
+  2. Paste one prompt below, unchanged.
+  3. Save the result under the filename given in [FILE: ...].
+  4. Put it in:  C:\Users\User\desktop\sha256\avatars\my_avatar\
+  5. Check it before using:
+        python scripts/check_avatar_photos.py avatars/my_avatar/portrait.png <new file>
+
+  The engine uses whatever files are present. A missing one is not an error —
+  the avatar simply does without that expression.
+
+  ALREADY DONE: portrait.png, portrait_smile.png, portrait_mouth_open.png,
+                portrait_eyes_closed.png, portrait_brows_up.png,
+                portrait_turn_left.png, portrait_turn_right.png
+
+  IF THE LIST IS TOO LONG, generate these nine first — they cover most of what
+  is visible in an ordinary conversation:
+        3, 4, 6, 10, 11, 12, 13, 19, 20
+
+
+================================================================================
+TIER 1 — MOUTH SHAPES
+================================================================================
+
+--------------------------------------------------------------------------------
+[3] [FILE: portrait_smile_closed.png]
+--------------------------------------------------------------------------------
+Use the attached photograph as the exact reference for this person's identity.
+Produce a new photorealistic photograph of the SAME person.
+
+Keep these completely unchanged: face shape and bone structure, eye colour, eye
+spacing, nose shape and size, lip shape, skin tone and texture, facial hair,
+hairstyle and hairline, lighting direction and colour temperature, background,
+camera distance, framing, and how large the head is within the frame.
+
+Do not add glasses, makeup, filters, or stylisation. Photorealistic, sharp
+focus, plain background. Square 1:1 aspect ratio, 1024x1024.
+
+The only change is: a warm closed-mouth smile, lips together, no teeth showing
+at all. Head stays facing forward, eyes look at the camera.
+
+--------------------------------------------------------------------------------
+[4] [FILE: portrait_mouth_o.png]
+--------------------------------------------------------------------------------
+Use the attached photograph as the exact reference for this person's identity.
+Produce a new photorealistic photograph of the SAME person.
+
+Keep these completely unchanged: face shape and bone structure, eye colour, eye
+spacing, nose shape and size, lip shape, skin tone and texture, facial hair,
+hairstyle and hairline, lighting direction and colour temperature, background,
+camera distance, framing, and how large the head is within the frame.
+
+Do not add glasses, makeup, filters, or stylisation. Photorealistic, sharp
+focus, plain background. Square 1:1 aspect ratio, 1024x1024.
+
+The only change is: lips rounded and pushed forward as when saying "oh" or
+"you", a small round opening. Head stays facing forward, eyes look at the
+camera.
+
+--------------------------------------------------------------------------------
+[5] [FILE: portrait_mouth_wide.png]
+--------------------------------------------------------------------------------
+Use the attached photograph as the exact reference for this person's identity.
+Produce a new photorealistic photograph of the SAME person.
+
+Keep these completely unchanged: face shape and bone structure, eye colour, eye
+spacing, nose shape and size, lip shape, skin tone and texture, facial hair,
+hairstyle and hairline, lighting direction and colour temperature, background,
+camera distance, framing, and how large the head is within the frame.
+
+Do not add glasses, makeup, filters, or stylisation. Photorealistic, sharp
+focus, plain background. Square 1:1 aspect ratio, 1024x1024.
+
+The only change is: lips stretched wide and flat as when saying "ee", teeth
+close together and visible. Head stays facing forward, eyes look at the camera.
+
+--------------------------------------------------------------------------------
+[6] [FILE: portrait_mouth_pressed.png]
+--------------------------------------------------------------------------------
+Use the attached photograph as the exact reference for this person's identity.
+Produce a new photorealistic photograph of the SAME person.
+
+Keep these completely unchanged: face shape and bone structure, eye colour, eye
+spacing, nose shape and size, lip shape, skin tone and texture, facial hair,
+hairstyle and hairline, lighting direction and colour temperature, background,
+camera distance, framing, and how large the head is within the frame.
+
+Do not add glasses, makeup, filters, or stylisation. Photorealistic, sharp
+focus, plain background. Square 1:1 aspect ratio, 1024x1024.
+
+The only change is: lips pressed firmly together as when saying "m" or "b", a
+flat closed line. Head stays facing forward, eyes look at the camera.
+
+--------------------------------------------------------------------------------
+[7] [FILE: portrait_frown.png]
+--------------------------------------------------------------------------------
+Use the attached photograph as the exact reference for this person's identity.
+Produce a new photorealistic photograph of the SAME person.
+
+Keep these completely unchanged: face shape and bone structure, eye colour, eye
+spacing, nose shape and size, lip shape, skin tone and texture, facial hair,
+hairstyle and hairline, lighting direction and colour temperature, background,
+camera distance, framing, and how large the head is within the frame.
+
+Do not add glasses, makeup, filters, or stylisation. Photorealistic, sharp
+focus, plain background. Square 1:1 aspect ratio, 1024x1024.
+
+The only change is: corners of the mouth pulled down in a frown, mouth closed.
+Head stays facing forward, eyes look at the camera.
+
+
+================================================================================
+TIER 2 — EYES AND BROWS
+================================================================================
+
+--------------------------------------------------------------------------------
+[10] [FILE: portrait_look_left.png]
+--------------------------------------------------------------------------------
+Use the attached photograph as the exact reference for this person's identity.
+Produce a new photorealistic photograph of the SAME person.
+
+Keep these completely unchanged: face shape and bone structure, eye colour, eye
+spacing, nose shape and size, lip shape, skin tone and texture, facial hair,
+hairstyle and hairline, lighting direction and colour temperature, background,
+camera distance, framing, and how large the head is within the frame.
+
+Do not add glasses, makeup, filters, or stylisation. Photorealistic, sharp
+focus, plain background. Square 1:1 aspect ratio, 1024x1024.
+
+The only change is: the eyes look to one side without the head turning, pupils
+toward the corner of the eyes. Head stays facing forward, neutral expression,
+mouth closed.
+
+--------------------------------------------------------------------------------
+[11] [FILE: portrait_look_right.png]
+--------------------------------------------------------------------------------
+Use the attached photograph as the exact reference for this person's identity.
+Produce a new photorealistic photograph of the SAME person.
+
+Keep these completely unchanged: face shape and bone structure, eye colour, eye
+spacing, nose shape and size, lip shape, skin tone and texture, facial hair,
+hairstyle and hairline, lighting direction and colour temperature, background,
+camera distance, framing, and how large the head is within the frame.
+
+Do not add glasses, makeup, filters, or stylisation. Photorealistic, sharp
+focus, plain background. Square 1:1 aspect ratio, 1024x1024.
+
+The only change is: the eyes look to the opposite side from the previous
+photograph, pupils toward the other corner. Head stays facing forward, neutral
+expression, mouth closed.
+
+--------------------------------------------------------------------------------
+[12] [FILE: portrait_look_up.png]
+--------------------------------------------------------------------------------
+Use the attached photograph as the exact reference for this person's identity.
+Produce a new photorealistic photograph of the SAME person.
+
+Keep these completely unchanged: face shape and bone structure, eye colour, eye
+spacing, nose shape and size, lip shape, skin tone and texture, facial hair,
+hairstyle and hairline, lighting direction and colour temperature, background,
+camera distance, framing, and how large the head is within the frame.
+
+Do not add glasses, makeup, filters, or stylisation. Photorealistic, sharp
+focus, plain background. Square 1:1 aspect ratio, 1024x1024.
+
+The only change is: the eyes look upward while the head stays level, pupils
+raised toward the upper eyelids. Head stays facing forward, neutral expression,
+mouth closed.
+
+--------------------------------------------------------------------------------
+[13] [FILE: portrait_look_down.png]
+--------------------------------------------------------------------------------
+Use the attached photograph as the exact reference for this person's identity.
+Produce a new photorealistic photograph of the SAME person.
+
+Keep these completely unchanged: face shape and bone structure, eye colour, eye
+spacing, nose shape and size, lip shape, skin tone and texture, facial hair,
+hairstyle and hairline, lighting direction and colour temperature, background,
+camera distance, framing, and how large the head is within the frame.
+
+Do not add glasses, makeup, filters, or stylisation. Photorealistic, sharp
+focus, plain background. Square 1:1 aspect ratio, 1024x1024.
+
+The only change is: the eyes look downward while the head stays level, eyelids
+lowered a little as they naturally are when looking down. Head stays facing
+forward, neutral expression, mouth closed.
+
+--------------------------------------------------------------------------------
+[14] [FILE: portrait_eyes_wide.png]
+--------------------------------------------------------------------------------
+Use the attached photograph as the exact reference for this person's identity.
+Produce a new photorealistic photograph of the SAME person.
+
+Keep these completely unchanged: face shape and bone structure, eye colour, eye
+spacing, nose shape and size, lip shape, skin tone and texture, facial hair,
+hairstyle and hairline, lighting direction and colour temperature, background,
+camera distance, framing, and how large the head is within the frame.
+
+Do not add glasses, makeup, filters, or stylisation. Photorealistic, sharp
+focus, plain background. Square 1:1 aspect ratio, 1024x1024.
+
+The only change is: the eyes are opened wide as in alertness, with the eyebrows
+NOT raised. Head stays facing forward, eyes look at the camera, mouth closed.
+
+--------------------------------------------------------------------------------
+[15] [FILE: portrait_squint.png]
+--------------------------------------------------------------------------------
+Use the attached photograph as the exact reference for this person's identity.
+Produce a new photorealistic photograph of the SAME person.
+
+Keep these completely unchanged: face shape and bone structure, eye colour, eye
+spacing, nose shape and size, lip shape, skin tone and texture, facial hair,
+hairstyle and hairline, lighting direction and colour temperature, background,
+camera distance, framing, and how large the head is within the frame.
+
+Do not add glasses, makeup, filters, or stylisation. Photorealistic, sharp
+focus, plain background. Square 1:1 aspect ratio, 1024x1024.
+
+The only change is: the eyes are narrowed in a squint, lower eyelids raised.
+Head stays facing forward, eyes look at the camera, mouth closed.
+
+--------------------------------------------------------------------------------
+[16] [FILE: portrait_brows_down.png]
+--------------------------------------------------------------------------------
+Use the attached photograph as the exact reference for this person's identity.
+Produce a new photorealistic photograph of the SAME person.
+
+Keep these completely unchanged: face shape and bone structure, eye colour, eye
+spacing, nose shape and size, lip shape, skin tone and texture, facial hair,
+hairstyle and hairline, lighting direction and colour temperature, background,
+camera distance, framing, and how large the head is within the frame.
+
+Do not add glasses, makeup, filters, or stylisation. Photorealistic, sharp
+focus, plain background. Square 1:1 aspect ratio, 1024x1024.
+
+The only change is: the eyebrows are drawn down and together in a frown of
+concentration. Head stays facing forward, eyes look at the camera, mouth closed.
+
+
+================================================================================
+TIER 3 — HEAD POSE
+================================================================================
+
+--------------------------------------------------------------------------------
+[19] [FILE: portrait_turn_left_far.png]
+--------------------------------------------------------------------------------
+Use the attached photograph as the exact reference for this person's identity.
+Produce a new photorealistic photograph of the SAME person.
+
+Keep these completely unchanged: face shape and bone structure, eye colour, eye
+spacing, nose shape and size, lip shape, skin tone and texture, facial hair,
+hairstyle and hairline, lighting direction and colour temperature, background,
+camera distance, framing, and how large the head is within the frame.
+
+Do not add glasses, makeup, filters, or stylisation. Photorealistic, sharp
+focus, plain background. Square 1:1 aspect ratio, 1024x1024.
+
+The only change is: the head is turned about 40 degrees to one side, close to a
+profile but with both eyes still visible. The eyes still look at the camera.
+Neutral expression, mouth closed. The head stays upright — no tilt, no nod.
+
+--------------------------------------------------------------------------------
+[20] [FILE: portrait_turn_right_far.png]
+--------------------------------------------------------------------------------
+Use the attached photograph as the exact reference for this person's identity.
+Produce a new photorealistic photograph of the SAME person.
+
+Keep these completely unchanged: face shape and bone structure, eye colour, eye
+spacing, nose shape and size, lip shape, skin tone and texture, facial hair,
+hairstyle and hairline, lighting direction and colour temperature, background,
+camera distance, framing, and how large the head is within the frame.
+
+Do not add glasses, makeup, filters, or stylisation. Photorealistic, sharp
+focus, plain background. Square 1:1 aspect ratio, 1024x1024.
+
+The only change is: the head is turned about 40 degrees to the opposite side
+from the previous photograph, mirroring it, close to a profile but with both
+eyes still visible. The eyes still look at the camera. Neutral expression, mouth
+closed. The head stays upright — no tilt, no nod.
+
+--------------------------------------------------------------------------------
+[21] [FILE: portrait_tilt_up.png]
+--------------------------------------------------------------------------------
+Use the attached photograph as the exact reference for this person's identity.
+Produce a new photorealistic photograph of the SAME person.
+
+Keep these completely unchanged: face shape and bone structure, eye colour, eye
+spacing, nose shape and size, lip shape, skin tone and texture, facial hair,
+hairstyle and hairline, lighting direction and colour temperature, background,
+camera distance, framing, and how large the head is within the frame.
+
+Do not add glasses, makeup, filters, or stylisation. Photorealistic, sharp
+focus, plain background. Square 1:1 aspect ratio, 1024x1024.
+
+The only change is: the chin is raised and the head tilted back about 15
+degrees. The eyes still look at the camera. Neutral expression, mouth closed.
+The head stays facing forward — no turn to either side.
+
+--------------------------------------------------------------------------------
+[22] [FILE: portrait_tilt_down.png]
+--------------------------------------------------------------------------------
+Use the attached photograph as the exact reference for this person's identity.
+Produce a new photorealistic photograph of the SAME person.
+
+Keep these completely unchanged: face shape and bone structure, eye colour, eye
+spacing, nose shape and size, lip shape, skin tone and texture, facial hair,
+hairstyle and hairline, lighting direction and colour temperature, background,
+camera distance, framing, and how large the head is within the frame.
+
+Do not add glasses, makeup, filters, or stylisation. Photorealistic, sharp
+focus, plain background. Square 1:1 aspect ratio, 1024x1024.
+
+The only change is: the chin is lowered and the head tilted forward about 15
+degrees, so the eyes look at the camera from under the brows. Neutral
+expression, mouth closed. The head stays facing forward — no turn to either
+side.
+
+
+================================================================================
+IF YOU WANT TO REPLACE ONE YOU ALREADY HAVE
+================================================================================
+
+The engine measures each photograph's own mouth opening and treats the widest as
+"fully open", so a wider or more expressive replacement simply extends the
+range. Nothing in the code needs changing.
+
+  portrait_smile.png       — a broader smile shows more teeth to work with
+  portrait_mouth_open.png  — a wider opening extends how far you can open
+
+Superseded files can be renamed (e.g. portrait_smile_modest.png) rather than
+deleted; the engine only reads the names listed above.
+
+
+================================================================================
+WHAT EACH ONE FIXES
+================================================================================
+
+  closed smile      a warm smile borrows the teeth photo and looks toothy
+  "oh" and "ee"     every vowel looks like the same open mouth
+  pressed lips      "m" and "b" do not close the mouth
+  gaze, four ways   the avatar stares ahead while you read your screen
+  wide eyes/squint  the eyes only ever have one size
+  brows down        only surprise is available, never concentration
+  far turns         past about 25 degrees the face stretches
+  tilts             nodding stretches the face vertically
