@@ -20,13 +20,18 @@
       "optional": true
     },
     {
+      "path": "portrait_mouth_open.png",
+      "role": "source_mouth_open",
+      "optional": true
+    },
+    {
       "path": "portrait_eyes_closed.png",
       "role": "source_eyes_closed",
       "optional": true
     },
     {
-      "path": "portrait_mouth_open.png",
-      "role": "source_mouth_open",
+      "path": "portrait_brows_up.png",
+      "role": "source_brows_up",
       "optional": true
     },
     {

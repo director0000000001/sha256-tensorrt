@@ -53,7 +53,7 @@ from sha256.tracking.mediapipe_tracker import (  # noqa: E402
 EYE_OUTER_LEFT, EYE_OUTER_RIGHT = 33, 263
 EYE_INNER_LEFT, EYE_INNER_RIGHT = 133, 362
 FOREHEAD_TOP, CHIN_BOTTOM = 10, 152
-NOSE_BRIDGE, NOSE_TIP = 168, 4
+NOSE_LEFT, NOSE_RIGHT = 98, 327
 MOUTH_LEFT, MOUTH_RIGHT = 61, 291
 JAW_LEFT, JAW_RIGHT = 234, 454
 CHEEK_LEFT, CHEEK_RIGHT = 50, 280
@@ -91,24 +91,36 @@ class PhotoReport:
     """How open or smiling the mouth is, from the tracker's own blendshapes."""
 
 
-def measure(path: Path, tracker: MediaPipeFaceTracker, index: int) -> PhotoReport:
-    """Everything measurable about one photograph."""
+def measure(path: Path, model_path: Path) -> PhotoReport:
+    """Everything measurable about one photograph.
+
+    **A fresh tracker per photograph.** The tracker runs in VIDEO mode, which
+    carries a prior from the previous frame — and these are unrelated stills, of
+    different sizes. Feeding them through one tracker made it look for the face
+    where the last photograph's face had been, and it reported *no face at all*
+    in a perfectly good portrait. Verified directly: the same image detects
+    alone and fails when it follows another.
+    """
     import cv2
 
     image = cv2.imread(str(path), cv2.IMREAD_COLOR)
     if image is None:
         return PhotoReport(path=path, detected=False)
 
-    height, width = image.shape[:2]
-    result = tracker.process(
-        VideoFrame(
-            data=np.ascontiguousarray(image),
-            pixel_format=PixelFormat.BGR24,
-            # Timestamps must keep increasing across photographs, which is why
-            # the caller's index is threaded through rather than reset here.
-            metadata=FrameMetadata(frame_id=index, capture_timestamp=float(index)),
+    tracker = MediaPipeFaceTracker(model_path=model_path)
+    tracker.start()
+    try:
+        result = tracker.process(
+            VideoFrame(
+                data=np.ascontiguousarray(image),
+                pixel_format=PixelFormat.BGR24,
+                metadata=FrameMetadata(frame_id=0, capture_timestamp=0.0),
+            )
         )
-    )
+    finally:
+        tracker.stop()
+
+    height, width = image.shape[:2]
     if not result.face_detected or result.landmarks is None:
         return PhotoReport(path=path, detected=False, width=width, height=height)
 
@@ -122,12 +134,32 @@ def measure(path: Path, tracker: MediaPipeFaceTracker, index: int) -> PhotoRepor
     face_width = max(distance(JAW_LEFT, JAW_RIGHT), 1e-6)
     face_height = max(distance(FOREHEAD_TOP, CHIN_BOTTOM), 1e-6)
 
+    # Everything is measured against the distance between the outer eye
+    # corners, not against face height. Face height runs to the chin, and the
+    # chin drops when the mouth opens — so normalising by it made every
+    # proportion in an open-mouthed photograph look like the generator had
+    # reshaped the face. The eye span is fixed by the skull and moves only with
+    # a head turn, which is excused separately.
+    eye_span = max(distance(EYE_OUTER_LEFT, EYE_OUTER_RIGHT), 1e-6)
+
     identity = {
-        "eye_spacing / face_width": distance(EYE_INNER_LEFT, EYE_INNER_RIGHT) / face_width,
-        "eye_span / face_width": distance(EYE_OUTER_LEFT, EYE_OUTER_RIGHT) / face_width,
-        "mouth_width / face_width": distance(MOUTH_LEFT, MOUTH_RIGHT) / face_width,
-        "nose_length / face_height": distance(NOSE_BRIDGE, NOSE_TIP) / face_height,
-        "face_width / face_height": face_width / face_height,
+        "eye_spacing / eye_span": distance(EYE_INNER_LEFT, EYE_INNER_RIGHT) / eye_span,
+        "face_width / eye_span": face_width / eye_span,
+        "mouth_width / eye_span": distance(MOUTH_LEFT, MOUTH_RIGHT) / eye_span,
+        # Nose *width*, not length. The tip protrudes, so bridge-to-tip is a
+        # projection that changes with a couple of degrees of pitch — it flagged
+        # two good photographs for a pose difference. Alar width lies in the
+        # plane of the face.
+        #
+        # It is excused on a smiling photograph, and that was checked rather
+        # than assumed: across the owner's own set, nose width tracks mouth
+        # width monotonically — a modest smile reads +24% mouth and +13% nose, a
+        # broad one +37% and +21%, and a neutral mouth neither. A smile flares
+        # the nostrils. Identity drift would not correlate with smile strength.
+        "nose_width / eye_span": distance(NOSE_LEFT, NOSE_RIGHT) / eye_span,
+        # Kept, but excused when the mouth is open: it is the one measurement
+        # here that the jaw moves.
+        "face_height / eye_span": face_height / eye_span,
     }
 
     framing = {
@@ -228,9 +260,9 @@ def compare(base: PhotoReport, variant: PhotoReport) -> int:
         # open or smiling mouth is *supposed* to be a different shape. Flagging
         # either would train the reader to ignore the flags.
         excuse = ""
-        if turned and ("width" in name or "spacing" in name or "span" in name or "nose" in name):
+        if turned:
             excuse = "foreshortened by the turn"
-        elif expressive and "mouth" in name:
+        elif expressive and ("mouth" in name or "face_height" in name or "nose" in name):
             excuse = "the expression, which is the point of this photo"
 
         flag = ""
@@ -296,30 +328,23 @@ def main(argv: list[str] | None = None) -> int:
         print("Fetch it with: python scripts/fetch_face_landmarker.py")
         return 1
 
-    tracker = MediaPipeFaceTracker(model_path=model_path)
-    tracker.start()
-    try:
-        base = measure(args.base, tracker, index=0)
-        if not base.detected:
-            print(f"No face found in the base photo {args.base} — nothing to compare against.")
-            return 1
+    base = measure(args.base, model_path)
+    if not base.detected:
+        print(f"No face found in the base photo {args.base} — nothing to compare against.")
+        return 1
 
-        print(f"base   : {args.base.name}  ({base.width}x{base.height})")
-        assert base.pose is not None
-        print(
-            f"         yaw {base.pose['yaw']:+.1f}  pitch {base.pose['pitch']:+.1f}  "
-            f"roll {base.pose['roll']:+.1f}"
-        )
+    print(f"base   : {args.base.name}  ({base.width}x{base.height})")
+    assert base.pose is not None
+    print(
+        f"         yaw {base.pose['yaw']:+.1f}  pitch {base.pose['pitch']:+.1f}  "
+        f"roll {base.pose['roll']:+.1f}"
+    )
 
-        if not args.variants:
-            print("\nNo variants given. Pass the generated photos to compare them.")
-            return 0
+    if not args.variants:
+        print("\nNo variants given. Pass the generated photos to compare them.")
+        return 0
 
-        concerns = 0
-        for index, path in enumerate(args.variants, start=1):
-            concerns += compare(base, measure(path, tracker, index=index))
-    finally:
-        tracker.stop()
+    concerns = sum(compare(base, measure(path, model_path)) for path in args.variants)
 
     print(f"\n{'=' * 72}")
     if concerns == 0:
