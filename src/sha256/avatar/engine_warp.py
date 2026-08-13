@@ -60,6 +60,7 @@ SOURCE_PORTRAIT_ROLE = "source_portrait"
 # A curated subset of the 478-point mesh: the face oval, both brows, both eyes,
 # the nose, and the lips. Chosen so the mesh stays small enough to warp inside a
 # frame budget while still carrying every feature a viewer actually watches.
+# fmt: off
 _FACE_OVAL = (
     10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379,
     378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127,
@@ -73,6 +74,7 @@ _NOSE = (168, 6, 197, 195, 5, 4, 98, 97, 2, 326, 327)
 _OUTER_LIPS = (61, 39, 37, 0, 267, 269, 291, 405, 314, 17, 84, 181)
 _INNER_LIPS = (78, 81, 13, 311, 308, 402, 14, 178)
 _CHEEKS = (234, 454, 50, 280, 116, 345, 205, 425)
+# fmt: on
 
 MESH_INDICES: tuple[int, ...] = tuple(
     dict.fromkeys(

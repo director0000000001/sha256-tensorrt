@@ -279,9 +279,7 @@ class TestAnimation:
     def test_rgb_frames_are_accepted_too(self, engine, tmp_path):
         engine.load_avatar(make_descriptor(tmp_path))
         frame = camera_frame()
-        rgb = VideoFrame(
-            data=frame.data, pixel_format=PixelFormat.RGB24, metadata=frame.metadata
-        )
+        rgb = VideoFrame(data=frame.data, pixel_format=PixelFormat.RGB24, metadata=frame.metadata)
 
         result = engine.animate("avatar_test", tracking_from(synthetic_landmarks()), rgb)
 
