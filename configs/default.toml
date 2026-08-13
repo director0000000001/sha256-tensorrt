@@ -36,9 +36,11 @@ num_faces = 1
 # without a GPU delegate. Measured, not assumed — docs/benchmarks/B003.
 delegate = "auto"
 
-# Off until the latency it costs has been measured against the steadiness it
-# buys. See docs/benchmarks/PERFORMANCE_PLAN.md.
-smoothing = 0.0
+# Landmark jitter moves the avatar's mask edge a pixel or two every frame, which
+# reads as a shimmer around the face. Smoothing steadies it. 0.35 costs roughly
+# half a frame of latency — well inside the 100 ms where lip sync starts to
+# drift — and is the first thing to lower if the avatar feels laggy.
+smoothing = 0.35
 
 [engine]
 # Warps the avatar portrait onto the tracked face. Deterministic, CPU-only, and

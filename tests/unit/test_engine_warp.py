@@ -524,14 +524,20 @@ class TestTrackingLoss:
 
         assert tuple(lost.data[0, 0]) == (200, 10, 10)
 
-    def test_a_face_gone_for_good_stops_being_held(self, engine, tmp_path):
-        """Once they have left the frame there is no real face left to hide."""
-        engine.load_avatar(make_descriptor(tmp_path))
+    def test_a_long_loss_still_never_shows_the_camera(self, engine, tmp_path):
+        """There is no length of dropout at which the real face becomes correct.
+
+        An earlier version gave up after a second and passed the camera through,
+        on the theory that the user had left. If they had not left — a hand over
+        the face, an extreme angle, bad light — their real face went out on the
+        call for as long as the loss lasted.
+        """
+        engine.load_avatar(make_descriptor(tmp_path, image=_striped(256)))
         engine.animate("avatar_test", tracking_from(synthetic_landmarks()), self._frame(0.0))
 
-        lost = engine.animate("avatar_test", tracking_from(None), self._frame(5.0))
+        lost = engine.animate("avatar_test", tracking_from(None), self._frame(60.0))
 
-        assert lost.is_placeholder
+        assert not lost.is_placeholder
 
     def test_a_loss_before_any_face_was_seen_passes_through(self, engine, tmp_path):
         """Nothing to hold, and nothing to hide either."""
@@ -708,3 +714,51 @@ def _pitched(pitch: float) -> FaceTrackingResult:
         blendshapes=base.blendshapes,
         confidence=1.0,
     )
+
+
+class TestRelightingStability:
+    """The relighting must not chase the camera's exposure.
+
+    A webcam hunting its exposure makes the scene brighten and dim continuously.
+    A correction that follows it instantly makes the avatar's face pulse against
+    a background that is merely drifting — which is what the owner saw as the
+    picture flickering.
+    """
+
+    @staticmethod
+    def _scene(value: int) -> VideoFrame:
+        return VideoFrame(
+            data=np.full((240, 320, 3), value, dtype=np.uint8),
+            pixel_format=PixelFormat.BGR24,
+            metadata=FrameMetadata(frame_id=1, capture_timestamp=1.0),
+        )
+
+    def test_a_sudden_exposure_jump_is_absorbed(self, engine, tmp_path):
+        engine.load_avatar(make_descriptor(tmp_path, image=_striped(256)))
+        tracking = tracking_from(synthetic_landmarks())
+
+        # Settle on a dark scene, then jump the exposure.
+        for _ in range(10):
+            engine.animate("avatar_test", tracking, self._scene(30))
+        settled = engine.animate("avatar_test", tracking, self._scene(30))
+        jumped = engine.animate("avatar_test", tracking, self._scene(200))
+
+        face_before = float(settled.data[110:130, 150:170].mean())
+        face_after = float(jumped.data[110:130, 150:170].mean())
+
+        # The face follows the room, but nothing like all the way in one frame.
+        assert face_after > face_before, "the face ignored the change entirely"
+        assert face_after - face_before < 120, "the face jumped with the exposure"
+
+    def test_it_does_catch_up_over_several_frames(self, engine, tmp_path):
+        engine.load_avatar(make_descriptor(tmp_path, image=_striped(256)))
+        tracking = tracking_from(synthetic_landmarks())
+
+        for _ in range(5):
+            engine.animate("avatar_test", tracking, self._scene(30))
+        one = engine.animate("avatar_test", tracking, self._scene(200))
+        for _ in range(20):
+            engine.animate("avatar_test", tracking, self._scene(200))
+        many = engine.animate("avatar_test", tracking, self._scene(200))
+
+        assert float(many.data[110:130, 150:170].mean()) > float(one.data[110:130, 150:170].mean())

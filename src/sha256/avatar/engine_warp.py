@@ -146,12 +146,20 @@ _SMILE_REFERENCE = 0.54
 # the eyes shut reads far lower, and the owner's eyes stayed open for it.
 _BLINK_START, _BLINK_FULL = 0.20, 0.60
 
-# How long to keep driving the avatar from the last known face after tracking
-# drops it. Short losses are constant and showing the camera through one of them
-# puts the user's real face on the call — the single thing this product exists
-# to prevent. Past this the face is genuinely gone from frame, and there is
-# nothing left to hide.
-_HOLD_LAST_FACE_SECONDS = 1.0
+# The camera is **never** passed through once an avatar has been placed on a
+# face. Tracking drops out constantly, and every dropout used to show the user's
+# real face — first for a frame, then, after a one-second grace period was
+# added, for as long as the loss lasted. Both read as the picture flickering.
+#
+# There is no length of loss at which showing the real face becomes the right
+# answer: this product exists to keep it off the call. So the avatar stays where
+# it was last seen, indefinitely, and the background keeps moving. A face
+# hovering over an empty chair is strange; the user's face appearing on a call
+# they are hiding it from is a failure.
+#
+# Losses longer than this are logged, because a persistent one means something
+# else is wrong and it should not be silent.
+_LOG_HOLD_AFTER_SECONDS = 2.0
 
 # A curated subset of the 478-point mesh: the face oval, both brows, both eyes,
 # the nose, and the lips. Chosen so the mesh stays small enough to warp inside a
@@ -212,6 +220,13 @@ _FOREHEAD_REACH = 0.85
 _CORRECTION_DOWNSCALE = 8
 _CORRECTION_BLUR = 21
 
+# How much of the previous frame's relighting to keep. A camera hunting its
+# exposure makes the scene brighten and dim continuously, and a correction that
+# follows it instantly makes the avatar's face pulse against a background that
+# is only drifting. Smoothing the field over time removes the pulse; it costs a
+# few frames of lag on a genuine lighting change, which nobody notices.
+_CORRECTION_INERTIA = 0.8
+
 # How far *inside* the face outline the blend stops, and how soft the edge is,
 # both as a fraction of face width. Eroding rather than growing keeps the
 # transition on skin at both ends; a hard edge reads as a cut-out sticker, and
@@ -264,6 +279,7 @@ class _LoadedAvatar:
         "cached_blend",
         "cached_weights",
         "cavity",
+        "correction",
         "descriptor",
         "full_gap",
         "image",
@@ -298,6 +314,9 @@ class _LoadedAvatar:
         self.cached_weights: dict[str, int] = {}
         self.cached_blend: np.ndarray | None = None
 
+        # The previous frame's relighting field, kept at its small working size.
+        self.correction: np.ndarray | None = None
+
 
 class WarpAvatarEngine:
     """Deforms a portrait photograph to follow a tracked face."""
@@ -313,6 +332,7 @@ class WarpAvatarEngine:
         # what it was doing, and when. Used to ride out momentary tracking
         # losses without ever showing the camera through.
         self._last_face: dict[str, tuple[np.ndarray, FaceTrackingResult, float]] = {}
+        self._warned: dict[str, bool] = {}
 
     # --- Component ---------------------------------------------------------
 
@@ -429,6 +449,7 @@ class WarpAvatarEngine:
     def unload_avatar(self, avatar_id: str) -> None:
         self._loaded.pop(avatar_id, None)
         self._last_face.pop(avatar_id, None)
+        self._warned.pop(avatar_id, None)
 
     @property
     def loaded_avatars(self) -> Sequence[str]:
@@ -458,6 +479,7 @@ class WarpAvatarEngine:
 
         if target is not None:
             self._last_face[avatar_id] = (target, tracking, frame.metadata.capture_timestamp)
+            self._warned[avatar_id] = False
         else:
             # Tracking drops the face constantly for a frame or three, and
             # passing the camera through one of those puts the user's *real
@@ -467,14 +489,17 @@ class WarpAvatarEngine:
             # background stays live; only the face is held.
             held = self._last_face.get(avatar_id)
             if held is None:
+                # Nothing has ever been tracked, so there is no avatar to hold
+                # and no real face being hidden yet.
                 return self._passthrough(source, frame, tracking, avatar_id)
 
             target, tracking, since = held
-            if frame.metadata.capture_timestamp - since > _HOLD_LAST_FACE_SECONDS:
-                # Genuinely gone from frame rather than momentarily lost. There
-                # is no longer a real face to hide.
-                self._last_face.pop(avatar_id, None)
-                return self._passthrough(source, frame, tracking, avatar_id)
+            held_for = frame.metadata.capture_timestamp - since
+            if held_for > _LOG_HOLD_AFTER_SECONDS and not self._warned.get(avatar_id, False):
+                self._warned[avatar_id] = True
+                _LOG.warning(
+                    "Tracking has been lost for %.1fs; holding the avatar in place", held_for
+                )
 
         output = _warp_onto(avatar, target, source, tracking)
 
@@ -695,7 +720,7 @@ def _warp_onto(
 
     output = scene.copy()
     region = output[fy0:fy1, fx0:fx1].astype(np.float32)
-    matched = _match_colour(canvas.astype(np.float32), region, alpha)
+    matched = _match_colour(avatar, canvas.astype(np.float32), region, alpha)
     blended = region * (1.0 - alpha) + matched * alpha
     output[fy0:fy1, fx0:fx1] = blended.astype(np.uint8)
     return output
@@ -1124,7 +1149,9 @@ def _rigid_layer(
     return base
 
 
-def _match_colour(avatar: np.ndarray, scene: np.ndarray, alpha: np.ndarray) -> np.ndarray:
+def _match_colour(
+    loaded: _LoadedAvatar, avatar: np.ndarray, scene: np.ndarray, alpha: np.ndarray
+) -> np.ndarray:
     """Relight the avatar to the scene, as a smooth field rather than one number.
 
     The portrait was photographed under one light and the room is lit by
@@ -1165,6 +1192,16 @@ def _match_colour(avatar: np.ndarray, scene: np.ndarray, alpha: np.ndarray) -> n
     coverage = cv2.GaussianBlur(coverage, blur, 0)
 
     field = difference / (coverage[:, :, None] + 1e-3)
+
+    # Carry the previous field forward. The face box changes size every frame,
+    # so the stored field is resized onto the current one before blending —
+    # cheap at an eighth scale, and it is a smooth quantity anyway.
+    previous = loaded.correction
+    if previous is not None:
+        resized = cv2.resize(previous, (field.shape[1], field.shape[0]))
+        field = resized * _CORRECTION_INERTIA + field * (1.0 - _CORRECTION_INERTIA)
+    loaded.correction = field
+
     correction = cv2.resize(field, (width, height), interpolation=cv2.INTER_LINEAR)
 
     relit: np.ndarray = np.clip(avatar + correction, 0.0, 255.0)
