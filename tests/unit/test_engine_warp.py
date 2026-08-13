@@ -21,7 +21,12 @@ import numpy as np
 import pytest
 
 from sha256.avatar.engine_warp import _OVAL_SLICE as OVAL_COUNT_SLICE
-from sha256.avatar.engine_warp import MESH_INDICES, WarpAvatarEngine
+from sha256.avatar.engine_warp import (
+    MESH_INDICES,
+    WarpAvatarEngine,
+    _blend_sources,
+    _source_weights,
+)
 from sha256.core.avatar import AvatarDescriptor, AvatarManifest
 from sha256.core.enums import PixelFormat
 from sha256.core.errors import AvatarLoadError
@@ -338,3 +343,115 @@ class TestAnimation:
 
         with pytest.raises(AvatarLoadError, match="cannot composite"):
             engine.animate("avatar_test", tracking_from(synthetic_landmarks()), frame)
+
+
+class TestSourceSelection:
+    """Which extra photograph applies, and how much of it.
+
+    These weights are the whole multi-source feature: everything else is a
+    weighted average. A wrong sign here means the avatar turns the wrong way,
+    and a missing clamp means it performs its expressions rather than wearing
+    them.
+    """
+
+    @staticmethod
+    def _tracking(**shapes: float) -> FaceTrackingResult:
+        from sha256.core.types import BlendshapeSet, HeadPose
+
+        yaw = shapes.pop("yaw", 0.0)
+        names = tuple(shapes)
+        return FaceTrackingResult(
+            metadata=FrameMetadata(frame_id=1, capture_timestamp=1.0),
+            face_detected=True,
+            landmarks=LandmarkSet(points=synthetic_landmarks(), scheme="mediapipe_478"),
+            head_pose=HeadPose(yaw=yaw),
+            blendshapes=BlendshapeSet(
+                names=names,
+                weights=np.array([shapes[n] for n in names], dtype=np.float32),
+                scheme="mediapipe_52",
+            ),
+            confidence=1.0,
+        )
+
+    def test_an_open_jaw_calls_for_the_open_mouth_photo(self):
+        weights = _source_weights(self._tracking(jawOpen=0.6))
+
+        assert weights["source_mouth_open"] == pytest.approx(0.6)
+
+    def test_a_smile_calls_for_the_smiling_photo(self):
+        weights = _source_weights(self._tracking(mouthSmileLeft=0.5, mouthSmileRight=0.45))
+
+        assert weights["source_smile"] == pytest.approx(0.5)
+
+    def test_a_blink_calls_for_the_closed_eye_photo(self):
+        weights = _source_weights(self._tracking(eyeBlinkLeft=0.9, eyeBlinkRight=0.85))
+
+        assert weights["source_eyes_closed"] == pytest.approx(0.85)
+
+    def test_a_wink_does_not(self):
+        """The photo closes both eyes; driving it from one would close the other."""
+        weights = _source_weights(self._tracking(eyeBlinkLeft=0.95, eyeBlinkRight=0.02))
+
+        assert "source_eyes_closed" not in weights
+
+    def test_yaw_picks_the_side_it_turned_towards(self):
+        left = _source_weights(self._tracking(yaw=20.0))
+        right = _source_weights(self._tracking(yaw=-20.0))
+
+        assert left["source_turn_left"] > 0.5
+        assert "source_turn_right" not in left
+        assert right["source_turn_right"] > 0.5
+        assert "source_turn_left" not in right
+
+    def test_no_variant_takes_over_completely(self):
+        """Each was shot at one extreme; all the way there reads as performing."""
+        weights = _source_weights(self._tracking(jawOpen=1.0, yaw=90.0))
+
+        assert max(weights.values()) <= 0.85
+
+    def test_a_still_neutral_face_asks_for_nothing(self):
+        assert _source_weights(self._tracking(jawOpen=0.0, yaw=0.0)) == {}
+
+    def test_a_result_without_blendshapes_or_pose_is_survivable(self):
+        bare = FaceTrackingResult(
+            metadata=FrameMetadata(frame_id=1, capture_timestamp=1.0),
+            face_detected=True,
+        )
+
+        assert _source_weights(bare) == {}
+
+
+class TestSourceBlending:
+    def test_an_avatar_with_no_variants_uses_its_one_photograph(self, engine, tmp_path):
+        engine.load_avatar(make_descriptor(tmp_path))
+        avatar = engine._loaded["avatar_test"]
+
+        blended = _blend_sources(avatar, tracking_from(synthetic_landmarks()))
+
+        assert blended is avatar.image
+
+    def test_a_weighted_variant_moves_the_pixels_towards_it(self, engine, tmp_path):
+        from sha256.core.types import BlendshapeSet, HeadPose
+
+        engine.load_avatar(make_descriptor(tmp_path))
+        avatar = engine._loaded["avatar_test"]
+        # A variant that is pure white, so its contribution is unmistakable.
+        avatar.sources["source_mouth_open"] = np.full_like(avatar.image, 255)
+
+        tracking = FaceTrackingResult(
+            metadata=FrameMetadata(frame_id=1, capture_timestamp=1.0),
+            face_detected=True,
+            landmarks=LandmarkSet(points=synthetic_landmarks(), scheme="mediapipe_478"),
+            head_pose=HeadPose(),
+            blendshapes=BlendshapeSet(
+                names=("jawOpen",),
+                weights=np.array([0.5], dtype=np.float32),
+                scheme="mediapipe_52",
+            ),
+            confidence=1.0,
+        )
+
+        blended = _blend_sources(avatar, tracking)
+
+        assert float(blended.mean()) > float(avatar.image.mean())
+        assert float(blended.mean()) < 255.0

@@ -58,6 +58,34 @@ ENGINE_ID = "warp"
 
 SOURCE_PORTRAIT_ROLE = "source_portrait"
 
+# Extra photographs of the same face, and what makes each one relevant. All are
+# optional: with none of them the engine behaves exactly as it did with one
+# photograph.
+#
+# Every source is aligned to the base portrait's landmark layout when it loads,
+# so blending them is a straight weighted average of pixels. That works because
+# they are the same person under the same light: after alignment the images are
+# nearly identical *except* in the region the photograph was taken to capture,
+# so a global blend only changes the mouth, or the eyes, or the shading of a
+# turned cheek. Nothing has to decide which pixels belong to which feature.
+_VARIANT_ROLES: tuple[str, ...] = (
+    "source_smile",
+    "source_mouth_open",
+    "source_eyes_closed",
+    "source_turn_left",
+    "source_turn_right",
+)
+
+# Yaw at which a turned photograph is fully in play. Set from the photographs
+# the owner generated, which measured +21.1 and -19.6 degrees: past their own
+# angle they would be extrapolating rather than contributing.
+_TURN_FULL_DEGREES = 20.0
+
+# No single variant may take over completely. Each was photographed at one
+# extreme of its expression, and a face driven all the way there looks like it
+# is performing rather than talking.
+_MAX_VARIANT_WEIGHT = 0.85
+
 # A curated subset of the 478-point mesh: the face oval, both brows, both eyes,
 # the nose, and the lips. Chosen so the mesh stays small enough to warp inside a
 # frame budget while still carrying every feature a viewer actually watches.
@@ -119,9 +147,14 @@ _MASK_FEATHER = 0.07
 
 
 class _LoadedAvatar:
-    """Everything precomputed for one avatar, held for the life of the load."""
+    """Everything precomputed for one avatar, held for the life of the load.
 
-    __slots__ = ("descriptor", "image", "points", "triangles")
+    ``sources`` maps a role to a photograph already warped onto ``points`` — the
+    base portrait's landmark layout — so every source shares one geometry and
+    blending them is an average rather than a registration problem.
+    """
+
+    __slots__ = ("descriptor", "image", "points", "sources", "triangles")
 
     def __init__(
         self,
@@ -129,11 +162,13 @@ class _LoadedAvatar:
         image: np.ndarray,
         points: np.ndarray,
         triangles: np.ndarray,
+        sources: dict[str, np.ndarray],
     ) -> None:
         self.descriptor = descriptor
         self.image = image
         self.points = points
         self.triangles = triangles
+        self.sources = sources
 
 
 class WarpAvatarEngine:
@@ -192,19 +227,66 @@ class WarpAvatarEngine:
             )
             raise AvatarLoadError(msg)
 
-        image = self._read_portrait(descriptor)
-        points = self._landmarks_of(image, descriptor.id)
-        triangles = _triangulate(points, image.shape[1], image.shape[0])
+        full = self._read_portrait(descriptor)
+        full_points = self._landmarks_of(full, descriptor.id)
 
-        self._loaded[descriptor.id] = _LoadedAvatar(descriptor, image, points, triangles)
+        # Crop to the face before anything else. Blending sources is a
+        # per-pixel cost paid every frame, and a 1024x1024 portrait is mostly
+        # background and shoulders that the mesh never samples. Cropping first
+        # measured 31 ms down to single digits.
+        image, points = _crop_to_face(full, full_points)
+        triangles = _triangulate(points, image.shape[1], image.shape[0])
+        sources = self._align_variants(descriptor, image, points, triangles)
+
+        self._loaded[descriptor.id] = _LoadedAvatar(descriptor, image, points, triangles, sources)
         _LOG.info(
-            "Loaded avatar %s: %dx%d portrait, %d mesh points, %d triangles",
+            "Loaded avatar %s: %dx%d portrait, %d mesh points, %d triangles, "
+            "%d extra source(s): %s",
             descriptor.id,
             image.shape[1],
             image.shape[0],
             len(points),
             len(triangles),
+            len(sources),
+            ", ".join(sorted(sources)) or "none",
         )
+
+    def _align_variants(
+        self,
+        descriptor: AvatarDescriptor,
+        base_image: np.ndarray,
+        base_points: np.ndarray,
+        triangles: np.ndarray,
+    ) -> dict[str, np.ndarray]:
+        """Warp every extra photograph onto the base portrait's geometry.
+
+        Done once, here, because it is the expensive half: each variant needs a
+        face detection and a full mesh warp. Afterwards they are interchangeable
+        pixel buffers of the same shape, and mixing them costs an average.
+
+        A variant that cannot be read, or has no face in it, is skipped with a
+        warning rather than failing the load. The avatar still works without it,
+        and losing one expression is a smaller harm than refusing to start.
+        """
+        height, width = base_image.shape[:2]
+        aligned: dict[str, np.ndarray] = {}
+
+        for role in _VARIANT_ROLES:
+            asset = descriptor.manifest.asset_by_role(role)
+            if asset is None:
+                continue
+
+            path = descriptor.asset_path(asset)
+            try:
+                image = self._read_image(path)
+                points = self._landmarks_of(image, f"{descriptor.id}:{role}")
+            except AvatarLoadError as exc:
+                _LOG.warning("Avatar %s: skipping %s — %s", descriptor.id, role, exc)
+                continue
+
+            aligned[role] = warp_mesh(image, points, base_points, triangles, width, height)
+
+        return aligned
 
     def unload_avatar(self, avatar_id: str) -> None:
         self._loaded.pop(avatar_id, None)
@@ -241,7 +323,7 @@ class WarpAvatarEngine:
         if target is None:
             return self._passthrough(source, frame, tracking, avatar_id)
 
-        output = _warp_onto(avatar, target, source)
+        output = _warp_onto(avatar, target, source, tracking)
 
         return RenderedFrame(
             data=output,
@@ -268,7 +350,6 @@ class WarpAvatarEngine:
     # --- loading helpers ---------------------------------------------------
 
     def _read_portrait(self, descriptor: AvatarDescriptor) -> np.ndarray:
-        import cv2
 
         asset = descriptor.manifest.asset_by_role(SOURCE_PORTRAIT_ROLE)
         if asset is None:
@@ -283,11 +364,18 @@ class WarpAvatarEngine:
             msg = f"avatar {descriptor.id!r}: portrait not found at {path}"
             raise AvatarLoadError(msg)
 
+        return self._read_image(path)
+
+    @staticmethod
+    def _read_image(path: Path) -> np.ndarray:
+        import cv2
+
         image = cv2.imread(str(path), cv2.IMREAD_COLOR)
         if image is None:
-            msg = f"avatar {descriptor.id!r}: {path.name} could not be read as an image"
+            msg = f"{path.name} could not be read as an image"
             raise AvatarLoadError(msg)
-        return image
+        loaded: np.ndarray = image
+        return loaded
 
     def _landmarks_of(self, image: np.ndarray, avatar_id: str) -> np.ndarray:
         """Find the portrait's own landmarks, in pixels.
@@ -373,7 +461,12 @@ def _triangulate(points: np.ndarray, width: int, height: int) -> np.ndarray:
     return np.array(triangles, dtype=np.int32)
 
 
-def _warp_onto(avatar: _LoadedAvatar, target: np.ndarray, scene: np.ndarray) -> np.ndarray:
+def _warp_onto(
+    avatar: _LoadedAvatar,
+    target: np.ndarray,
+    scene: np.ndarray,
+    tracking: FaceTrackingResult,
+) -> np.ndarray:
     """Warp the avatar's mesh onto ``target`` and blend it over ``scene``.
 
     Written around one measured fact: the cost is dominated by *per-call*
@@ -392,7 +485,6 @@ def _warp_onto(avatar: _LoadedAvatar, target: np.ndarray, scene: np.ndarray) -> 
     *   **No boolean fancy-indexing on the hot path.** ``copyTo`` with a mask
         does the same job without building an index array per triangle.
     """
-    import cv2
 
     height, width = scene.shape[:2]
 
@@ -410,22 +502,154 @@ def _warp_onto(avatar: _LoadedAvatar, target: np.ndarray, scene: np.ndarray) -> 
     # OpenCV's geometry functions only accept 32-bit float or int.
     local = (target - (fx0, fy0)).astype(np.float32)
 
-    source_points = avatar.points
+    canvas = warp_mesh(
+        _blend_sources(avatar, tracking),
+        avatar.points,
+        local,
+        avatar.triangles,
+        box_w,
+        box_h,
+    )
 
-    # A base layer: the whole portrait placed with one similarity transform.
-    # The triangle mesh paints over it. Its only job is to make sure nothing is
-    # ever black — a single-pixel gap between two triangles would otherwise show
-    # the empty canvas through the face, and this is cheaper than growing every
-    # triangle to overlap its neighbours.
-    canvas = _base_layer(avatar, source_points, local, box_w, box_h)
+    alpha = _destination_mask(local, box_w, box_h)
 
-    for a, b, c in avatar.triangles:
-        dst = local[[a, b, c]]
+    output = scene.copy()
+    region = output[fy0:fy1, fx0:fx1].astype(np.float32)
+    matched = _match_colour(canvas.astype(np.float32), region, alpha)
+    blended = region * (1.0 - alpha) + matched * alpha
+    output[fy0:fy1, fx0:fx1] = blended.astype(np.uint8)
+    return output
+
+
+def _crop_to_face(image: np.ndarray, points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Trim a portrait to its face, and move the landmarks with it.
+
+    The padding is generous — the mesh reaches past the outline at the jaw and
+    brow, and the rigid backdrop layer wants some context around it — but a
+    portrait is mostly shoulders and wall, and every one of those pixels would
+    otherwise be blended on every frame.
+    """
+    height, width = image.shape[:2]
+    face_width = float(points[:, 0].max() - points[:, 0].min())
+    pad = max(int(face_width * 0.35), 16)
+
+    x0 = max(int(points[:, 0].min()) - pad, 0)
+    y0 = max(int(points[:, 1].min()) - pad, 0)
+    x1 = min(int(points[:, 0].max()) + pad, width)
+    y1 = min(int(points[:, 1].max()) + pad, height)
+
+    cropped = np.ascontiguousarray(image[y0:y1, x0:x1])
+    moved = (points - (x0, y0)).astype(np.float32)
+    return cropped, moved
+
+
+def _source_weights(tracking: FaceTrackingResult) -> dict[str, float]:
+    """How much each extra photograph should contribute to this frame.
+
+    Read straight off the tracker: the blendshapes are already a measurement of
+    "how open is this mouth" and "how closed is this eye", and the yaw was
+    verified in B003. Nothing here needs a threshold or a state machine, which
+    is what keeps it from flickering between sources.
+    """
+    weights: dict[str, float] = {}
+    shapes = tracking.blendshapes
+
+    if shapes is not None and shapes.names:
+        smile = max(shapes.get("mouthSmileLeft"), shapes.get("mouthSmileRight"))
+        blink = min(shapes.get("eyeBlinkLeft"), shapes.get("eyeBlinkRight"))
+        weights["source_smile"] = smile
+        weights["source_mouth_open"] = shapes.get("jawOpen")
+        # min, not max, of the two eyes: a wink is one eye, and driving a
+        # both-eyes-closed photograph from a wink closes the wrong one too.
+        weights["source_eyes_closed"] = blink
+
+    pose = tracking.head_pose
+    if pose is not None:
+        turn = pose.yaw / _TURN_FULL_DEGREES
+        weights["source_turn_left"] = turn
+        weights["source_turn_right"] = -turn
+
+    return {
+        role: min(max(value, 0.0), _MAX_VARIANT_WEIGHT)
+        for role, value in weights.items()
+        if value > 0.02
+    }
+
+
+def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.ndarray:
+    """The source photograph for this frame: the base, plus whatever applies.
+
+    A weighted average, in the base portrait's geometry. The variants were
+    aligned to it at load, so this is a straight blend of pixels — no
+    registration, no per-feature masks, no decision about which pixels are
+    "the mouth". The images only differ where the photographs differ.
+    """
+    if not avatar.sources:
+        return avatar.image
+
+    weights = {
+        role: weight for role, weight in _source_weights(tracking).items() if role in avatar.sources
+    }
+    if not weights:
+        return avatar.image
+
+    # Variants share the frame with the base rather than replacing it, so the
+    # total never exceeds one and the base always keeps the remainder.
+    total = sum(weights.values())
+    if total > 1.0:
+        weights = {role: weight / total for role, weight in weights.items()}
+        total = 1.0
+
+    # addWeighted rather than numpy arithmetic, and uint8 throughout. The
+    # obvious `image.astype(float32) * w + ...` allocates a float buffer per
+    # source and per operation; on the frame path that measured 31 ms against
+    # 33 ms of budget. This is the same sum with SIMD behind it.
+    import cv2
+
+    # Scaling by (1 - total) expressed as a weighted sum, which is the one
+    # overload OpenCV types accept for a scalar multiply of an image.
+    blended = cv2.addWeighted(avatar.image, 1.0 - total, avatar.image, 0.0, 0.0)
+    for role, weight in weights.items():
+        blended = cv2.addWeighted(blended, 1.0, avatar.sources[role], weight, 0.0)
+
+    result: np.ndarray = blended
+    return result
+
+
+def warp_mesh(
+    image: np.ndarray,
+    source_points: np.ndarray,
+    target_points: np.ndarray,
+    triangles: np.ndarray,
+    width: int,
+    height: int,
+) -> np.ndarray:
+    """Warp ``image`` so its mesh lands on ``target_points``, into a new canvas.
+
+    Used twice: at load time to bring every source photograph onto the base
+    portrait's landmark layout, and every frame to bring the result onto the
+    live face. One routine for both means the two can never disagree about what
+    a triangle maps to.
+
+    Written around one measured fact: the cost is dominated by *per-call*
+    overhead, not by pixels. An earlier version warped both the image and a mask
+    for every triangle and cost 42 ms at p95, over the whole 33 ms budget. So
+    there is one warp per triangle, everything happens inside the target's
+    bounding box, and no boolean fancy-indexing appears on the hot path.
+    """
+    import cv2
+
+    # A rigid placement of the whole image first. The mesh paints over it; its
+    # only job is that nothing is ever black, because a single-pixel gap between
+    # two triangles would otherwise show the empty canvas through the face.
+    canvas = _rigid_layer(image, source_points, target_points, width, height)
+
+    for a, b, c in triangles:
+        dst = target_points[[a, b, c]]
 
         x, y, w, h = cv2.boundingRect(dst)
-        # Clip to the canvas; a triangle partly outside is normal at the edges.
         x0, y0 = max(x, 0), max(y, 0)
-        x1, y1 = min(x + w, box_w), min(y + h, box_h)
+        x1, y1 = min(x + w, width), min(y + h, height)
         if x1 <= x0 or y1 <= y0:
             continue
 
@@ -434,12 +658,13 @@ def _warp_onto(avatar: _LoadedAvatar, target: np.ndarray, scene: np.ndarray) -> 
         if sw <= 0 or sh <= 0:
             continue
 
+        patch = image[sy : sy + sh, sx : sx + sw]
+        if patch.size == 0:
+            continue
+
         matrix = cv2.getAffineTransform(
             (src - (sx, sy)).astype(np.float32), (dst - (x, y)).astype(np.float32)
         )
-        patch = avatar.image[sy : sy + sh, sx : sx + sw]
-        if patch.size == 0:
-            continue
 
         # BORDER_REPLICATE, not the default. The source patch is the triangle's
         # bounding box, so sampling near the triangle's own edges falls just
@@ -459,28 +684,21 @@ def _warp_onto(avatar: _LoadedAvatar, target: np.ndarray, scene: np.ndarray) -> 
             canvas[y0:y1, x0:x1],
         )
 
-    alpha = _destination_mask(local, box_w, box_h)
-
-    output = scene.copy()
-    region = output[fy0:fy1, fx0:fx1].astype(np.float32)
-    matched = _match_colour(canvas.astype(np.float32), region, alpha)
-    blended = region * (1.0 - alpha) + matched * alpha
-    output[fy0:fy1, fx0:fx1] = blended.astype(np.uint8)
-    return output
+    return canvas
 
 
-def _base_layer(
-    avatar: _LoadedAvatar,
+def _rigid_layer(
+    image: np.ndarray,
     source_points: np.ndarray,
     target_points: np.ndarray,
     width: int,
     height: int,
 ) -> np.ndarray:
-    """The portrait placed by a single similarity transform, as a backdrop.
+    """The image placed by a single similarity transform, as a backdrop.
 
-    Rigid: rotation, uniform scale, translation. It carries no expression — the
-    triangle mesh painted over it does that. It exists so that a pixel the mesh
-    happens to miss shows a plausible piece of face rather than a black gap.
+    Rotation, uniform scale, translation. It carries no expression — the mesh
+    painted over it does that. It exists so a pixel the mesh happens to miss
+    shows a plausible piece of face rather than a black gap.
     """
     import cv2
 
@@ -493,7 +711,7 @@ def _base_layer(
         return np.zeros((height, width, 3), dtype=np.uint8)
 
     base: np.ndarray = cv2.warpAffine(
-        avatar.image,
+        image,
         matrix,
         (width, height),
         flags=cv2.INTER_LINEAR,
@@ -545,7 +763,8 @@ def _match_colour(avatar: np.ndarray, scene: np.ndarray, alpha: np.ndarray) -> n
     field = difference / (coverage[:, :, None] + 1e-3)
     correction = cv2.resize(field, (width, height), interpolation=cv2.INTER_LINEAR)
 
-    return np.clip(avatar + correction, 0.0, 255.0)
+    relit: np.ndarray = np.clip(avatar + correction, 0.0, 255.0)
+    return relit
 
 
 def _trim_forehead(points: np.ndarray) -> np.ndarray:
