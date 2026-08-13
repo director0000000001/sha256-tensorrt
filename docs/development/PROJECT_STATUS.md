@@ -15,7 +15,7 @@ record of the foundation milestone see `FOUNDATION_STATUS.md`.
 | 2 | Real camera capture | ✅ Done — B002 |
 | 3 | Face tracking (MediaPipe) | ✅ Done — B003 |
 | 4 | Avatar engine — first moving avatar | ✅ Done — landmark warp |
-| **5** | **Virtual camera** | **⬅️ next** |
+| **5** | **Virtual camera, or avatar quality** | **⬅️ owner's call — see the backlog** |
 | 6–10 | Quality iteration | |
 | 11–12 | UI, avatar gallery, licence server | |
 | 13–14 | Bugs, buffer | |
@@ -64,6 +64,11 @@ record of the foundation milestone see `FOUNDATION_STATUS.md`.
   triangle instead of two, and working inside the face's bounding box.
 - Not photorealistic synthesis. LivePortrait remains the quality target and is
   still blocked on the weight-licence question.
+- **Five quality problems observed on real use** — forehead seam, no teeth when
+  smiling, eyes do not close, eyes grow when opened wide, and rotation past
+  ~15° losing alignment. Recorded with causes and candidate fixes in
+  `AVATAR_QUALITY_BACKLOG.md`. Three of the five come down to one limit: the
+  engine can only show what the source photograph contains.
 
 **Budget**
 ```
@@ -126,7 +131,7 @@ python scripts/fetch_face_landmarker.py    # model bundle, ~3.6 MiB, not in Git
   percentiles. See `docs/benchmarks/PERFORMANCE_PLAN.md`.
 - **Benchmarks are numbered** `B00N-topic.md` in `docs/benchmarks/`.
 - Run after every change: `pytest` · `ruff check` · `ruff format` · `mypy`.
-  All four are currently clean; 244 tests pass.
+  All four are currently clean; 309 tests pass.
 - Commit messages explain *why*. Push to `origin main` (private repo).
 
 ---
