@@ -271,6 +271,11 @@ _IRIS_POSITIONS = _positions(_LEFT_IRIS, _RIGHT_IRIS)
 # gaze comfortably inside them. Nothing is lost by it: gaze reads as a
 # *direction* long before it reads as a magnitude, and a video call is not
 # looked at from the corner of the eye.
+# Height over width of an open eye, used to tell how far a lid has closed
+# without remembering anything. Measured across the owner's own photographs,
+# where an open eye sits near 0.33 and a closed one near 0.05.
+_EYE_OPEN_RATIO = 0.30
+
 _GAZE_SCALE = 0.55
 _GAZE_LIMIT_X = 0.065
 _GAZE_LIMIT_UP, _GAZE_LIMIT_DOWN = 0.035, 0.012
@@ -1260,11 +1265,26 @@ def _place_irises(damped: np.ndarray, target: np.ndarray, rigid: np.ndarray) -> 
 
         own_socket = damped[eye]
         own_width = float(own_socket[:, 0].max() - own_socket[:, 0].min())
+        own_height = float(own_socket[:, 1].max() - own_socket[:, 1].min())
 
-        # The avatar's iris, kept at its own size, centred where that gaze puts
-        # it in the avatar's own socket.
+        # An eyelid covers the iris as it closes, and the mesh has to be told
+        # so. Left at full size inside a socket that has shut, the iris is
+        # larger than the shape containing it and the triangles smear it into
+        # the dark vertical streaks the owner saw across a blink — the same
+        # artefact, in the same place, as before the photographs carried their
+        # own geometry, and it survived that fix because it comes from here.
+        #
+        # Height against width rather than against a remembered open eye: it
+        # needs no state, and an eye's proportions are what change when it
+        # closes. Shrinking the iris with the socket is a cheap stand-in for
+        # occlusion, and at a full blink it vanishes behind the lid, which is
+        # what it should do.
+        openness = min((own_height / max(own_width, 1e-6)) / _EYE_OPEN_RATIO, 1.0)
+
+        # The avatar's iris, at its own size, centred where that gaze puts it in
+        # the avatar's own socket.
         wanted = own_socket.mean(axis=0) + gaze * own_width
-        damped[iris] = rigid[iris] - rigid[iris].mean(axis=0) + wanted
+        damped[iris] = (rigid[iris] - rigid[iris].mean(axis=0)) * openness + wanted
 
 
 def _crop_to_face(image: np.ndarray, points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
