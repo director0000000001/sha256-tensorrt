@@ -3,7 +3,7 @@
   "id": "my_avatar",
   "name": "My Avatar",
   "version": "1.0.0",
-  "description": "The owner's first real avatar, driven by the landmark-warp engine.",
+  "description": "The owner's avatar. Multiple source photographs of one identity: the engine uses the base today, and the variants as the multi-source work lands. See docs/development/AVATAR_QUALITY_BACKLOG.md.",
   "tags": [
     "owner"
   ],
@@ -13,6 +13,31 @@
       "path": "portrait.png",
       "role": "source_portrait",
       "optional": false
+    },
+    {
+      "path": "portrait_smile.png",
+      "role": "source_smile",
+      "optional": true
+    },
+    {
+      "path": "portrait_eyes_closed.png",
+      "role": "source_eyes_closed",
+      "optional": true
+    },
+    {
+      "path": "portrait_mouth_open.png",
+      "role": "source_mouth_open",
+      "optional": true
+    },
+    {
+      "path": "portrait_turn_left.png",
+      "role": "source_turn_left",
+      "optional": true
+    },
+    {
+      "path": "portrait_turn_right.png",
+      "role": "source_turn_right",
+      "optional": true
     }
   ],
   "engine": {

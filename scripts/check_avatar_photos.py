@@ -63,12 +63,14 @@ CHEEK_LEFT, CHEEK_RIGHT = 50, 280
 # detections of one image move these by well under a percent.
 IDENTITY_TOLERANCE = 0.06
 
-# Framing is compared in absolute fractions of the image, not relative, and the
-# threshold was set by measurement: a 25% zoom of the same photograph moves
-# `face_width / image_width` by 0.099, and a jump that size is plainly visible
-# when the engine switches source. 0.05 catches it with room to spare while
-# staying quiet on two photographs shot the same way.
-FRAMING_TOLERANCE = 0.05
+# Below this the face carries too few pixels to warp without going soft. The
+# base portrait puts about 450 px across the face; half of that still holds up
+# on a 720p call.
+MINIMUM_FACE_PIXELS = 220
+
+# Blendshape total above which the mouth counts as open or smiling, and mouth
+# measurements stop being comparable with the neutral base.
+EXPRESSION_THRESHOLD = 0.20
 
 # Above this yaw the horizontal ratios are compressed by foreshortening rather
 # than by the generator changing the face, and saying otherwise would be wrong.
@@ -85,6 +87,8 @@ class PhotoReport:
     framing: dict[str, float] | None = None
     pose: dict[str, float] | None = None
     skin: tuple[float, float, float] | None = None
+    expression: float = 0.0
+    """How open or smiling the mouth is, from the tracker's own blendshapes."""
 
 
 def measure(path: Path, tracker: MediaPipeFaceTracker, index: int) -> PhotoReport:
@@ -140,6 +144,15 @@ def measure(path: Path, tracker: MediaPipeFaceTracker, index: int) -> PhotoRepor
             "roll": result.head_pose.roll,
         }
 
+    shapes = result.blendshapes
+    expression = 0.0
+    if shapes is not None:
+        expression = max(
+            shapes.get("jawOpen"),
+            shapes.get("mouthSmileLeft"),
+            shapes.get("mouthSmileRight"),
+        )
+
     return PhotoReport(
         path=path,
         detected=True,
@@ -149,6 +162,7 @@ def measure(path: Path, tracker: MediaPipeFaceTracker, index: int) -> PhotoRepor
         framing=framing,
         pose=pose,
         skin=_skin_colour(image, points),
+        expression=expression,
     )
 
 
@@ -200,31 +214,54 @@ def compare(base: PhotoReport, variant: PhotoReport) -> int:
         + (f"   -> turned to the {'left' if yaw > 0 else 'right'}" if turned else "")
     )
 
+    expressive = variant.expression > EXPRESSION_THRESHOLD
+    if expressive:
+        print(f"  mouth  : open or smiling ({variant.expression:.2f}) — mouth ratios excused")
+
     print("\n  identity")
     for name, value in variant.identity.items():
         reference = base.identity[name]
         drift = (value - reference) / reference if reference else 0.0
-        horizontal = "width" in name or "spacing" in name or "span" in name
-        excused = turned and horizontal
+
+        # Two honest reasons a ratio moves without the face having changed:
+        # a turned head foreshortens everything the turn compresses, and an
+        # open or smiling mouth is *supposed* to be a different shape. Flagging
+        # either would train the reader to ignore the flags.
+        excuse = ""
+        if turned and ("width" in name or "spacing" in name or "span" in name or "nose" in name):
+            excuse = "foreshortened by the turn"
+        elif expressive and "mouth" in name:
+            excuse = "the expression, which is the point of this photo"
 
         flag = ""
-        if abs(drift) > IDENTITY_TOLERANCE and not excused:
-            flag = "  <-- DRIFTED"
-            concerns += 1
-        elif excused and abs(drift) > IDENTITY_TOLERANCE:
-            flag = "  (expected: foreshortened by the turn)"
+        if abs(drift) > IDENTITY_TOLERANCE:
+            if excuse:
+                flag = f"  (expected: {excuse})"
+            else:
+                flag = "  <-- DRIFTED"
+                concerns += 1
 
         print(f"    {name:<30} {value:6.3f}  vs {reference:6.3f}  {drift:+6.1%}{flag}")
 
-    print("\n  framing")
+    # Framing is reported, not judged. The engine finds landmarks in each source
+    # separately and warps from those, so a variant framed differently costs
+    # nothing — this was flagged as a fault in the first version of this tool
+    # and it was wrong. What does matter is having enough pixels on the face.
+    print("\n  framing (informational — the engine warps from landmarks, not from the frame)")
     for name, value in variant.framing.items():
-        reference = base.framing[name]
-        drift = value - reference
-        flag = ""
-        if abs(drift) > FRAMING_TOLERANCE:
-            flag = "  <-- DIFFERENT FRAMING"
-            concerns += 1
-        print(f"    {name:<30} {value:6.3f}  vs {reference:6.3f}  {drift:+6.3f}{flag}")
+        print(f"    {name:<30} {value:6.3f}  vs {base.framing[name]:6.3f}")
+
+    face_pixels = variant.framing["face_width / image_width"] * variant.width
+    base_pixels = base.framing["face_width / image_width"] * base.width
+    detail = face_pixels / base_pixels if base_pixels else 1.0
+    print(f"    {'face width in pixels':<30} {face_pixels:6.0f}  vs {base_pixels:6.0f}", end="")
+    if face_pixels < MINIMUM_FACE_PIXELS:
+        print(f"  <-- TOO SMALL (want {MINIMUM_FACE_PIXELS}+)")
+        concerns += 1
+    elif detail < 0.75:
+        print(f"  ({detail:.0%} of the base's detail — softer, still usable)")
+    else:
+        print()
 
     difference = max(abs(a - b) for a, b in zip(variant.skin, base.skin, strict=True))
     flag = "  <-- LIT DIFFERENTLY" if difference > 25.0 else ""
