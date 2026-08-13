@@ -103,3 +103,7 @@ avatars/**/*.png
 avatars/**/*.jpg
 avatars/**/*.jpeg
 avatars/**/*.webp
+
+# The owner's recorded driving clips: their real face, kept on this machine
+# only, used to replay the engine offline. Never in Git.
+recordings/
