@@ -3,7 +3,40 @@
 **Living document.** Update it at the end of each working day. For the frozen
 record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
-**Last updated:** 2026-08-13 · **Day 5 of a 14-day plan**
+**Last updated:** 2026-08-14 · **End of day 7 of a 14-day plan**
+
+---
+
+## Tomorrow — day 8
+
+### Waiting on the owner. Nothing below starts without these.
+
+| # | | Why it blocks |
+|---|---|---|
+| 1 | **Choose a video generator.** Sora is gone — the app shut down 2026-04-26 and the API goes on 2026-09-24. | The whole video→frames plan depends on which tool, and its licence and watermark have to be checked *before* time is spent generating. A visible watermark on the face makes the frames useless, and Sora's was deliberately unremovable. Candidates still live: Runway, Kling, Luma, Pika, Veo, Hailuo. |
+| 2 | **The scope decision.** Promised for day 7 and now overdue. | Licence server, download site, avatar encryption, `.exe` packaging and a shippable virtual camera total 6–7 days. Seven remain, before any quality work. Something has to come off, and that is not an engineering call. |
+| 3 | Regenerate the two **far-turn** photographs at ~40°. | The current pair measures 17–20° and is swapped relative to its filenames. |
+| 4 | An avatar whose **hair** resembles the owner's. | The mask stops at the hairline, so the hair on screen is always theirs. Matching it is free; replacing it needs segmentation the frame budget cannot afford. |
+
+### Queued here, in order
+
+1. **The wedge above a blinking eye** (backlog 15). Diagnosed: six landmarks per
+   eye leave it anchored to the cheek by long triangles that sweep as the lid
+   closes. The fix is the full eyelid ring — sixteen points per eye — and it
+   invalidates ten tests that encode the six-point layout. A morning's work with
+   its own verification, not a tweak.
+2. **`INTER_AREA` before the mesh warp** (backlog 9). The source is reduced about
+   3× onto the face and bilinear discards most of it. The remaining softness.
+3. **If a video arrives:** extract frames, run every one through
+   `scripts/check_avatar_photos.py`, and then the real prize — switch the engine
+   from *blending* sources to *selecting* the nearest. Dense coverage is what
+   makes that possible, and it removes cross-fade ghosting by construction
+   rather than by clamping.
+
+### Housekeeping
+
+`recordings/` holds the owner's real face. Gitignored, local only, **delete it
+when the quality work that needs it is done.**
 
 ---
 
@@ -15,10 +48,18 @@ record of the foundation milestone see `FOUNDATION_STATUS.md`.
 | 2 | Real camera capture | ✅ Done — B002 |
 | 3 | Face tracking (MediaPipe) | ✅ Done — B003 |
 | 4 | Avatar engine — first moving avatar | ✅ Done — landmark warp, 22 source roles |
-| **5** | **Virtual camera** | **✅ Done — B004. Visible in Meet, Zoom, Discord, OBS** |
-| 6–10 | Quality iteration | |
+| 5 | Virtual camera | ✅ Done — B004. Visible in Meet, Zoom, Discord, OBS |
+| 6 | Quality: neutral baseline, eyes, teeth | ✅ Done — backlog 8, 9, 10 |
+| **7** | **Neural engine evaluated and closed; gaze as geometry; replay harness** | **✅ Done — B005** |
+| 8–10 | Quality iteration | |
 | 11–12 | UI, avatar gallery, licence server | |
 | 13–14 | Bugs, buffer | |
+
+**Day 7 in one line:** LivePortrait was measured and rejected on speed (B005),
+the licence question that had blocked it since the evaluation turned out to be
+answered in our favour, gaze became geometry instead of photographs, and the
+recording/replay pair now lets a quality idea be tested in a command instead of
+an hour of the owner's time.
 
 **The full set arrived on day 5.** All 22 photograph roles now have a file and
 20 are wired into the manifest. Two are held back: the far-turn pair measured
