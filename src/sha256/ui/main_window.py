@@ -59,8 +59,11 @@ _LOG = get_logger(__name__)
 _PREVIEW_INTERVAL_MS = 33
 _STATUS_INTERVAL_MS = 500
 
-_VIEW_CAMERA = "Camera + tracking"
-_VIEW_OUTPUT = "Avatar output"
+# The avatar view is first, and therefore the default. The tracking view exists
+# to answer "is it following me"; the avatar view is the product, and defaulting
+# to the diagnostic made the app look like it was doing nothing.
+_VIEW_OUTPUT = "Avatar"
+_VIEW_CAMERA = "Tracking (no avatar)"
 
 # Everything is translucent so the background photograph stays visible through
 # it. Surfaces are dark enough that light text on them is readable over a photo
@@ -227,10 +230,11 @@ class MainWindow(QMainWindow):
 
         # No label: the two entries name themselves.
         self._view_combo = QComboBox()
-        self._view_combo.addItems([_VIEW_CAMERA, _VIEW_OUTPUT])
+        self._view_combo.addItems([_VIEW_OUTPUT, _VIEW_CAMERA])
         layout.addWidget(self._view_combo)
 
-        self._landmarks_check = QCheckBox("Tracking")
+        self._landmarks_check = QCheckBox("Dots")
+        self._landmarks_check.setToolTip("Draw the tracked landmarks. Tracking view only.")
         self._landmarks_check.setChecked(True)
         self._landmarks_check.toggled.connect(self._preview.set_show_landmarks)
         layout.addWidget(self._landmarks_check)

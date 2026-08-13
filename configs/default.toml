@@ -68,6 +68,10 @@ allow_fallback_to_cpu = true
 
 [avatars]
 library_path = "avatars"
+
+# Selected at startup so the application opens ready to run. An avatar that
+# fails to load is reported and the app still starts.
+default_avatar_id = "my_avatar"
 max_resident = 2
 verify_checksums = false
 
