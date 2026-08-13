@@ -134,6 +134,42 @@ What that needs from the avatar format:
 
 ---
 
+## The 3-D question
+
+Raised by the owner: would building a 3-D model of the face work better?
+
+For robustness, yes — and it is already this project's documented backup engine
+(`docs/OPEN_SOURCE_EVALUATION.md` B4). Real geometry solves rotation, eyelids,
+and jaw opening by construction rather than by collecting more photographs,
+because the shape exists whether or not a camera ever saw that angle.
+
+**But there is something cheaper to do first, and it is already paid for.**
+MediaPipe returns 478 landmarks with a **z** coordinate and a 4×4 head-pose
+matrix, both verified in B003. The warp engine currently uses **x and y only**
+and discards the rest. Rotating the avatar's landmark mesh by the measured head
+pose before projecting it — a 3-D-aware warp of the same photograph — should
+recover a good part of item 5 with no new dependency, no new model, no new
+photographs, and no new licence question. That is the first thing to try.
+
+What it still cannot do is invent the far cheek when the head turns. Nothing
+that reshapes one photograph can.
+
+Beyond that, in rough order of what they cost:
+
+| Approach | Solves | Costs |
+|---|---|---|
+| 3-D-aware warp of the current photo | rotation alignment | a day; nothing else |
+| Morphable face model (3DMM) fitted to the photo | rotation, lids, jaw, teeth | a real component, and **licence checks** — the well-known face models are research-only or need a separate commercial agreement, the same trap InsightFace already set |
+| Per-identity neural head avatar | best quality of all | training per avatar from *video*, which does not exist for a person who was generated |
+| LivePortrait | rotation and expression from one photo | unresolved weight licence; already the documented primary |
+
+The honest limit of every 3-D route: a head built from a single photograph
+looks like a game character rather than a person, and hair is the hardest part
+of it. Robustness and photorealism pull in opposite directions here, which is
+why the evaluation kept both a neural and a 3-D path alive.
+
+---
+
 ## Order of work
 
 Cheapest and most visible first; each is independently useful.
@@ -141,6 +177,8 @@ Cheapest and most visible first; each is independently useful.
 1. **Forehead and the seam** (item 1). It is the most visible flaw and affects
    every frame. Measure seamless cloning first, since it may make the mask
    question disappear entirely.
+1b. **Use the depth already being measured** — the 3-D-aware warp described
+   above. Cheapest attack on item 5, and it needs nothing from anyone.
 2. **Eye landmarks** (item 3, first half). Cheap, no new photographs needed.
 3. **Blendshape-driven eyes and brows** (item 4). Removes a distortion rather
    than adding a feature.
