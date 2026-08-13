@@ -50,112 +50,97 @@ focus, plain background. Square 1:1 aspect ratio, 1024x1024.
 The only change is:
 ```
 
-### 1 — Smile with teeth
+## The complete set
+
+Twenty-two photographs, in the order they are worth generating. Each is a role
+the engine already knows how to drive; supply one and it is used, leave it out
+and the avatar does without it.
+
+**Tier 1 — the mouth.** Speech is where the eye goes, and the mouth is where a
+warped photograph has the least to work with.
+
+| # | Role → file | The only change is |
+|---|---|---|
+| 1 | `source_smile` → `portrait_smile.png` | ✅ have |
+| 2 | `source_mouth_open` → `portrait_mouth_open.png` | ✅ have |
+| 3 | `source_smile_closed` → `portrait_smile_closed.png` | a warm closed-mouth smile, lips together, no teeth showing at all |
+| 4 | `source_mouth_o` → `portrait_mouth_o.png` | lips rounded and pushed forward as when saying "oh" or "you", a small round opening |
+| 5 | `source_mouth_wide` → `portrait_mouth_wide.png` | lips stretched wide and flat as when saying "ee", teeth close together and visible |
+| 6 | `source_mouth_pressed` → `portrait_mouth_pressed.png` | lips pressed firmly together as when saying "m" or "b", a flat closed line |
+| 7 | `source_frown` → `portrait_frown.png` | corners of the mouth pulled down in a frown, mouth closed |
+
+**Tier 2 — eyes and brows.** Gaze is the difference between a face that is
+present and one that is staring.
+
+| # | Role → file | The only change is |
+|---|---|---|
+| 8 | `source_eyes_closed` → `portrait_eyes_closed.png` | ✅ have |
+| 9 | `source_brows_up` → `portrait_brows_up.png` | ✅ have |
+| 10 | `source_look_left` → `portrait_look_left.png` | eyes looking to one side without the head turning, pupils toward the corner |
+| 11 | `source_look_right` → `portrait_look_right.png` | eyes looking to the other side, head still facing forward |
+| 12 | `source_look_up` → `portrait_look_up.png` | eyes looking upward, head still facing forward |
+| 13 | `source_look_down` → `portrait_look_down.png` | eyes looking downward, head still facing forward |
+| 14 | `source_eyes_wide` → `portrait_eyes_wide.png` | eyes opened wide as in alertness, brows not raised |
+| 15 | `source_squint` → `portrait_squint.png` | eyes narrowed in a squint, lower lids raised |
+| 16 | `source_brows_down` → `portrait_brows_down.png` | brows drawn down and together in a frown of concentration |
+
+**Tier 3 — head pose.** These extend how far you can turn before the avatar
+starts guessing.
+
+| # | Role → file | The only change is |
+|---|---|---|
+| 17 | `source_turn_left` → `portrait_turn_left.png` | ✅ have (~20°) |
+| 18 | `source_turn_right` → `portrait_turn_right.png` | ✅ have (~20°) |
+| 19 | `source_turn_left_far` → `portrait_turn_left_far.png` | head turned about 40 degrees to the same side as photograph 17, close to profile but both eyes still visible |
+| 20 | `source_turn_right_far` → `portrait_turn_right_far.png` | head turned about 40 degrees to the other side, mirroring 19 |
+| 21 | `source_tilt_up` → `portrait_tilt_up.png` | chin raised, head tilted back about 15 degrees, eyes still looking at the camera |
+| 22 | `source_tilt_down` → `portrait_tilt_down.png` | chin lowered, head tilted forward about 15 degrees, eyes still looking at the camera up through the brows |
+
+### Building each prompt
+
+Take the shared preamble above, and end it with the sentence from the table.
+For example, number 4:
 
 ```
-The person is smiling naturally with the mouth open, showing the upper teeth
-clearly and the lower teeth slightly. A genuine relaxed smile, not forced. The
-eyes stay open and look directly at the camera. Head stays facing forward.
+Use the attached photograph as the exact reference for this person's identity.
+Produce a new photorealistic photograph of the SAME person.
+
+Keep these completely unchanged: face shape and bone structure, eye colour,
+eye spacing, nose shape and size, lip shape, skin tone and texture, facial
+hair, hairstyle and hairline, lighting direction and colour temperature,
+background, camera distance, framing, and how large the head is within the
+frame.
+
+Do not add glasses, makeup, filters, or stylisation. Photorealistic, sharp
+focus, plain background. Square 1:1 aspect ratio, 1024x1024.
+
+The only change is: lips rounded and pushed forward as when saying "oh" or
+"you", a small round opening. Head stays facing forward, eyes look at the
+camera.
 ```
 
-*Fixes: no teeth when smiling.*
+End every prompt in tiers 1 and 2 with **"Head stays facing forward, eyes look
+at the camera"**, so the only thing that varies is the one thing asked for. For
+tier 3, end with **"Neutral expression, mouth closed"** instead — the head is
+the variable there.
 
-### 2 — Eyes closed
+### What each one actually fixes
 
-```
-Both eyes are fully and naturally closed, eyelids relaxed as in a normal blink.
-The mouth stays closed with a neutral expression. Head stays facing forward.
-```
-
-*Fixes: the avatar's eyes not closing when you blink.*
-
-### 3 — Head turned one way
-
-```
-The head is turned about 25 degrees to one side, as in a three-quarter portrait,
-so that one cheek is more visible and the nose points slightly away from centre.
-The eyes still look directly at the camera. Neutral expression, mouth closed.
-The head stays upright — no tilt, no nod.
-```
-
-*Fixes: alignment breaking past ~15° of rotation.*
-
-### 4 — Head turned the other way
-
-```
-The head is turned about 25 degrees to the opposite side from a three-quarter
-portrait, mirroring the other three-quarter view, so the other cheek is more
-visible. The eyes still look directly at the camera. Neutral expression, mouth
-closed. The head stays upright — no tilt, no nod.
-```
-
-### 5 — Mouth open, speaking (optional but useful)
-
-```
-The mouth is open as if saying "ah" in the middle of a sentence, jaw dropped,
-upper and lower teeth partly visible, tongue not prominent. Relaxed, natural,
-not exaggerated. The eyes stay open and look directly at the camera. Head stays
-facing forward.
-```
-
-*Fixes: the mouth interior during speech, which the smile photo alone does not
-cover.*
-
-### 6 — Brows raised
-
-```
-Both eyebrows are raised high, as in surprise, with the forehead lightly
-creased. The eyes are open a little wider because of it. The mouth stays closed
-with a neutral expression. Head stays facing forward.
-```
-
-*Fixes: the eyes stretching when the brows go up. The avatar currently takes the
-user's brow position as a shape to match; with this photograph it can take the
-expression instead.*
-
-### 7 — Mouth open wide
-
-```
-The mouth is open wide, as in a yawn or saying "aah" loudly, the jaw dropped
-much further than a normal speaking position. Upper and lower teeth clearly
-visible, the dark interior of the mouth visible behind them, tongue resting flat
-and not sticking out. The eyes stay open and look at the camera. Head stays
-facing forward.
-```
-
-*Replaces photograph 5 if it is wider. The engine measures each photograph's own
-opening and treats the widest as "fully open", so a wider one simply extends the
-range — nothing in the code needs changing.*
-
-### 8 — Broad smile
-
-```
-A broad, genuine smile with the mouth open and the upper and lower teeth clearly
-visible, cheeks raised, eyes slightly narrowed as they naturally are in a real
-smile. The eyes still look at the camera. Head stays facing forward.
-```
-
-*Replaces photograph 1 if it shows more teeth. The current one is a modest
-smile, and a modest smile cannot supply the teeth for a broad one.*
-
----
-
-## What to name them
-
-The engine looks these up by role in `avatars/<id>/metadata.json`:
-
-| Role | File |
+| Photograph | Without it |
 |---|---|
-| `source_portrait` | `portrait.png` (the base) |
-| `source_smile` | `portrait_smile.png` |
-| `source_mouth_open` | `portrait_mouth_open.png` |
-| `source_eyes_closed` | `portrait_eyes_closed.png` |
-| `source_brows_up` | `portrait_brows_up.png` |
-| `source_turn_left` | `portrait_turn_left.png` |
-| `source_turn_right` | `portrait_turn_right.png` |
+| closed smile | a warm smile borrows the teeth photograph and looks toothy |
+| "oh" and "ee" | every vowel looks like the same open mouth |
+| pressed lips | "m" and "b" do not close the mouth |
+| gaze, four ways | the avatar stares straight ahead while you read your screen |
+| squint, wide eyes | the eyes have one size |
+| brows down | only surprise is available, never concentration |
+| far turns | past about 25 degrees the face stretches |
+| tilts | nodding stretches the face vertically |
 
-Drop a file in with the matching name and it is used; leave one out and the
-avatar simply does without it.
+### Priority if the list is too long
+
+3, 4, 6 (mouth shapes), then 10–13 (gaze), then 19–20 (far turns). Those nine
+cover most of what is visible in an ordinary conversation.
 
 ---
 

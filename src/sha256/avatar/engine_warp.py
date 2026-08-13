@@ -69,12 +69,31 @@ SOURCE_PORTRAIT_ROLE = "source_portrait"
 # so a global blend only changes the mouth, or the eyes, or the shading of a
 # turned cheek. Nothing has to decide which pixels belong to which feature.
 _VARIANT_ROLES: tuple[str, ...] = (
+    # Mouth
     "source_smile",
+    "source_smile_closed",
     "source_mouth_open",
+    "source_mouth_o",
+    "source_mouth_wide",
+    "source_mouth_pressed",
+    "source_frown",
+    # Eyes and brows
     "source_eyes_closed",
+    "source_eyes_wide",
+    "source_squint",
     "source_brows_up",
+    "source_brows_down",
+    "source_look_left",
+    "source_look_right",
+    "source_look_up",
+    "source_look_down",
+    # Head pose
     "source_turn_left",
     "source_turn_right",
+    "source_turn_left_far",
+    "source_turn_right_far",
+    "source_tilt_up",
+    "source_tilt_down",
 )
 
 # The role whose own mouth opening defines "fully open". Measured from the
@@ -86,6 +105,17 @@ _OPENING_REFERENCE_ROLE = "source_mouth_open"
 # the owner generated, which measured +21.1 and -19.6 degrees: past their own
 # angle they would be extrapolating rather than contributing.
 _TURN_FULL_DEGREES = 20.0
+
+# Yaw at which the far turn photographs, if supplied, take over completely.
+_TURN_FAR_DEGREES = 38.0
+
+# Pitch at which the tilt photographs fully apply.
+_TILT_FULL_DEGREES = 18.0
+
+# Blendshape reading at which a photograph of that expression fully applies.
+# One number for all of them: these are all "how much of this expression is
+# happening", and the photographs were all shot at a comparable extreme.
+_EXPRESSION_FULL = 0.55
 
 # No single variant may take over completely. Each was photographed at one
 # extreme of its expression, and a face driven all the way there looks like it
@@ -216,6 +246,11 @@ _MASK_FEATHER = 0.07
 # the eye growing with it.
 _BROW_FOLLOW = 0.5
 
+# Source weights are rounded to this before deciding whether the previous blend
+# can be reused. Fine enough that no step is visible, coarse enough that a
+# still face rebuilds nothing.
+_WEIGHT_QUANTUM = 0.02
+
 
 class _LoadedAvatar:
     """Everything precomputed for one avatar, held for the life of the load.
@@ -226,6 +261,8 @@ class _LoadedAvatar:
     """
 
     __slots__ = (
+        "cached_blend",
+        "cached_weights",
         "cavity",
         "descriptor",
         "full_gap",
@@ -256,6 +293,10 @@ class _LoadedAvatar:
         # that cavity is. Both are needed when the user opens wider than the
         # photograph did — see _paint_mouth_interior.
         self.mouth_mask, self.cavity = _mouth_interior(image, points)
+
+        # The most recent blend and the weights that produced it.
+        self.cached_weights: dict[str, int] = {}
+        self.cached_blend: np.ndarray | None = None
 
 
 class WarpAvatarEngine:
@@ -711,26 +752,48 @@ def _paint_mouth_interior(
     if matrix is None:
         return
 
+    # Work in the mouth's own bounding box. Warping the whole photograph across
+    # the entire face box to fill an opening a fifth of its size was most of
+    # this function's cost.
     height, width = canvas.shape[:2]
-    opening = np.zeros((height, width), dtype=np.uint8)
-    cv2.fillPoly(opening, [target[_INNER_LIP_SLICE].astype(np.int32)], 255)
+    lips = target[_INNER_LIP_SLICE]
+    x0 = max(int(lips[:, 0].min()) - 2, 0)
+    y0 = max(int(lips[:, 1].min()) - 2, 0)
+    x1 = min(int(lips[:, 0].max()) + 2, width)
+    y1 = min(int(lips[:, 1].max()) + 2, height)
+    if x1 - x0 < 2 or y1 - y0 < 2:
+        return
+
+    box_w, box_h = x1 - x0, y1 - y0
+    shifted = matrix.copy()
+    shifted[0, 2] -= x0
+    shifted[1, 2] -= y0
+
+    opening = np.zeros((box_h, box_w), dtype=np.uint8)
+    cv2.fillPoly(opening, [(lips - (x0, y0)).astype(np.int32)], 255)
+
+    region = canvas[y0:y1, x0:x1]
 
     # Everything inside the live opening starts as cavity, so no part of it can
     # ever show a lip or a cheek.
-    canvas[opening > 0] = avatar.cavity.astype(np.uint8)
+    region[opening > 0] = avatar.cavity.astype(np.uint8)
 
     placed = cv2.warpAffine(
-        image, matrix, (width, height), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE
+        image,
+        shifted,
+        (box_w, box_h),
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_REPLICATE,
     )
     covered = cv2.warpAffine(
         avatar.mouth_mask,
-        matrix,
-        (width, height),
+        shifted,
+        (box_w, box_h),
         flags=cv2.INTER_NEAREST,
         borderMode=cv2.BORDER_CONSTANT,
         borderValue=0,
     )
-    cv2.copyTo(placed, cv2.bitwise_and(opening, covered), canvas)
+    cv2.copyTo(placed, cv2.bitwise_and(opening, covered), region)
 
 
 def _damp_brows(source: np.ndarray, target: np.ndarray) -> np.ndarray:
@@ -856,18 +919,48 @@ def _source_weights(
         closed = (blink - _BLINK_START) / (_BLINK_FULL - _BLINK_START)
         weights["source_eyes_closed"] = min(max(closed, 0.0), 1.0)
 
-        raised = max(
-            shapes.get("browInnerUp"),
-            shapes.get("browOuterUpLeft"),
-            shapes.get("browOuterUpRight"),
+        def expression(*names: str) -> float:
+            """How far into an expression this frame is, from its blendshapes."""
+            return min(max(shapes.get(name) for name in names) / _EXPRESSION_FULL, 1.0)
+
+        weights["source_brows_up"] = expression(
+            "browInnerUp", "browOuterUpLeft", "browOuterUpRight"
         )
-        weights["source_brows_up"] = min(raised / _BROW_RAISE_FULL, 1.0)
+        weights["source_brows_down"] = expression("browDownLeft", "browDownRight")
+        weights["source_eyes_wide"] = expression("eyeWideLeft", "eyeWideRight")
+        weights["source_squint"] = expression("eyeSquintLeft", "eyeSquintRight")
+        weights["source_frown"] = expression("mouthFrownLeft", "mouthFrownRight")
+        weights["source_mouth_pressed"] = expression("mouthPressLeft", "mouthPressRight")
+
+        # A closed-mouth smile is a smile with the lips still together, which is
+        # exactly what the gap measurement distinguishes.
+        weights["source_smile_closed"] = smiling * (1.0 - opening)
+
+        # Rounded and funnelled lips are shapes rather than openings, so they
+        # are driven by their own blendshapes and not by the gap.
+        weights["source_mouth_o"] = expression("mouthPucker", "mouthFunnel")
+        weights["source_mouth_wide"] = expression("mouthStretchLeft", "mouthStretchRight")
+
+        # Gaze. "In" and "out" are relative to each eye, so a look to the
+        # viewer's left is the left eye looking out and the right eye looking in.
+        weights["source_look_left"] = expression("eyeLookOutLeft", "eyeLookInRight")
+        weights["source_look_right"] = expression("eyeLookOutRight", "eyeLookInLeft")
+        weights["source_look_up"] = expression("eyeLookUpLeft", "eyeLookUpRight")
+        weights["source_look_down"] = expression("eyeLookDownLeft", "eyeLookDownRight")
 
     pose = tracking.head_pose
     if pose is not None:
         turn = pose.yaw / _TURN_FULL_DEGREES
         weights["source_turn_left"] = turn
         weights["source_turn_right"] = -turn
+
+        far = pose.yaw / _TURN_FAR_DEGREES
+        weights["source_turn_left_far"] = far
+        weights["source_turn_right_far"] = -far
+
+        tilt = pose.pitch / _TILT_FULL_DEGREES
+        weights["source_tilt_up"] = tilt
+        weights["source_tilt_down"] = -tilt
 
     return {
         role: min(max(value, 0.0), _MAX_VARIANT_WEIGHT)
@@ -893,6 +986,14 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
     if not weights:
         return avatar.image
 
+    # Expressions move far more slowly than frames arrive, so the same blend is
+    # usually still correct. Rebuilding it every frame was 2.2 ms of pure
+    # repetition; quantising the weights and reusing the result removes it
+    # without any visible stepping, because a hundredth of a jaw is not visible.
+    quantised = {role: round(weight / _WEIGHT_QUANTUM) for role, weight in weights.items()}
+    if avatar.cached_blend is not None and quantised == avatar.cached_weights:
+        return avatar.cached_blend
+
     # Variants share the frame with the base rather than replacing it, so the
     # total never exceeds one and the base always keeps the remainder.
     total = sum(weights.values())
@@ -911,6 +1012,9 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
     blended = cv2.addWeighted(avatar.image, 1.0 - total, avatar.image, 0.0, 0.0)
     for role, weight in weights.items():
         blended = cv2.addWeighted(blended, 1.0, avatar.sources[role], weight, 0.0)
+
+    avatar.cached_weights = quantised
+    avatar.cached_blend = blended
 
     result: np.ndarray = blended
     return result

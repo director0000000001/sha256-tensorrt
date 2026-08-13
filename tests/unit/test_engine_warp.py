@@ -627,3 +627,84 @@ class TestBrowSource:
         weights = _source_weights(expressive_tracking(gap=0.0, browInnerUp=0.01))
 
         assert "source_brows_up" not in weights
+
+
+class TestExpandedSourceSet:
+    """The wider set of source photographs, and what selects each.
+
+    A wrong mapping here is invisible in a still and obvious in motion — the
+    avatar looks left when you look right, or pulls a face you are not pulling.
+    """
+
+    def test_gaze_left_and_right_are_not_swapped(self):
+        """Looking one way must not fetch the photograph of the other."""
+        left = _source_weights(expressive_tracking(gap=0.0, eyeLookOutLeft=0.6))
+        right = _source_weights(expressive_tracking(gap=0.0, eyeLookOutRight=0.6))
+
+        assert left["source_look_left"] > 0.9
+        assert "source_look_right" not in left
+        assert right["source_look_right"] > 0.9
+        assert "source_look_left" not in right
+
+    def test_looking_up_and_down(self):
+        up = _source_weights(expressive_tracking(gap=0.0, eyeLookUpLeft=0.6))
+        down = _source_weights(expressive_tracking(gap=0.0, eyeLookDownLeft=0.6))
+
+        assert up["source_look_up"] > 0.9
+        assert down["source_look_down"] > 0.9
+
+    def test_a_closed_smile_asks_for_the_closed_smile_photo(self):
+        """And not for the one with teeth in it."""
+        weights = _source_weights(expressive_tracking(gap=0.001, smile=0.6))
+
+        assert weights["source_smile_closed"] > 0.9
+        assert "source_smile" not in weights
+
+    def test_an_open_smile_asks_for_the_open_one_instead(self):
+        weights = _source_weights(expressive_tracking(gap=0.09, smile=0.6))
+
+        assert weights["source_smile"] > weights.get("source_smile_closed", 0.0)
+
+    def test_a_far_turn_brings_in_the_far_photograph(self):
+        near = _source_weights(expressive_tracking(gap=0.0, yaw=20.0))
+        far = _source_weights(expressive_tracking(gap=0.0, yaw=38.0))
+
+        assert far["source_turn_left_far"] > near.get("source_turn_left_far", 0.0)
+        assert "source_turn_right_far" not in far
+
+    def test_tilting_up_and_down_are_not_swapped(self):
+        up = _source_weights(expressive_tracking(gap=0.0, yaw=0.0))
+        up_pose = _source_weights(_pitched(18.0))
+        down_pose = _source_weights(_pitched(-18.0))
+
+        assert "source_tilt_up" not in up
+        assert up_pose["source_tilt_up"] > 0.9
+        assert down_pose["source_tilt_down"] > 0.9
+
+    def test_brows_down_is_separate_from_brows_up(self):
+        weights = _source_weights(expressive_tracking(gap=0.0, browDownLeft=0.6))
+
+        assert weights["source_brows_down"] > 0.9
+        assert "source_brows_up" not in weights
+
+    def test_an_avatar_only_uses_the_photographs_it_has(self, engine, tmp_path):
+        """Weights are computed for every role; only the supplied ones apply."""
+        engine.load_avatar(make_descriptor(tmp_path))
+        avatar = engine._loaded["avatar_test"]
+
+        assert avatar.sources == {}
+        assert _blend_sources(avatar, expressive_tracking(jaw=0.9)) is avatar.image
+
+
+def _pitched(pitch: float) -> FaceTrackingResult:
+    from sha256.core.types import HeadPose
+
+    base = expressive_tracking(gap=0.0)
+    return FaceTrackingResult(
+        metadata=base.metadata,
+        face_detected=True,
+        landmarks=base.landmarks,
+        head_pose=HeadPose(pitch=pitch),
+        blendshapes=base.blendshapes,
+        confidence=1.0,
+    )
