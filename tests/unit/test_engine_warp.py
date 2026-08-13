@@ -20,6 +20,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+from sha256.avatar.engine_warp import _OVAL_SLICE as OVAL_COUNT_SLICE
 from sha256.avatar.engine_warp import MESH_INDICES, WarpAvatarEngine
 from sha256.core.avatar import AvatarDescriptor, AvatarManifest
 from sha256.core.enums import PixelFormat
@@ -67,16 +68,31 @@ def make_descriptor(
 
 
 def synthetic_landmarks(*, centre: tuple[float, float] = (0.5, 0.5), scale: float = 0.2):
-    """A ring of landmarks standing in for a face, normalised."""
-    angles = np.linspace(0.0, 2.0 * np.pi, LANDMARK_COUNT, endpoint=False)
-    points = np.stack(
-        [
-            centre[0] + scale * np.cos(angles),
-            centre[1] + scale * 1.3 * np.sin(angles),
-            np.zeros(LANDMARK_COUNT),
-        ],
-        axis=1,
-    ).astype(np.float32)
+    """A landmark set shaped like a face, normalised.
+
+    The oval indices are laid out **in outline order** around the ring, and the
+    feature points inside it. That ordering is not decoration: the engine fills
+    the face outline as a polygon, so scattered oval points would produce a
+    self-intersecting star and a mask with a hole where the face should be.
+    """
+    points = np.zeros((LANDMARK_COUNT, 3), dtype=np.float32)
+    points[:, 0] = centre[0]
+    points[:, 1] = centre[1]
+
+    oval = list(MESH_INDICES[OVAL_COUNT_SLICE])
+    ring = np.linspace(0.0, 2.0 * np.pi, len(oval), endpoint=False)
+    for index, angle in zip(oval, ring, strict=True):
+        points[index, 0] = centre[0] + scale * np.cos(angle)
+        points[index, 1] = centre[1] + scale * 1.25 * np.sin(angle)
+
+    inner = [i for i in MESH_INDICES if i not in oval]
+    for position, (index, angle) in enumerate(
+        zip(inner, np.linspace(0.0, 2.0 * np.pi, len(inner), endpoint=False), strict=True)
+    ):
+        radius = scale * (0.25 + 0.15 * (position % 4))
+        points[index, 0] = centre[0] + radius * np.cos(angle)
+        points[index, 1] = centre[1] + radius * 1.25 * np.sin(angle)
+
     return points
 
 
@@ -91,6 +107,14 @@ def tracking_from(points: np.ndarray | None) -> FaceTrackingResult:
         confidence=1.0,
         tracker_id="test",
     )
+
+
+def _striped(size: int) -> np.ndarray:
+    """A portrait with visible texture, so a warp of it is detectable."""
+    image = np.zeros((size, size, 3), dtype=np.uint8)
+    image[::8] = 220
+    image[:, ::8] = 40
+    return image
 
 
 def camera_frame(width: int = 320, height: int = 240) -> VideoFrame:
@@ -211,9 +235,11 @@ class TestAnimation:
             engine.animate("absent", tracking_from(synthetic_landmarks()), camera_frame())
 
     def test_the_avatar_is_composited_over_the_camera_frame(self, engine, tmp_path):
-        engine.load_avatar(
-            make_descriptor(tmp_path, image=np.full((256, 256, 3), 200, dtype=np.uint8))
-        )
+        # A textured portrait, not a flat colour. Colour matching shifts the
+        # avatar's mean onto the scene's, so a flat portrait over a flat scene
+        # comes out *identical* to the scene by construction — and the test
+        # would pass or fail for reasons that have nothing to do with warping.
+        engine.load_avatar(make_descriptor(tmp_path, image=_striped(256)))
         frame = camera_frame()
 
         result = engine.animate("avatar_test", tracking_from(synthetic_landmarks()), frame)
@@ -221,8 +247,25 @@ class TestAnimation:
         assert not result.is_placeholder
         assert result.avatar_id == "avatar_test"
         assert result.data.shape == frame.data.shape
-        # The bright portrait must have replaced part of the dark scene.
-        assert int(result.data.max()) > int(frame.data.max())
+        # The face region must carry the portrait's texture, not the flat scene.
+        face = result.data[80:160, 120:200]
+        assert int(face.max()) - int(face.min()) > 20
+
+    def test_the_avatar_is_relit_to_match_the_scene(self, engine, tmp_path):
+        """A portrait shot under one light, dropped into another, shows a seam.
+
+        Matching the mean brings it most of the way; without this the edge is a
+        step change in brightness that no amount of feathering hides.
+        """
+        engine.load_avatar(
+            make_descriptor(tmp_path, image=np.full((256, 256, 3), 240, dtype=np.uint8))
+        )
+        frame = camera_frame()  # a dark scene, value 30
+
+        result = engine.animate("avatar_test", tracking_from(synthetic_landmarks()), frame)
+
+        centre = float(result.data[120, 160].mean())
+        assert centre < 120.0, f"the bright portrait was pasted in unrelit ({centre:.0f})"
 
     def test_the_scene_outside_the_face_is_untouched(self, engine, tmp_path):
         engine.load_avatar(

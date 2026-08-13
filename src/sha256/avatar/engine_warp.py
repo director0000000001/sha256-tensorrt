@@ -34,6 +34,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -90,11 +91,22 @@ MESH_INDICES: tuple[int, ...] = tuple(
     )
 )
 
-# How far outside the landmark hull the blend mask reaches, and how soft its
-# edge is, both as a fraction of face width. A hard edge reads as a cut-out
-# sticker; too soft and the real face shows through the avatar.
-_MASK_GROW = 0.06
-_MASK_FEATHER = 0.05
+# The face oval is the first block of MESH_INDICES and stays in outline order,
+# which is what lets it be filled as a polygon rather than a point cloud.
+_OVAL_SLICE = slice(0, len(_FACE_OVAL))
+_BROW_SLICE = slice(len(_FACE_OVAL), len(_FACE_OVAL) + len(_LEFT_BROW) + len(_RIGHT_BROW))
+
+# How much forehead to keep above the brows, as a fraction of face height.
+# Enough to look like a face rather than a mask; not so much that it reaches
+# the hairline, where no two people match.
+_FOREHEAD_KEEP = 0.10
+
+# How far *inside* the face outline the blend stops, and how soft the edge is,
+# both as a fraction of face width. Eroding rather than growing keeps the
+# transition on skin at both ends; a hard edge reads as a cut-out sticker, and
+# too soft lets the real face show through the avatar.
+_MASK_SHRINK = 0.04
+_MASK_FEATHER = 0.07
 
 
 class _LoadedAvatar:
@@ -389,8 +401,14 @@ def _warp_onto(avatar: _LoadedAvatar, target: np.ndarray, scene: np.ndarray) -> 
     # OpenCV's geometry functions only accept 32-bit float or int.
     local = (target - (fx0, fy0)).astype(np.float32)
 
-    canvas = np.zeros((box_h, box_w, 3), dtype=np.uint8)
     source_points = avatar.points
+
+    # A base layer: the whole portrait placed with one similarity transform.
+    # The triangle mesh paints over it. Its only job is to make sure nothing is
+    # ever black — a single-pixel gap between two triangles would otherwise show
+    # the empty canvas through the face, and this is cheaper than growing every
+    # triangle to overlap its neighbours.
+    canvas = _base_layer(avatar, source_points, local, box_w, box_h)
 
     for a, b, c in avatar.triangles:
         dst = local[[a, b, c]]
@@ -414,7 +432,14 @@ def _warp_onto(avatar: _LoadedAvatar, target: np.ndarray, scene: np.ndarray) -> 
         if patch.size == 0:
             continue
 
-        piece = cv2.warpAffine(patch, matrix, (w, h), flags=cv2.INTER_LINEAR)
+        # BORDER_REPLICATE, not the default. The source patch is the triangle's
+        # bounding box, so sampling near the triangle's own edges falls just
+        # outside it — and the default border is black. Those black samples land
+        # inside the stamped area and show up as a mesh of thin dark cracks over
+        # the whole face. Clamping to the edge pixel instead costs nothing.
+        piece = cv2.warpAffine(
+            patch, matrix, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE
+        )
 
         cover = np.zeros((h, w), dtype=np.uint8)
         cv2.fillConvexPoly(cover, (dst - (x, y)).astype(np.int32), 255, cv2.LINE_8)
@@ -429,23 +454,108 @@ def _warp_onto(avatar: _LoadedAvatar, target: np.ndarray, scene: np.ndarray) -> 
 
     output = scene.copy()
     region = output[fy0:fy1, fx0:fx1].astype(np.float32)
-    blended = region * (1.0 - alpha) + canvas.astype(np.float32) * alpha
+    matched = _match_colour(canvas.astype(np.float32), region, alpha)
+    blended = region * (1.0 - alpha) + matched * alpha
     output[fy0:fy1, fx0:fx1] = blended.astype(np.uint8)
     return output
 
 
-def _destination_mask(points: np.ndarray, width: int, height: int) -> np.ndarray:
-    """Soft-edged mask over the live face hull, in the local box."""
+def _base_layer(
+    avatar: _LoadedAvatar,
+    source_points: np.ndarray,
+    target_points: np.ndarray,
+    width: int,
+    height: int,
+) -> np.ndarray:
+    """The portrait placed by a single similarity transform, as a backdrop.
+
+    Rigid: rotation, uniform scale, translation. It carries no expression — the
+    triangle mesh painted over it does that. It exists so that a pixel the mesh
+    happens to miss shows a plausible piece of face rather than a black gap.
+    """
     import cv2
 
-    hull = np.zeros((height, width), dtype=np.uint8)
-    cv2.fillConvexPoly(hull, cv2.convexHull(points.astype(np.int32)), 255)
+    # Typed as Any deliberately: OpenCV's stub says this returns a matrix, but
+    # it returns None when the fit fails, and a face at an extreme angle can
+    # make it fail. Trusting the stub here would be a crash rather than a
+    # dropped frame.
+    matrix: Any = cv2.estimateAffinePartial2D(source_points, target_points, method=cv2.LMEDS)[0]
+    if matrix is None:
+        return np.zeros((height, width, 3), dtype=np.uint8)
+
+    base: np.ndarray = cv2.warpAffine(
+        avatar.image,
+        matrix,
+        (width, height),
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_REPLICATE,
+    )
+    return base
+
+
+def _match_colour(avatar: np.ndarray, scene: np.ndarray, alpha: np.ndarray) -> np.ndarray:
+    """Shift the avatar's colour toward the light the scene is actually lit by.
+
+    Without this the seam is obvious no matter how soft the mask: the portrait
+    was photographed under one light and the room is lit by another, so the
+    edge is a step change in colour temperature and brightness that feathering
+    cannot hide — it only makes it a gradient.
+
+    Only the mean is matched, not the variance. Matching variance as well
+    amplifies whatever noise the camera has in a dim room, which trades a
+    visible seam for a grainy face.
+    """
+    solid = alpha[:, :, 0] > 0.6
+    if int(solid.sum()) < 32:
+        return avatar
+
+    shift = scene[solid].mean(axis=0) - avatar[solid].mean(axis=0)
+    return np.clip(avatar + shift, 0.0, 255.0)
+
+
+def _trim_forehead(points: np.ndarray) -> np.ndarray:
+    """The face outline with its top arc pulled down off the hairline.
+
+    MediaPipe's oval runs along the hairline, so a mask built from it replaces
+    the forehead all the way up to the hair — and two people's hairlines never
+    agree. The result is a hard horizontal edge across the forehead, which is
+    the single most obvious flaw in a naive face swap.
+
+    Stopping a little above the brows avoids it entirely. The brows themselves
+    stay inside the mask, because they carry expression and are part of the
+    identity being replaced.
+    """
+    trimmed = points[_OVAL_SLICE].copy()
+
+    brow_top = float(points[_BROW_SLICE][:, 1].min())
+    face_height = max(float(points[:, 1].max() - points[:, 1].min()), 1.0)
+    ceiling = brow_top - face_height * _FOREHEAD_KEEP
+
+    np.maximum(trimmed[:, 1], ceiling, out=trimmed[:, 1])
+    return trimmed
+
+
+def _destination_mask(points: np.ndarray, width: int, height: int) -> np.ndarray:
+    """Soft-edged mask following the face outline, in the local box.
+
+    The outline, not the convex hull. A face is not convex — the hull bridges
+    the gaps beside the chin and in front of the ears, and everything inside
+    those bridges gets filled with whatever was behind the head in the
+    *portrait*. That is the border the avatar appears to have.
+
+    It is then eroded rather than dilated, so the replaced area stops just
+    inside the real face and the blend happens over skin on both sides.
+    """
+    import cv2
+
+    outline = np.zeros((height, width), dtype=np.uint8)
+    cv2.fillPoly(outline, [_trim_forehead(points).astype(np.int32)], 255)
 
     face_width = max(float(points[:, 0].max() - points[:, 0].min()), 1.0)
-    grow = max(1, int(face_width * _MASK_GROW))
+    shrink = max(1, int(face_width * _MASK_SHRINK))
     feather = max(3, int(face_width * _MASK_FEATHER) | 1)
 
-    grown = cv2.dilate(hull, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (grow, grow)))
-    softened = cv2.GaussianBlur(grown, (feather, feather), 0)
+    trimmed = cv2.erode(outline, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (shrink, shrink)))
+    softened = cv2.GaussianBlur(trimmed, (feather, feather), 0)
     mask: np.ndarray = (softened.astype(np.float32) / 255.0)[:, :, None]
     return mask
