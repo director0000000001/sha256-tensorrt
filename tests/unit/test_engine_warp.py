@@ -101,6 +101,55 @@ def synthetic_landmarks(*, centre: tuple[float, float] = (0.5, 0.5), scale: floa
     return points
 
 
+def expressive_tracking(
+    *,
+    gap: float = 0.08,
+    yaw: float = 0.0,
+    smile: float | None = None,
+    jaw: float | None = None,
+    blink: tuple[float, float] | None = None,
+    **shapes: float,
+) -> FaceTrackingResult:
+    """Tracking with a controllable lip gap, pose, and blendshapes.
+
+    ``smile``, ``jaw`` and ``blink`` are spelled out here rather than left to
+    ``**shapes`` because a mistyped blendshape name is silently accepted by the
+    tracker's own type — it is just a string — and the test would then measure
+    nothing while looking like it measured something.
+
+    ``gap`` defaults to open: the teeth-bearing photographs are gated on the
+    lips being parted, so a test about mouth expressions has to say so.
+    """
+    if smile is not None:
+        shapes["mouthSmileLeft"] = shapes["mouthSmileRight"] = smile
+    if jaw is not None:
+        shapes["jawOpen"] = jaw
+    if blink is not None:
+        shapes["eyeBlinkLeft"], shapes["eyeBlinkRight"] = blink
+    from sha256.core.types import BlendshapeSet, HeadPose
+
+    points = synthetic_landmarks()
+    # Face height is forehead-to-chin; put the inner lips `gap` of it apart.
+    points[10, 1] = 0.2
+    points[152, 1] = 0.8
+    points[13, 1] = 0.5
+    points[14, 1] = 0.5 + gap * 0.6
+
+    names = tuple(shapes)
+    return FaceTrackingResult(
+        metadata=FrameMetadata(frame_id=1, capture_timestamp=1.0),
+        face_detected=True,
+        landmarks=LandmarkSet(points=points, scheme="mediapipe_478"),
+        head_pose=HeadPose(yaw=yaw),
+        blendshapes=BlendshapeSet(
+            names=names,
+            weights=np.array([shapes[n] for n in names], dtype=np.float32),
+            scheme="mediapipe_52",
+        ),
+        confidence=1.0,
+    )
+
+
 def tracking_from(points: np.ndarray | None) -> FaceTrackingResult:
     metadata = FrameMetadata(frame_id=1, capture_timestamp=1.0)
     if points is None:
@@ -354,49 +403,30 @@ class TestSourceSelection:
     them.
     """
 
-    @staticmethod
-    def _tracking(**shapes: float) -> FaceTrackingResult:
-        from sha256.core.types import BlendshapeSet, HeadPose
-
-        yaw = shapes.pop("yaw", 0.0)
-        names = tuple(shapes)
-        return FaceTrackingResult(
-            metadata=FrameMetadata(frame_id=1, capture_timestamp=1.0),
-            face_detected=True,
-            landmarks=LandmarkSet(points=synthetic_landmarks(), scheme="mediapipe_478"),
-            head_pose=HeadPose(yaw=yaw),
-            blendshapes=BlendshapeSet(
-                names=names,
-                weights=np.array([shapes[n] for n in names], dtype=np.float32),
-                scheme="mediapipe_52",
-            ),
-            confidence=1.0,
-        )
-
     def test_an_open_jaw_calls_for_the_open_mouth_photo(self):
-        weights = _source_weights(self._tracking(jawOpen=0.6))
+        weights = _source_weights(expressive_tracking(jaw=0.6))
 
         assert weights["source_mouth_open"] == pytest.approx(0.6)
 
     def test_a_smile_calls_for_the_smiling_photo(self):
-        weights = _source_weights(self._tracking(mouthSmileLeft=0.5, mouthSmileRight=0.45))
+        weights = _source_weights(expressive_tracking(mouthSmileLeft=0.5, mouthSmileRight=0.45))
 
         assert weights["source_smile"] == pytest.approx(0.5)
 
     def test_a_blink_calls_for_the_closed_eye_photo(self):
-        weights = _source_weights(self._tracking(eyeBlinkLeft=0.9, eyeBlinkRight=0.85))
+        weights = _source_weights(expressive_tracking(blink=(0.9, 0.85)))
 
         assert weights["source_eyes_closed"] == pytest.approx(0.85)
 
     def test_a_wink_does_not(self):
         """The photo closes both eyes; driving it from one would close the other."""
-        weights = _source_weights(self._tracking(eyeBlinkLeft=0.95, eyeBlinkRight=0.02))
+        weights = _source_weights(expressive_tracking(blink=(0.95, 0.02)))
 
         assert "source_eyes_closed" not in weights
 
     def test_yaw_picks_the_side_it_turned_towards(self):
-        left = _source_weights(self._tracking(yaw=20.0))
-        right = _source_weights(self._tracking(yaw=-20.0))
+        left = _source_weights(expressive_tracking(yaw=20.0))
+        right = _source_weights(expressive_tracking(yaw=-20.0))
 
         assert left["source_turn_left"] > 0.5
         assert "source_turn_right" not in left
@@ -405,12 +435,12 @@ class TestSourceSelection:
 
     def test_no_variant_takes_over_completely(self):
         """Each was shot at one extreme; all the way there reads as performing."""
-        weights = _source_weights(self._tracking(jawOpen=1.0, yaw=90.0))
+        weights = _source_weights(expressive_tracking(jaw=1.0, yaw=90.0))
 
         assert max(weights.values()) <= 0.85
 
     def test_a_still_neutral_face_asks_for_nothing(self):
-        assert _source_weights(self._tracking(jawOpen=0.0, yaw=0.0)) == {}
+        assert _source_weights(expressive_tracking(jaw=0.0, yaw=0.0, gap=0.0)) == {}
 
     def test_a_result_without_blendshapes_or_pose_is_survivable(self):
         bare = FaceTrackingResult(
@@ -431,27 +461,113 @@ class TestSourceBlending:
         assert blended is avatar.image
 
     def test_a_weighted_variant_moves_the_pixels_towards_it(self, engine, tmp_path):
-        from sha256.core.types import BlendshapeSet, HeadPose
-
         engine.load_avatar(make_descriptor(tmp_path))
         avatar = engine._loaded["avatar_test"]
         # A variant that is pure white, so its contribution is unmistakable.
         avatar.sources["source_mouth_open"] = np.full_like(avatar.image, 255)
 
-        tracking = FaceTrackingResult(
-            metadata=FrameMetadata(frame_id=1, capture_timestamp=1.0),
-            face_detected=True,
-            landmarks=LandmarkSet(points=synthetic_landmarks(), scheme="mediapipe_478"),
-            head_pose=HeadPose(),
-            blendshapes=BlendshapeSet(
-                names=("jawOpen",),
-                weights=np.array([0.5], dtype=np.float32),
-                scheme="mediapipe_52",
-            ),
-            confidence=1.0,
-        )
-
-        blended = _blend_sources(avatar, tracking)
+        blended = _blend_sources(avatar, expressive_tracking(jaw=0.5))
 
         assert float(blended.mean()) > float(avatar.image.mean())
         assert float(blended.mean()) < 255.0
+
+
+class TestTrackingLoss:
+    """What happens in the frames where the tracker loses the face.
+
+    This is a privacy requirement, not a smoothness one. Passing the camera
+    through a dropout puts the user's real face on the call — which is the one
+    thing the product exists to prevent — and it is what the owner saw as a
+    flicker.
+    """
+
+    @staticmethod
+    def _frame(timestamp: float) -> VideoFrame:
+        return VideoFrame(
+            data=np.full((240, 320, 3), 30, dtype=np.uint8),
+            pixel_format=PixelFormat.BGR24,
+            metadata=FrameMetadata(frame_id=1, capture_timestamp=timestamp),
+        )
+
+    def test_a_momentary_loss_keeps_the_avatar_on(self, engine, tmp_path):
+        engine.load_avatar(make_descriptor(tmp_path, image=_striped(256)))
+        engine.animate("avatar_test", tracking_from(synthetic_landmarks()), self._frame(0.0))
+
+        lost = engine.animate("avatar_test", tracking_from(None), self._frame(0.1))
+
+        assert not lost.is_placeholder, "the camera was passed through during a dropout"
+        face = lost.data[80:160, 120:200]
+        assert int(face.max()) - int(face.min()) > 20, "the avatar is not being drawn"
+
+    def test_the_scene_still_updates_while_the_face_is_held(self, engine, tmp_path):
+        """Only the face is held; a frozen picture would look broken on a call."""
+        engine.load_avatar(make_descriptor(tmp_path, image=_striped(256)))
+        engine.animate("avatar_test", tracking_from(synthetic_landmarks()), self._frame(0.0))
+
+        moving = self._frame(0.1)
+        moving.data[:, :] = (200, 10, 10)
+        lost = engine.animate("avatar_test", tracking_from(None), moving)
+
+        assert tuple(lost.data[0, 0]) == (200, 10, 10)
+
+    def test_a_face_gone_for_good_stops_being_held(self, engine, tmp_path):
+        """Once they have left the frame there is no real face left to hide."""
+        engine.load_avatar(make_descriptor(tmp_path))
+        engine.animate("avatar_test", tracking_from(synthetic_landmarks()), self._frame(0.0))
+
+        lost = engine.animate("avatar_test", tracking_from(None), self._frame(5.0))
+
+        assert lost.is_placeholder
+
+    def test_a_loss_before_any_face_was_seen_passes_through(self, engine, tmp_path):
+        """Nothing to hold, and nothing to hide either."""
+        engine.load_avatar(make_descriptor(tmp_path))
+
+        result = engine.animate("avatar_test", tracking_from(None), self._frame(0.0))
+
+        assert result.is_placeholder
+
+    def test_unloading_forgets_the_held_face(self, engine, tmp_path):
+        descriptor = make_descriptor(tmp_path)
+        engine.load_avatar(descriptor)
+        engine.animate("avatar_test", tracking_from(synthetic_landmarks()), self._frame(0.0))
+
+        engine.unload_avatar("avatar_test")
+        engine.load_avatar(descriptor)
+        result = engine.animate("avatar_test", tracking_from(None), self._frame(0.1))
+
+        assert result.is_placeholder
+
+
+class TestTeethGate:
+    """Teeth may only appear when the lips are actually parted.
+
+    Measured on the avatar's own photographs: the smiling-with-teeth photo reads
+    mouthSmile 0.54, and so does a closed-mouth smile — so weighting the
+    teeth-bearing photographs by the smile blendshape put teeth into a smile
+    that had none.
+    """
+
+    def test_a_closed_smile_shows_no_teeth(self):
+        weights = _source_weights(expressive_tracking(gap=0.001, smile=0.6))
+
+        assert "source_smile" not in weights
+
+    def test_an_open_smile_does(self):
+        weights = _source_weights(expressive_tracking(gap=0.06, smile=0.6))
+
+        assert weights["source_smile"] > 0.5
+
+    def test_the_open_mouth_photo_is_gated_the_same_way(self):
+        """A dropped jaw with the lips still together shows no teeth either."""
+        shut = _source_weights(expressive_tracking(gap=0.001, jaw=0.7))
+        open_ = _source_weights(expressive_tracking(gap=0.09, jaw=0.7))
+
+        assert "source_mouth_open" not in shut
+        assert open_["source_mouth_open"] > 0.5
+
+    def test_the_gate_is_gradual(self):
+        """A hard threshold would pop the teeth in as the lips part."""
+        weights = _source_weights(expressive_tracking(gap=0.03, smile=1.0))
+
+        assert 0.1 < weights["source_smile"] < 0.9

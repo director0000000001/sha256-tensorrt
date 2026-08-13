@@ -86,6 +86,22 @@ _TURN_FULL_DEGREES = 20.0
 # is performing rather than talking.
 _MAX_VARIANT_WEIGHT = 0.85
 
+# Inner-lip landmarks, and the gap between them at which the mouth counts as
+# open, as a fraction of face height. Measured on the avatar's own photographs:
+# closed reads 0.0010, the smiling-with-teeth photo 0.0591, the open-mouth photo
+# 0.0947. Below the floor no teeth can be showing; at the ceiling they fully are.
+_UPPER_INNER_LIP, _LOWER_INNER_LIP = 13, 14
+_FOREHEAD_LANDMARK, _CHIN_LANDMARK = 10, 152
+_LIP_GAP_CLOSED = 0.012
+_LIP_GAP_OPEN = 0.055
+
+# How long to keep driving the avatar from the last known face after tracking
+# drops it. Short losses are constant and showing the camera through one of them
+# puts the user's real face on the call — the single thing this product exists
+# to prevent. Past this the face is genuinely gone from frame, and there is
+# nothing left to hide.
+_HOLD_LAST_FACE_SECONDS = 1.0
+
 # A curated subset of the 478-point mesh: the face oval, both brows, both eyes,
 # the nose, and the lips. Chosen so the mesh stays small enough to warp inside a
 # frame budget while still carrying every feature a viewer actually watches.
@@ -180,6 +196,11 @@ class WarpAvatarEngine:
         self._model_path = Path(model_path) if model_path is not None else None
         self._running = False
         self._loaded: dict[str, _LoadedAvatar] = {}
+
+        # The last frame in which each avatar's face was found: where it was,
+        # what it was doing, and when. Used to ride out momentary tracking
+        # losses without ever showing the camera through.
+        self._last_face: dict[str, tuple[np.ndarray, FaceTrackingResult, float]] = {}
 
     # --- Component ---------------------------------------------------------
 
@@ -290,6 +311,7 @@ class WarpAvatarEngine:
 
     def unload_avatar(self, avatar_id: str) -> None:
         self._loaded.pop(avatar_id, None)
+        self._last_face.pop(avatar_id, None)
 
     @property
     def loaded_avatars(self) -> Sequence[str]:
@@ -313,15 +335,29 @@ class WarpAvatarEngine:
             msg = f"the warp engine cannot composite over {frame.pixel_format.value} frames"
             raise AvatarLoadError(msg)
 
-        # Losing the face is normal and constant. Passing the scene through
-        # unchanged is the least surprising thing to do with a frame that has
-        # nowhere to put an avatar.
-        if not tracking.face_detected or tracking.landmarks is None:
-            return self._passthrough(source, frame, tracking, avatar_id)
+        target = None
+        if tracking.face_detected and tracking.landmarks is not None:
+            target = _pixel_points(tracking.landmarks.points, source.shape[1], source.shape[0])
 
-        target = _pixel_points(tracking.landmarks.points, source.shape[1], source.shape[0])
-        if target is None:
-            return self._passthrough(source, frame, tracking, avatar_id)
+        if target is not None:
+            self._last_face[avatar_id] = (target, tracking, frame.metadata.capture_timestamp)
+        else:
+            # Tracking drops the face constantly for a frame or three, and
+            # passing the camera through one of those puts the user's *real
+            # face* on the call for a tenth of a second. That is a flicker to
+            # watch and a failure of the one thing this product exists to do, so
+            # the last known face keeps driving the avatar instead. The
+            # background stays live; only the face is held.
+            held = self._last_face.get(avatar_id)
+            if held is None:
+                return self._passthrough(source, frame, tracking, avatar_id)
+
+            target, tracking, since = held
+            if frame.metadata.capture_timestamp - since > _HOLD_LAST_FACE_SECONDS:
+                # Genuinely gone from frame rather than momentarily lost. There
+                # is no longer a real face to hide.
+                self._last_face.pop(avatar_id, None)
+                return self._passthrough(source, frame, tracking, avatar_id)
 
         output = _warp_onto(avatar, target, source, tracking)
 
@@ -543,22 +579,50 @@ def _crop_to_face(image: np.ndarray, points: np.ndarray) -> tuple[np.ndarray, np
     return cropped, moved
 
 
+def _lip_gap(tracking: FaceTrackingResult) -> float:
+    """How far the lips are actually parted, as a fraction of face height.
+
+    The blendshapes cannot answer this. ``mouthSmile`` reads 0.54 on the
+    avatar's smiling photograph and reads just as high on a closed-mouth smile,
+    so weighting the teeth-bearing photographs by it put teeth into a smile that
+    had none — which is exactly what the owner saw. Whether teeth can be visible
+    is a question about the lips, so it is measured on the lips.
+    """
+    landmarks = tracking.landmarks
+    if landmarks is None or landmarks.count <= max(_LOWER_INNER_LIP, _CHIN_LANDMARK):
+        return 0.0
+
+    points = landmarks.points
+    gap = abs(float(points[_UPPER_INNER_LIP][1] - points[_LOWER_INNER_LIP][1]))
+    height = abs(float(points[_FOREHEAD_LANDMARK][1] - points[_CHIN_LANDMARK][1]))
+    if height < 1e-6:
+        return 0.0
+    return gap / height
+
+
 def _source_weights(tracking: FaceTrackingResult) -> dict[str, float]:
     """How much each extra photograph should contribute to this frame.
 
-    Read straight off the tracker: the blendshapes are already a measurement of
-    "how open is this mouth" and "how closed is this eye", and the yaw was
-    verified in B003. Nothing here needs a threshold or a state machine, which
-    is what keeps it from flickering between sources.
+    Read from the tracker: the blendshapes already measure "how closed is this
+    eye", the yaw was verified in B003, and the lip gap is measured from the
+    landmarks. Nothing here needs a state machine, which is what keeps it from
+    flickering between sources.
     """
     weights: dict[str, float] = {}
     shapes = tracking.blendshapes
 
+    # Both photographs that contain teeth are gated on the lips being parted.
+    # Neither can contribute anything truthful while the mouth is shut, and
+    # blending them in anyway is how a closed smile grew teeth.
+    gap = _lip_gap(tracking)
+    parted = (gap - _LIP_GAP_CLOSED) / (_LIP_GAP_OPEN - _LIP_GAP_CLOSED)
+    parted = min(max(parted, 0.0), 1.0)
+
     if shapes is not None and shapes.names:
         smile = max(shapes.get("mouthSmileLeft"), shapes.get("mouthSmileRight"))
         blink = min(shapes.get("eyeBlinkLeft"), shapes.get("eyeBlinkRight"))
-        weights["source_smile"] = smile
-        weights["source_mouth_open"] = shapes.get("jawOpen")
+        weights["source_smile"] = smile * parted
+        weights["source_mouth_open"] = shapes.get("jawOpen") * parted
         # min, not max, of the two eyes: a wink is one eye, and driving a
         # both-eyes-closed photograph from a wink closes the wrong one too.
         weights["source_eyes_closed"] = blink
