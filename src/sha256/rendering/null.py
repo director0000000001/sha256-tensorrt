@@ -19,13 +19,22 @@ __all__ = ["NullRenderer"]
 
 
 class NullRenderer:
-    """Fits a source frame into the output canvas, preserving aspect ratio."""
+    """Fits a source frame into the output canvas, preserving aspect ratio.
+
+    **Format-preserving.** It copies pixels and never converts them, so it
+    reports whatever format it was handed. Claiming a fixed one was a real bug:
+    the engine composites in the camera's BGR, this renderer relabelled the
+    result RGB, and the preview then drew every frame with red and blue swapped
+    — a blue face on a blue body, visible only in the avatar view because the
+    tracking view reads the camera frame directly.
+    """
 
     def __init__(self, *, width: int = 1280, height: int = 720) -> None:
         self._width = width
         self._height = height
         self._running = False
         self._canvas = np.zeros((height, width, 3), dtype=np.uint8)
+        self._format = PixelFormat.RGB24
 
     @property
     def backend_id(self) -> str:
@@ -33,7 +42,8 @@ class NullRenderer:
 
     @property
     def output_format(self) -> str:
-        return PixelFormat.RGB24.value
+        """Whatever came in last. This renderer converts nothing."""
+        return self._format.value
 
     @property
     def is_running(self) -> bool:
@@ -55,9 +65,10 @@ class NullRenderer:
     def render(self, source: RenderedFrame) -> RenderedFrame:
         self._canvas.fill(16)
         self._blit_centred(source.data)
+        self._format = source.pixel_format
         return RenderedFrame(
             data=self._canvas,
-            pixel_format=PixelFormat.RGB24,
+            pixel_format=source.pixel_format,
             metadata=source.metadata,
             avatar_id=source.avatar_id,
             render_timestamp=now(),
@@ -75,7 +86,7 @@ class NullRenderer:
         self._canvas.fill(16)
         return RenderedFrame(
             data=self._canvas,
-            pixel_format=PixelFormat.RGB24,
+            pixel_format=self._format,
             metadata=metadata,
             avatar_id=None,
             render_timestamp=now(),

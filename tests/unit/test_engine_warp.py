@@ -403,20 +403,27 @@ class TestSourceSelection:
     them.
     """
 
-    def test_an_open_jaw_calls_for_the_open_mouth_photo(self):
-        weights = _source_weights(expressive_tracking(jaw=0.6))
+    def test_an_open_mouth_calls_for_the_open_mouth_photo(self):
+        weights = _source_weights(expressive_tracking(gap=0.09, jaw=0.6))
 
-        assert weights["source_mouth_open"] == pytest.approx(0.6)
+        assert weights["source_mouth_open"] > 0.7
 
-    def test_a_smile_calls_for_the_smiling_photo(self):
-        weights = _source_weights(expressive_tracking(mouthSmileLeft=0.5, mouthSmileRight=0.45))
+    def test_a_smile_calls_for_the_smiling_photo_rather_than_the_open_one(self):
+        """Both show teeth; a smile shows them differently from an "ah"."""
+        weights = _source_weights(expressive_tracking(gap=0.06, smile=0.55))
 
-        assert weights["source_smile"] == pytest.approx(0.5)
+        assert weights["source_smile"] > weights.get("source_mouth_open", 0.0)
 
     def test_a_blink_calls_for_the_closed_eye_photo(self):
         weights = _source_weights(expressive_tracking(blink=(0.9, 0.85)))
 
-        assert weights["source_eyes_closed"] == pytest.approx(0.85)
+        assert weights["source_eyes_closed"] > 0.8
+
+    def test_eyes_held_shut_close_as_firmly_as_a_blink(self):
+        """A held closure reads much lower than a blink, and left the eyes open."""
+        weights = _source_weights(expressive_tracking(blink=(0.55, 0.5)))
+
+        assert weights["source_eyes_closed"] > 0.7
 
     def test_a_wink_does_not(self):
         """The photo closes both eyes; driving it from one would close the other."""
@@ -435,9 +442,16 @@ class TestSourceSelection:
 
     def test_no_variant_takes_over_completely(self):
         """Each was shot at one extreme; all the way there reads as performing."""
-        weights = _source_weights(expressive_tracking(jaw=1.0, yaw=90.0))
+        weights = _source_weights(expressive_tracking(gap=0.12, jaw=1.0, yaw=90.0))
 
-        assert max(weights.values()) <= 0.85
+        assert max(weights.values()) <= 0.95
+
+    def test_a_wide_open_mouth_leaves_the_closed_one_out_of_it(self):
+        """The base portrait's lips are shut; stretched across a gap they are fangs."""
+        weights = _source_weights(expressive_tracking(gap=0.095, jaw=0.5, smile=0.3))
+
+        mouth = weights.get("source_smile", 0.0) + weights.get("source_mouth_open", 0.0)
+        assert mouth > 0.9, f"the closed-mouth base still supplies {1 - mouth:.0%} of the mouth"
 
     def test_a_still_neutral_face_asks_for_nothing(self):
         assert _source_weights(expressive_tracking(jaw=0.0, yaw=0.0, gap=0.0)) == {}

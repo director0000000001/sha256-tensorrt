@@ -84,7 +84,7 @@ _TURN_FULL_DEGREES = 20.0
 # No single variant may take over completely. Each was photographed at one
 # extreme of its expression, and a face driven all the way there looks like it
 # is performing rather than talking.
-_MAX_VARIANT_WEIGHT = 0.85
+_MAX_VARIANT_WEIGHT = 0.95
 
 # Inner-lip landmarks, and the gap between them at which the mouth counts as
 # open, as a fraction of face height. Measured on the avatar's own photographs:
@@ -94,6 +94,20 @@ _UPPER_INNER_LIP, _LOWER_INNER_LIP = 13, 14
 _FOREHEAD_LANDMARK, _CHIN_LANDMARK = 10, 152
 _LIP_GAP_CLOSED = 0.012
 _LIP_GAP_OPEN = 0.055
+
+# The open-mouth photograph's own lip gap. Used to scale how much of it is
+# needed: at this opening it should be supplying the mouth almost entirely,
+# because anything left of the closed-mouth base is pixels with no teeth in
+# them being stretched across the gap.
+_LIP_GAP_FULL = 0.095
+
+# The smiling photograph's own mouthSmile reading, so "how much of a smile is
+# this" is measured against the photograph rather than against 1.0.
+_SMILE_REFERENCE = 0.54
+
+# Eye closure is deliberately eager. A blink is fast and reads high, but holding
+# the eyes shut reads far lower, and the owner's eyes stayed open for it.
+_BLINK_START, _BLINK_FULL = 0.20, 0.60
 
 # How long to keep driving the avatar from the last known face after tracking
 # drops it. Short losses are constant and showing the camera through one of them
@@ -116,8 +130,15 @@ _RIGHT_BROW = (276, 283, 282, 295, 285, 336)
 _LEFT_EYE = (33, 160, 158, 133, 153, 144)
 _RIGHT_EYE = (362, 385, 387, 263, 373, 380)
 _NOSE = (168, 6, 197, 195, 5, 4, 98, 97, 2, 326, 327)
-_OUTER_LIPS = (61, 39, 37, 0, 267, 269, 291, 405, 314, 17, 84, 181)
-_INNER_LIPS = (78, 81, 13, 311, 308, 402, 14, 178)
+# The complete lip contours, not a sample of them. Eight points around the
+# inner lip cannot describe an opening: the triangles spanning the mouth
+# stretched whatever pixels they held into long vertical streaks, which is the
+# "fangs" the owner photographed.
+_OUTER_LIPS = (61, 91, 84, 17, 314, 321, 291, 270, 267, 0, 37, 40)
+_INNER_LIPS = (
+    78, 95, 88, 178, 87, 14, 317, 402, 318, 324,
+    308, 415, 310, 311, 312, 13, 82, 81, 80, 191,
+)
 _CHEEKS = (234, 454, 50, 280, 116, 345, 205, 425)
 # fmt: on
 
@@ -158,8 +179,35 @@ _CORRECTION_BLUR = 21
 # both as a fraction of face width. Eroding rather than growing keeps the
 # transition on skin at both ends; a hard edge reads as a cut-out sticker, and
 # too soft lets the real face show through the avatar.
+# Where the inner lip ring sits inside MESH_INDICES, so the mouth opening can be
+# found as a polygon rather than a cloud of points.
+_INNER_LIP_SLICE = slice(
+    len(_FACE_OVAL)
+    + len(_LEFT_BROW)
+    + len(_RIGHT_BROW)
+    + len(_LEFT_EYE)
+    + len(_RIGHT_EYE)
+    + len(_NOSE)
+    + len(_OUTER_LIPS),
+    len(_FACE_OVAL)
+    + len(_LEFT_BROW)
+    + len(_RIGHT_BROW)
+    + len(_LEFT_EYE)
+    + len(_RIGHT_EYE)
+    + len(_NOSE)
+    + len(_OUTER_LIPS)
+    + len(_INNER_LIPS),
+)
+
 _MASK_SHRINK = 0.04
 _MASK_FEATHER = 0.07
+
+# How much of the brows' movement the avatar copies. Raising the brows moves the
+# landmarks a long way, and the mesh answers by stretching the eye beneath them
+# — the avatar inherits the user's *proportions* where it should be inheriting
+# only their motion. Halving the travel keeps the expression readable without
+# the eye growing with it.
+_BROW_FOLLOW = 0.5
 
 
 class _LoadedAvatar:
@@ -494,7 +542,31 @@ def _triangulate(points: np.ndarray, width: int, height: int) -> np.ndarray:
     if not triangles:
         msg = "the avatar mesh could not be triangulated"
         raise AvatarLoadError(msg)
-    return np.array(triangles, dtype=np.int32)
+
+    return _without_mouth_interior(np.array(triangles, dtype=np.int32), points)
+
+
+def _without_mouth_interior(triangles: np.ndarray, points: np.ndarray) -> np.ndarray:
+    """Drop the triangles that span the mouth opening.
+
+    Delaunay fills the mouth with long thin triangles between opposite lips.
+    Warping each one stretches its own strip of the photograph independently,
+    and the teeth come out as vertical stripes. The interior is painted
+    separately instead, by a transform fitted to the lips as a whole, so the
+    teeth keep their proportions.
+    """
+    import cv2
+
+    mouth = points[_INNER_LIP_SLICE].astype(np.int32)
+    centroids = points[triangles].mean(axis=1)
+
+    keep = [
+        index
+        for index, centroid in enumerate(centroids)
+        if cv2.pointPolygonTest(mouth, (float(centroid[0]), float(centroid[1])), False) < 0
+    ]
+    kept: np.ndarray = triangles[keep]
+    return kept
 
 
 def _warp_onto(
@@ -541,11 +613,13 @@ def _warp_onto(
     canvas = warp_mesh(
         _blend_sources(avatar, tracking),
         avatar.points,
-        local,
+        _damp_brows(avatar.points, local),
         avatar.triangles,
         box_w,
         box_h,
     )
+
+    _paint_mouth_interior(canvas, _blend_sources(avatar, tracking), avatar.points, local)
 
     alpha = _destination_mask(local, box_w, box_h)
 
@@ -555,6 +629,65 @@ def _warp_onto(
     blended = region * (1.0 - alpha) + matched * alpha
     output[fy0:fy1, fx0:fx1] = blended.astype(np.uint8)
     return output
+
+
+def _paint_mouth_interior(
+    canvas: np.ndarray, image: np.ndarray, source: np.ndarray, target: np.ndarray
+) -> None:
+    """Fill the mouth opening from the photograph, in one piece.
+
+    The mesh no longer covers this area, because triangulating across an opening
+    slices whatever is behind it into strips. Here the whole mouth region is
+    placed by a single similarity transform fitted to the lip landmarks, so the
+    teeth arrive at the right size and orientation and stay one object.
+
+    It cannot invent an interior the photograph does not have — that is what the
+    open-mouth source is for, and why it is weighted to take over as the lips
+    part.
+    """
+    import cv2
+
+    matrix: Any = cv2.estimateAffinePartial2D(
+        source[_INNER_LIP_SLICE], target[_INNER_LIP_SLICE], method=cv2.LMEDS
+    )[0]
+    if matrix is None:
+        return
+
+    height, width = canvas.shape[:2]
+    placed = cv2.warpAffine(
+        image, matrix, (width, height), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE
+    )
+
+    opening = np.zeros((height, width), dtype=np.uint8)
+    cv2.fillPoly(opening, [target[_INNER_LIP_SLICE].astype(np.int32)], 255)
+    cv2.copyTo(placed, opening, canvas)
+
+
+def _damp_brows(source: np.ndarray, target: np.ndarray) -> np.ndarray:
+    """Pull the brow landmarks partway back toward where the face alone puts them.
+
+    Raising the brows moves those landmarks a long way, and the triangles
+    between brow and eyelid answer by stretching the eye — the owner's report
+    that the eyes grow when the brows go up. The eye is stretching because the
+    avatar is being told to match the *shape* of a raised brow rather than the
+    fact of one.
+
+    The reference is where a rigid fit of the whole face would place the brows:
+    the avatar's own proportions, positioned on the live head. Moving the target
+    halfway back toward that keeps the expression while halving the distortion.
+    """
+    import cv2
+
+    matrix: Any = cv2.estimateAffinePartial2D(source, target, method=cv2.LMEDS)[0]
+    if matrix is None:
+        return target
+
+    rigid = cv2.transform(source.reshape(-1, 1, 2), matrix).reshape(-1, 2)
+
+    damped = target.copy()
+    brows = damped[_BROW_SLICE]
+    damped[_BROW_SLICE] = rigid[_BROW_SLICE] + (brows - rigid[_BROW_SLICE]) * _BROW_FOLLOW
+    return damped
 
 
 def _crop_to_face(image: np.ndarray, points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -611,21 +744,32 @@ def _source_weights(tracking: FaceTrackingResult) -> dict[str, float]:
     weights: dict[str, float] = {}
     shapes = tracking.blendshapes
 
-    # Both photographs that contain teeth are gated on the lips being parted.
-    # Neither can contribute anything truthful while the mouth is shut, and
-    # blending them in anyway is how a closed smile grew teeth.
+    # Both photographs that contain teeth are driven by the lip gap. Neither can
+    # contribute anything truthful while the mouth is shut, and blending them in
+    # anyway is how a closed smile grew teeth.
     gap = _lip_gap(tracking)
-    parted = (gap - _LIP_GAP_CLOSED) / (_LIP_GAP_OPEN - _LIP_GAP_CLOSED)
-    parted = min(max(parted, 0.0), 1.0)
 
     if shapes is not None and shapes.names:
+        # How much of an *open mouth* this frame needs, measured against the
+        # open-mouth photograph's own gap. At full opening the base portrait
+        # must contribute nothing to the mouth: its lips are closed, and a
+        # closed mouth stretched across an open one is what produced fangs.
+        opening = (gap - _LIP_GAP_CLOSED) / (_LIP_GAP_FULL - _LIP_GAP_CLOSED)
+        opening = min(max(opening, 0.0), 1.0)
+
+        # Which of the two open-mouth photographs it should come from: a smile
+        # shows teeth differently from an "ah". They split the same budget
+        # rather than adding to each other.
         smile = max(shapes.get("mouthSmileLeft"), shapes.get("mouthSmileRight"))
-        blink = min(shapes.get("eyeBlinkLeft"), shapes.get("eyeBlinkRight"))
-        weights["source_smile"] = smile * parted
-        weights["source_mouth_open"] = shapes.get("jawOpen") * parted
+        smiling = min(smile / _SMILE_REFERENCE, 1.0)
+        weights["source_smile"] = opening * smiling
+        weights["source_mouth_open"] = opening * (1.0 - smiling)
+
         # min, not max, of the two eyes: a wink is one eye, and driving a
         # both-eyes-closed photograph from a wink closes the wrong one too.
-        weights["source_eyes_closed"] = blink
+        blink = min(shapes.get("eyeBlinkLeft"), shapes.get("eyeBlinkRight"))
+        closed = (blink - _BLINK_START) / (_BLINK_FULL - _BLINK_START)
+        weights["source_eyes_closed"] = min(max(closed, 0.0), 1.0)
 
     pose = tracking.head_pose
     if pose is not None:
