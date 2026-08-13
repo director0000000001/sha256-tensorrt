@@ -569,6 +569,51 @@ class TestSourceBlending:
         assert float(blended.mean()) > float(avatar.image.mean())
 
 
+class TestEyeGeometry:
+    """The avatar keeps its own eyes.
+
+    The mesh maps the avatar's landmarks onto the user's, so at full strength
+    the avatar inherits the *shape* of the user's eye aperture and has its own
+    iris stretched to fill it. Live, that reads as pale flat eyes and is the one
+    feature that gives the whole picture away.
+    """
+
+    def test_the_avatar_does_not_inherit_the_users_eye_shape(self):
+        from sha256.avatar.engine_warp import _EYE_POSITIONS, _damp_brows
+
+        source = synthetic_landmarks()[list(MESH_INDICES)][:, :2].astype(np.float32) * 500.0
+        target = source.copy()
+        # A user whose eyes open half again as wide as the avatar's.
+        centre = target[_EYE_POSITIONS].mean(axis=0)
+        target[_EYE_POSITIONS] = centre + (target[_EYE_POSITIONS] - centre) * 1.5
+
+        damped = _damp_brows(source, target)
+
+        asked = np.abs(target[_EYE_POSITIONS] - source[_EYE_POSITIONS]).sum()
+        given = np.abs(damped[_EYE_POSITIONS] - source[_EYE_POSITIONS]).sum()
+        assert given < asked * 0.5, "the avatar followed the user's eye shape"
+
+    def test_only_one_gaze_photograph_is_ever_used(self):
+        """Two put the pupil in two places and the blend ghosts it into neither."""
+        from sha256.avatar.engine_warp import _GAZE_ROLES
+
+        weights = weights_from_rest(
+            expressive_tracking(
+                gap=0.0,
+                extra={
+                    "eyeLookOutLeft": 0.7,
+                    "eyeLookInRight": 0.68,
+                    "eyeLookUpLeft": 0.6,
+                    "eyeLookUpRight": 0.58,
+                },
+            )
+        )
+
+        used = [role for role in _GAZE_ROLES if role in weights]
+        assert len(used) == 1, f"blended {used}"
+        assert used[0] == "source_look_left", "and it must be the strongest one"
+
+
 class TestRelighting:
     """The avatar must take the room's light and none of the user's face.
 

@@ -341,6 +341,50 @@ ranged 0.05 to 0.92 on a still subject — which changed the face's appearance
 every frame. That is a flicker by any definition, and it appeared when
 multi-source landed. Plausible, not proven; the owner has to look.
 
+## 12. The avatar was wearing the user's eyes — FIXED 2026-08-14
+
+**Seen**, on a live frame the owner captured: pale, flat, staring eyes with too
+much white showing, in a face that otherwise reads as plausible. *"The eyes are
+the easiest way to notice this is a deepfake-type program."* They were right,
+and it was the eyes doing nearly all of that work.
+
+**Why, and it is not the blend.** Rendering the blended source showed correct
+eyes — the earlier fixes had done their job. The damage happens *after*, in the
+mesh warp: it maps the avatar's landmarks onto the user's, so at full strength
+the avatar's eye aperture becomes **the user's eye aperture**, and the avatar's
+iris is stretched to fill someone else's eye. Two people's eyes differ in size
+and shape as a matter of course; 40% is unremarkable. Stretched that far, the
+iris flattens and the sclera takes over, which is exactly the pale stare.
+
+The mechanism for this already existed — `_BROW_FOLLOW`, added when raising the
+brows was found to stretch the eyes beneath them — and it had simply never been
+applied to the eyes themselves.
+
+**And a second cause on top of it.** Gaze is the one photograph family where
+blending averages a *position* rather than an appearance. A look-left and a
+look-up both active put the pupil in two places and the blend leaves a ghost of
+it in neither. Opposing pairs were already exclusive after item 8, but left and
+up are not opposites.
+
+**Fixed, both:**
+
+- **`_EYE_FOLLOW = 0.2`.** The eyes barely follow the user's landmarks at all.
+  They no longer need to: blinking, squinting, widening and gaze all arrive as
+  photographs, carrying their own geometry in the blended mesh since item 11.
+  The mesh's remaining job there is to place the avatar's own eyes on the live
+  head, which is a rigid transform, not a reshaping.
+- **At most one gaze photograph at a time**, the strongest. A pupil somewhere
+  definite and roughly right beats a precise average of two wrong places.
+
+Rendered both ways with a simulated user whose eyes are 40% wider — an ordinary
+difference between two people. Before: stretched, staring, lid pulled clear of
+the iris. After: the avatar's own eye shape, correct lid coverage, normal iris.
+
+**Why this took so long to find.** Every previous fix was upstream of it and
+every one was measured on the *blend*, which was never wrong. The defect lived
+in the geometry the blend was warped through. Looking at the blend could not
+have found it; rendering the warp did, immediately.
+
 ## 11. Aligning the photographs destroyed the very thing they were for — FIXED 2026-08-14
 
 **The one that actually mattered**, and the reason three measured fixes in a row

@@ -383,6 +383,33 @@ _MASK_FEATHER = 0.07
 # the eye growing with it.
 _BROW_FOLLOW = 0.5
 
+# How much of the *eye opening* the avatar copies from the user. Almost none,
+# and that is deliberate.
+#
+# The mesh forces the avatar's eye aperture to match the user's exactly, so the
+# avatar was inheriting the shape and size of someone else's eyes and having its
+# own iris stretched to fill them. On a live frame that reads as pale, flat,
+# lifeless eyes — the single thing that gives the whole picture away.
+#
+# The eyes do not need the mesh for expression any more: blinking, squinting,
+# widening and gaze all arrive as photographs now, and their geometry arrives
+# with them in the blended mesh. So the target here is the avatar's *own* eye
+# geometry placed rigidly on the live head, and the small remainder exists only
+# so that expressions no photograph covers are not frozen out entirely.
+_EYE_FOLLOW = 0.2
+
+# At most one gaze photograph at a time. Two of them — a look left and a look
+# up, say — put the pupil in two places and average it into a smear, which is
+# most of why the eyes looked washed out. One photograph puts the pupil
+# somewhere definite, and definite in roughly the right direction beats a
+# precise average of two wrong ones.
+_GAZE_ROLES = (
+    "source_look_left",
+    "source_look_right",
+    "source_look_up",
+    "source_look_down",
+)
+
 # Source weights are rounded to this before deciding whether the previous blend
 # can be reused. Fine enough that no step is visible, coarse enough that a
 # still face rebuilds nothing.
@@ -1109,17 +1136,25 @@ def _paint_mouth_interior(
 
 
 def _damp_brows(source: np.ndarray, target: np.ndarray) -> np.ndarray:
-    """Pull the brow landmarks partway back toward where the face alone puts them.
+    """Pull the brow and eye landmarks back toward the avatar's own proportions.
 
-    Raising the brows moves those landmarks a long way, and the triangles
+    The mesh maps the avatar's landmarks onto the user's, so wherever it acts at
+    full strength the avatar inherits the user's *shape* and not merely their
+    motion. Two places where that is visibly wrong:
+
+    **Brows.** Raising them moves those landmarks a long way and the triangles
     between brow and eyelid answer by stretching the eye — the owner's report
-    that the eyes grow when the brows go up. The eye is stretching because the
-    avatar is being told to match the *shape* of a raised brow rather than the
-    fact of one.
+    that the eyes grow when the brows go up.
 
-    The reference is where a rigid fit of the whole face would place the brows:
-    the avatar's own proportions, positioned on the live head. Moving the target
-    halfway back toward that keeps the expression while halving the distortion.
+    **Eyes**, and this one is worse. Forcing the avatar's eye aperture to match
+    the user's stretches its iris to fill someone else's eye, which on a live
+    frame reads as pale, flat, lifeless eyes. It is the single feature that gives
+    the whole picture away, and it needs the mesh least: blinking, squinting,
+    widening and gaze all arrive as photographs now, carrying their own geometry
+    in the blended mesh. So the eyes follow the user barely at all.
+
+    The reference for both is where a rigid fit of the whole face would put them
+    — the avatar's own proportions, positioned on the live head.
     """
     import cv2
 
@@ -1130,8 +1165,9 @@ def _damp_brows(source: np.ndarray, target: np.ndarray) -> np.ndarray:
     rigid = cv2.transform(source.reshape(-1, 1, 2), matrix).reshape(-1, 2)
 
     damped = target.copy()
-    brows = damped[_BROW_SLICE]
-    damped[_BROW_SLICE] = rigid[_BROW_SLICE] + (brows - rigid[_BROW_SLICE]) * _BROW_FOLLOW
+    for where, follow in ((_BROW_SLICE, _BROW_FOLLOW), (_EYE_POSITIONS, _EYE_FOLLOW)):
+        anchor = rigid[where]
+        damped[where] = anchor + (damped[where] - anchor) * follow
     return damped
 
 
@@ -1331,11 +1367,25 @@ def _source_weights(
         weights["source_tilt_up"] = tilt
         weights["source_tilt_down"] = -tilt
 
-    return {
+    chosen = {
         role: min(max(value, 0.0), _MAX_VARIANT_WEIGHT)
         for role, value in weights.items()
         if value > 0.02
     }
+
+    # Gaze is the one family where mixing does not average an *appearance*, it
+    # averages a *position*: a look left and a look up put the pupil in two
+    # places and the blend puts a ghost of it in neither. Keep the strongest and
+    # drop the rest — a pupil somewhere definite, roughly in the right
+    # direction, beats a precise average of two wrong ones.
+    gazing = {role: chosen[role] for role in _GAZE_ROLES if role in chosen}
+    if len(gazing) > 1:
+        strongest = max(gazing, key=lambda role: gazing[role])
+        for role in gazing:
+            if role != strongest:
+                del chosen[role]
+
+    return chosen
 
 
 def _place_by_similarity(
