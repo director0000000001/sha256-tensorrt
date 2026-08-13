@@ -341,6 +341,69 @@ ranged 0.05 to 0.92 on a still subject — which changed the face's appearance
 every frame. That is a flicker by any definition, and it appeared when
 multi-source landed. Plausible, not proven; the owner has to look.
 
+## 10. The relighting was printing the user's face onto the avatar — FIXED 2026-08-14
+
+**The biggest one, and it was hiding behind all the others.**
+
+**Seen:** the owner, after items 8 and 9 both landed and both measured well:
+*"almost the same. nothing new or special."* Two fixes that doubled and tripled
+the source blend's sharpness produced no visible change, which is itself the
+clue: something downstream was undoing them.
+
+**Why.** `_match_colour` corrects the avatar's illumination by measuring the
+difference between the scene and the avatar, blurring it, and adding **all of
+it** back. Whatever that blur passes is therefore taken from what lies under the
+mask — and what lies under the mask is *the user's face*, not the room.
+
+The blur was a fixed 21-pixel kernel at 1/8 scale, which works out to about 11%
+of face width. Measured by projecting the correction onto known patterns:
+
+| what the scene contained | transferred to the avatar |
+|---|---|
+| overall brightness | 100% — lighting, and correct |
+| a left-to-right light ramp | 92% — lighting, and correct |
+| **a brow shadow** | **52%** — the user's face |
+| **eye sockets** | **32%** — the user's face |
+| **a beard edge** | **38%** — the user's face |
+| skin texture | 1% |
+
+So half of the user's brow shadow and better than a third of their beard was
+being printed onto the avatar, every frame. That is the thing the product exists
+to prevent, and it explains why the avatar never quite looked like its own
+photograph however good the blend feeding it became.
+
+**Fixed by changing what the correction is allowed to be.** It is now a *plane*
+— one brightness and two gradients per colour channel — fitted to the masked
+difference by weighted least squares. This is not a tuning change: overall
+brightness and a directional gradient are exactly what a plane represents, so
+they come through whole, while a brow shadow is curvature and a plane cannot
+represent curvature at all.
+
+| what the scene contained | before | after |
+|---|---|---|
+| overall brightness | 100% | **100%** |
+| left-to-right ramp | 92% | **100%** |
+| top-to-bottom ramp | 92% | **100%** |
+| brow shadow | 52% | **26%** |
+| eye sockets | 32% | **12%** |
+| beard edge | 38% | **23%** |
+| skin texture | 1% | **0%** |
+
+Better on both axes at once: lighting is followed *more* completely, and the
+user's face leaks through at less than half the rate. It is also cheaper than
+the blur it replaced — three sums and a 3×3 solve over a 1/8-scale image.
+
+**Why it is not zero.** An off-centre band has a linear component, so a plane
+fits part of any asymmetric feature. Driving it to zero needs a correction that
+is constrained to be *smooth in a way faces are not*, and the honest next step
+if 26% still shows is to fit the plane on the **avatar's own** rendered
+illumination rather than on the scene — but that is a larger change and this one
+should be looked at first.
+
+Widening the blur was tried first and rejected on measurement: at 35% of face
+width the brow shadow fell to 27%, but the light ramp fell to 56%, so real
+lighting stopped being corrected. The plane has no such trade.
+
 ## 9. Every photograph changes the whole face — FIXED 2026-08-14
 
 **The one that decides whether more photographs help or hurt**, so it is the

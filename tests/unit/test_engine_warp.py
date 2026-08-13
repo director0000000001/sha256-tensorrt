@@ -569,6 +569,63 @@ class TestSourceBlending:
         assert float(blended.mean()) > float(avatar.image.mean())
 
 
+class TestRelighting:
+    """The avatar must take the room's light and none of the user's face.
+
+    The correction adds the whole scene-minus-avatar difference back, and what
+    is under the mask is the user's face — so whatever the correction can
+    represent, it takes from the person the product exists to hide. It used to
+    be a blurred field, which could represent a brow shadow and did: the avatar
+    was printed with the user's own brows and beard, and no improvement to the
+    source blend survived it.
+
+    A plane can represent a brightness and a gradient. It cannot represent a
+    brow.
+    """
+
+    SIZE = 128
+
+    def correction_for(self, pattern: np.ndarray) -> np.ndarray:
+        from sha256.avatar.engine_warp import _match_colour
+
+        holder = type("Holder", (), {"correction": None})()
+        avatar = np.full((self.SIZE, self.SIZE, 3), 180.0, dtype=np.float32)
+        alpha = np.ones((self.SIZE, self.SIZE, 1), dtype=np.float32)
+        scene = avatar + 40.0 * pattern[:, :, None]
+        return _match_colour(holder, avatar.copy(), scene, alpha) - avatar
+
+    def transferred(self, pattern: np.ndarray) -> float:
+        """Fraction of ``pattern`` the correction copied onto the avatar."""
+        correction = self.correction_for(pattern)
+        return float((correction[:, :, 0] * pattern).sum()) / float((pattern**2).sum()) / 40.0
+
+    def test_a_uniform_light_change_is_followed_completely(self):
+        assert self.transferred(np.ones((self.SIZE, self.SIZE), dtype=np.float32)) > 0.95
+
+    @pytest.mark.parametrize("axis", [0, 1])
+    def test_a_light_gradient_is_followed_completely(self, axis):
+        """A window on one side. This is what a single mean shift could not do."""
+        ramp = np.linspace(-1.0, 1.0, self.SIZE, dtype=np.float32)
+        pattern = np.broadcast_to(ramp if axis else ramp[:, None], (self.SIZE, self.SIZE))
+
+        assert self.transferred(np.ascontiguousarray(pattern)) > 0.95
+
+    def test_a_brow_shadow_is_mostly_rejected(self):
+        """The user's face must not print through onto the avatar's."""
+        pattern = np.zeros((self.SIZE, self.SIZE), dtype=np.float32)
+        pattern[int(self.SIZE * 0.28) : int(self.SIZE * 0.36)] = -1.0
+
+        # A plane cannot reject it entirely — an off-centre band has a linear
+        # component — but the blurred field it replaced transferred 52%.
+        assert self.transferred(pattern) < 0.35
+
+    def test_fine_detail_is_not_transferred_at_all(self):
+        stripes = np.sign(np.sin(np.arange(self.SIZE, dtype=np.float32) * 1.4))
+        pattern = np.broadcast_to(stripes, (self.SIZE, self.SIZE))
+
+        assert abs(self.transferred(np.ascontiguousarray(pattern))) < 0.05
+
+
 class TestTrackingLoss:
     """What happens in the frames where the tracker loses the face.
 

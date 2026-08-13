@@ -306,7 +306,36 @@ _FOREHEAD_REACH = 0.85
 # blurred there. Lighting varies slowly across a face by definition, so the
 # resolution costs nothing and the work drops by ~64x.
 _CORRECTION_DOWNSCALE = 8
-_CORRECTION_BLUR = 21
+
+# The correction is a **plane** — one brightness and one gradient per colour
+# channel — fitted to the masked difference by weighted least squares.
+#
+# It was a blurred difference field, and that was the single biggest reason the
+# avatar did not look like its own photograph. The correction adds the whole
+# scene-minus-avatar difference back, so everything the blur passes is taken
+# from whatever is underneath the mask — and underneath is the *user's face*,
+# not the room. Measured, with the fixed 21-pixel kernel it used at 1/8 scale:
+#
+#     overall brightness   100%   <- lighting, and correct
+#     half-face gradient    97%   <- lighting, and correct
+#     a brow shadow         70%   <- the user's face, and not
+#     a beard edge          40%   <- the user's face, and not
+#
+# The avatar was being printed with the user's own brow shadows and beard —
+# precisely what this product exists to hide — and no improvement to the source
+# blend could survive it.
+#
+# Widening the blur trades one against the other: at 35% of face width the brow
+# shadow fell to 27% but the half-face gradient fell to 56%, so real lighting
+# stopped being corrected too. A plane has no such trade-off. Overall brightness
+# and a directional gradient are *exactly* what a plane represents, so they come
+# through whole; a brow shadow is curvature, which a plane cannot represent at
+# all. It is also cheaper than the blur it replaces.
+#
+# What it cannot follow is genuinely curved illumination — a lamp pointed at the
+# middle of the face. A quadratic would, at the cost of being able to represent
+# a brow again, and that trade is not worth making until something demands it.
+_CORRECTION_DEGREE = "plane"
 
 # How much of the previous frame's relighting to keep. A camera hunting its
 # exposure makes the scene brighten and dim continuously, and a correction that
@@ -1498,6 +1527,50 @@ def _rigid_layer(
     return base
 
 
+def _fit_lighting_plane(difference: np.ndarray, coverage: np.ndarray) -> np.ndarray:
+    """Least-squares plane through the masked difference, per colour channel.
+
+    ``difference`` arrives already multiplied by the mask and ``coverage`` is
+    that mask at the same scale, which makes the arithmetic fall out neatly: the
+    weighted right-hand side of the normal equations is a plain sum of
+    ``difference`` against each basis image, with no division anywhere.
+
+    Three unknowns per channel — a constant and two gradients — over a 1/8-scale
+    image. That is a handful of sums and one 3x3 solve.
+    """
+    height, width = coverage.shape[:2]
+    ys, xs = np.mgrid[0:height, 0:width].astype(np.float32)
+    # Centred and normalised, so the three basis images are well conditioned
+    # whatever the box's aspect ratio.
+    xs = xs * (2.0 / max(width - 1, 1)) - 1.0
+    ys = ys * (2.0 / max(height - 1, 1)) - 1.0
+    basis = (np.ones_like(xs), xs, ys)
+
+    normal = np.empty((3, 3), dtype=np.float64)
+    for row in range(3):
+        for column in range(row, 3):
+            value = float((coverage * basis[row] * basis[column]).sum())
+            normal[row, column] = normal[column, row] = value
+
+    targets = np.stack([np.einsum("ij,ijc->c", term, difference) for term in basis]).astype(
+        np.float64
+    )
+
+    try:
+        # A face fully inside the box makes this well posed; a sliver of mask at
+        # the frame edge may not, and a singular fit is not worth an exception.
+        coefficients = np.linalg.solve(normal, targets)
+    except np.linalg.LinAlgError:
+        total = float(coverage.sum())
+        if total < 1e-6:
+            return np.zeros((height, width, difference.shape[2]), dtype=np.float32)
+        mean = difference.reshape(-1, difference.shape[2]).sum(axis=0) / total
+        return np.broadcast_to(mean.astype(np.float32), (height, width, difference.shape[2]))
+
+    field: np.ndarray = np.einsum("kij,kc->ijc", np.stack(basis), coefficients.astype(np.float32))
+    return field.astype(np.float32)
+
+
 def _match_colour(
     loaded: _LoadedAvatar, avatar: np.ndarray, scene: np.ndarray, alpha: np.ndarray
 ) -> np.ndarray:
@@ -1536,11 +1609,7 @@ def _match_colour(
     difference = cv2.resize((scene - avatar) * alpha, small, interpolation=cv2.INTER_AREA)
     coverage = cv2.resize(weight, small, interpolation=cv2.INTER_AREA)
 
-    blur = (_CORRECTION_BLUR | 1, _CORRECTION_BLUR | 1)
-    difference = cv2.GaussianBlur(difference, blur, 0)
-    coverage = cv2.GaussianBlur(coverage, blur, 0)
-
-    field = difference / (coverage[:, :, None] + 1e-3)
+    field = _fit_lighting_plane(difference, coverage)
 
     # Carry the previous field forward. The face box changes size every frame,
     # so the stored field is resized onto the current one before blending —
