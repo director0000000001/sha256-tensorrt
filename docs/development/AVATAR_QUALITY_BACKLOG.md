@@ -341,6 +341,71 @@ ranged 0.05 to 0.92 on a still subject — which changed the face's appearance
 every frame. That is a flicker by any definition, and it appeared when
 multi-source landed. Plausible, not proven; the owner has to look.
 
+## 14. Direct light and a camera in front of the face — the owner's finding
+
+Not a code defect, and worth recording because it changes what "good" costs.
+
+**Observed by the owner:** with a shadow falling across the face, the tracker put
+brow landmarks along the *shadow edge* rather than the brow, and the avatar
+answered with a long eyebrow running across the face. Moving the light to face
+them directly, and the camera to sit squarely in front, largely fixed it.
+
+That is the tracker being fooled, not the engine. MediaPipe finds brows by
+contrast, and a hard shadow edge is the strongest contrast on the face.
+`_BROW_FOLLOW` at 0.5 then lets half of the error through by design.
+
+**What follows from it:**
+
+- **Lighting and camera placement belong in the product's instructions**, not
+  in a developer's head. A user with a window to one side will get worse results
+  than one lit from the front, and there is no amount of engine work that
+  removes that entirely.
+- It also explains part of why quality assessments have been inconsistent
+  between sessions: the room was not a constant.
+- Worth considering later: detect a strong lighting gradient or an off-axis
+  camera and say so in the UI, rather than silently producing a worse avatar.
+
+## 13. Gaze as geometry rather than as photographs — LARGELY FIXED 2026-08-14
+
+**Seen:** *"when I move my eye to the side it looks like there are two eyes, one
+at full opacity and one very faint, like a ghost."* Rendered across the weight
+range and it was exactly that: at 0.5 a grey wash of two overlapping irises, at
+0.75 a solid pupil with a faint second beside it.
+
+**Why no amount of tuning could fix it.** Every other photograph changes how a
+feature *looks*, and a cross-fade of two appearances is a third plausible
+appearance. A gaze photograph changes where the pupil *is*, and a cross-fade of
+two positions is not a position in between — it is both of them, at half
+opacity. Blending one gaze photograph with the base does the same thing against
+a forward-looking iris.
+
+**Fixed by moving the pupil instead of swapping it.** MediaPipe's 478-landmark
+model carries the irises — a centre and four points per eye — and the mesh
+simply did not include them. It does now, so gaze is geometry: the avatar's own
+iris, at its own size, positioned inside its own socket by the offset measured
+on the user. Continuous, exact at any angle, and it needs no photograph.
+
+The four gaze photographs are no longer used. They can stay in the manifest
+harmlessly, but they are not what makes gaze work any more.
+
+**What is not solved.** The mesh has four points around each iris and a handful
+around the socket, so the triangles between them shear as the pupil travels.
+Rendered across the range: horizontal movement is clean, upward is clean,
+**downward notches the top of the iris into a slight heart shape**, and extremes
+in any direction distort it further. The travel is therefore scaled to 0.55 and
+clamped — ±0.065 of eye width horizontally, 0.035 up, 0.012 down — which are the
+limits at which the render stops being clean.
+
+Little is lost by that: gaze reads as a *direction* long before it reads as a
+magnitude, and nobody watches a video call from the corner of their eye. But it
+is a compromise and it should be recorded as one.
+
+**The proper fix, when it is worth the time:** translate the iris as a **rigid
+disc in image space** before the warp — erase it to sclera, stamp it at the
+offset — instead of dragging it through the mesh. An iris is a rigid circular
+object that slides; the mesh is the wrong tool for it, and this is the mesh
+being asked to do something it is not shaped for.
+
 ## 12. The avatar was wearing the user's eyes — FIXED 2026-08-14
 
 **Seen**, on a live frame the owner captured: pale, flat, staring eyes with too

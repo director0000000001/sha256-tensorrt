@@ -202,6 +202,19 @@ _INNER_LIPS = (
     308, 415, 310, 311, 312, 13, 82, 81, 80, 191,
 )
 _CHEEKS = (234, 454, 50, 280, 116, 345, 205, 425)
+
+# The irises: a centre and four points around it, per eye. Present only in the
+# 478-landmark model, which is the one B003 measured and the one this engine
+# requires.
+#
+# In the mesh because gaze has to be *moved*, not swapped. Four gaze
+# photographs cross-faded into the base put the pupil in two places at once —
+# the "ghost eye" — and no amount of weighting fixes that, because a blend of
+# two positions is both of them rather than a third. With the iris in the mesh
+# the pupil is geometry, so it goes exactly where the user is looking, smoothly,
+# at any angle, and needs no photograph at all.
+_LEFT_IRIS = (468, 469, 470, 471, 472)
+_RIGHT_IRIS = (473, 474, 475, 476, 477)
 # fmt: on
 
 MESH_INDICES: tuple[int, ...] = tuple(
@@ -215,6 +228,8 @@ MESH_INDICES: tuple[int, ...] = tuple(
         + _OUTER_LIPS
         + _INNER_LIPS
         + _CHEEKS
+        + _LEFT_IRIS
+        + _RIGHT_IRIS
     )
 )
 
@@ -234,6 +249,31 @@ def _positions(*groups: tuple[int, ...]) -> list[int]:
 
 
 _EYE_POSITIONS = _positions(_LEFT_EYE, _RIGHT_EYE)
+
+# Per eye, because gaze is placed one eye at a time: each iris is positioned
+# inside its own socket, so a face at an angle still gets both right.
+_EYE_PAIRS = (
+    (_positions(_LEFT_EYE), _positions(_LEFT_IRIS)),
+    (_positions(_RIGHT_EYE), _positions(_RIGHT_IRIS)),
+)
+_IRIS_POSITIONS = _positions(_LEFT_IRIS, _RIGHT_IRIS)
+
+# How far the pupil may travel inside its socket, as a fraction of eye width,
+# and how much of the user's travel it copies.
+#
+# The mesh has four points around each iris and a handful around the socket, so
+# the triangles between them shear as the pupil moves. Rendered across the full
+# range, a small shift is clean and an extreme one turns the iris into a dark
+# diamond with visible triangle edges. Vertically it is worse and asymmetric,
+# because the lower lid is closer than the upper one.
+#
+# The limits are where the render stops being clean, and the scale keeps normal
+# gaze comfortably inside them. Nothing is lost by it: gaze reads as a
+# *direction* long before it reads as a magnitude, and a video call is not
+# looked at from the corner of the eye.
+_GAZE_SCALE = 0.55
+_GAZE_LIMIT_X = 0.065
+_GAZE_LIMIT_UP, _GAZE_LIMIT_DOWN = 0.035, 0.012
 _BROW_POSITIONS = _positions(_LEFT_BROW, _RIGHT_BROW)
 _MOUTH_POSITIONS = _positions(_OUTER_LIPS, _INNER_LIPS)
 
@@ -1186,7 +1226,45 @@ def _damp_brows(source: np.ndarray, target: np.ndarray) -> np.ndarray:
     for where, follow in ((_BROW_SLICE, _BROW_FOLLOW), (_EYE_POSITIONS, _EYE_FOLLOW)):
         anchor = rigid[where]
         damped[where] = anchor + (damped[where] - anchor) * follow
+
+    _place_irises(damped, target, rigid)
     return damped
+
+
+def _place_irises(damped: np.ndarray, target: np.ndarray, rigid: np.ndarray) -> None:
+    """Put the avatar's own iris where the user's is looking. In place.
+
+    Gaze is a *direction*, not a shape, so what transfers is the iris's position
+    **relative to its own socket** — measured on the user, applied to the avatar.
+    The avatar keeps its own iris size and its own eye; only the pupil moves, and
+    it moves continuously to any angle.
+
+    Everything else about the eye is already the avatar's: ``_EYE_FOLLOW`` holds
+    the aperture at the avatar's own proportions. Positioning the iris against
+    ``damped`` rather than against the user's socket is what keeps the two
+    consistent — an iris placed in a socket it does not belong to would sit on
+    the eyelid.
+    """
+    for eye, iris in _EYE_PAIRS:
+        user_socket = target[eye]
+        user_width = float(user_socket[:, 0].max() - user_socket[:, 0].min())
+        if user_width < 1.0:
+            continue
+
+        # Where the user is looking, as a fraction of their own eye's width,
+        # scaled back and held inside the range the mesh can carry cleanly.
+        gaze = (target[iris].mean(axis=0) - user_socket.mean(axis=0)) / user_width
+        gaze = gaze * _GAZE_SCALE
+        gaze[0] = min(max(float(gaze[0]), -_GAZE_LIMIT_X), _GAZE_LIMIT_X)
+        gaze[1] = min(max(float(gaze[1]), -_GAZE_LIMIT_UP), _GAZE_LIMIT_DOWN)
+
+        own_socket = damped[eye]
+        own_width = float(own_socket[:, 0].max() - own_socket[:, 0].min())
+
+        # The avatar's iris, kept at its own size, centred where that gaze puts
+        # it in the avatar's own socket.
+        wanted = own_socket.mean(axis=0) + gaze * own_width
+        damped[iris] = rigid[iris] - rigid[iris].mean(axis=0) + wanted
 
 
 def _crop_to_face(image: np.ndarray, points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -1353,16 +1431,13 @@ def _source_weights(
         weights["source_mouth_o"] = expression("mouthPucker", "mouthFunnel")
         weights["source_mouth_wide"] = expression("mouthStretchLeft", "mouthStretchRight")
 
-        # Gaze. "In" and "out" are relative to each eye, so a look to the
-        # viewer's left is the left eye looking out and the right eye looking in.
-        weights["source_look_left"], weights["source_look_right"] = opposed(
-            expression("eyeLookOutLeft", "eyeLookInRight"),
-            expression("eyeLookOutRight", "eyeLookInLeft"),
-        )
-        weights["source_look_up"], weights["source_look_down"] = opposed(
-            expression("eyeLookUpLeft", "eyeLookUpRight"),
-            expression("eyeLookDownLeft", "eyeLookDownRight"),
-        )
+        # Gaze is deliberately absent. It is handled as geometry — the iris is
+        # in the mesh and is placed where the user is looking — because a
+        # photograph cannot express it. Blending two gaze photographs puts the
+        # pupil in two places, and blending one with the base does the same
+        # against a forward-looking iris; both render as the "ghost eye" the
+        # owner reported. Moving the pupil is continuous, exact at any angle,
+        # and costs nothing. See _place_irises.
 
     pose = tracking.head_pose
     if pose is not None:
@@ -1396,21 +1471,6 @@ def _source_weights(
     # places and the blend puts a ghost of it in neither. Keep the strongest and
     # drop the rest — a pupil somewhere definite, roughly in the right
     # direction, beats a precise average of two wrong ones.
-    gazing = {role: chosen[role] for role in _GAZE_ROLES if role in chosen}
-    if gazing:
-        strongest = max(gazing, key=lambda role: gazing[role])
-        for role in gazing:
-            if role != strongest:
-                del chosen[role]
-
-        # And all-or-nothing, because a half-mixed gaze renders two pupils.
-        ramped = (chosen[strongest] - _GAZE_ON) / (_GAZE_FULL - _GAZE_ON)
-        ramped = min(max(ramped, 0.0), 1.0) * _MAX_VARIANT_WEIGHT
-        if ramped <= 0.02:
-            del chosen[strongest]
-        else:
-            chosen[strongest] = ramped
-
     return chosen
 
 

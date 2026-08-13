@@ -578,6 +578,100 @@ class TestEyeGeometry:
     feature that gives the whole picture away.
     """
 
+    @staticmethod
+    def mesh_looking(dx: float, dy: float = 0.0) -> np.ndarray:
+        """A mesh with square eye sockets and irises at a known gaze offset."""
+        from sha256.avatar.engine_warp import _EYE_PAIRS
+
+        points: np.ndarray = (
+            synthetic_landmarks()[list(MESH_INDICES), :2].astype(np.float32) * 400.0
+        )
+        for index, (socket, iris) in enumerate(_EYE_PAIRS):
+            centre = np.array([150.0 + 100.0 * index, 180.0], dtype=np.float32)
+            width = 40.0
+            corners = np.array(
+                [(-0.5, 0.0), (-0.25, -0.3), (0.25, -0.3), (0.5, 0.0), (0.25, 0.3), (-0.25, 0.3)],
+                dtype=np.float32,
+            )
+            points[socket] = centre + corners[: len(socket)] * width
+
+            pupil = centre + np.array([dx, dy], dtype=np.float32) * width
+            around = np.array(
+                [(0.0, 0.0), (0.2, 0.0), (0.0, -0.2), (-0.2, 0.0), (0.0, 0.2)], dtype=np.float32
+            )
+            points[iris] = pupil + around[: len(iris)] * width
+        return points
+
+    @pytest.mark.parametrize(("dx", "dy"), [(0.10, 0.0), (-0.10, 0.0), (0.0, 0.04), (0.0, -0.06)])
+    def test_the_pupil_goes_where_the_user_is_looking(self, dx, dy):
+        from sha256.avatar.engine_warp import _EYE_PAIRS, _GAZE_SCALE, _damp_brows
+
+        source = self.mesh_looking(0.0, 0.0)
+        target = self.mesh_looking(dx, dy)
+
+        damped = _damp_brows(source, target)
+
+        for socket, iris in _EYE_PAIRS:
+            width = float(damped[socket][:, 0].max() - damped[socket][:, 0].min())
+            offset = (damped[iris].mean(axis=0) - damped[socket].mean(axis=0)) / width
+            assert offset[0] == pytest.approx(dx * _GAZE_SCALE, abs=0.02)
+            assert offset[1] == pytest.approx(dy * _GAZE_SCALE, abs=0.02)
+
+    @pytest.mark.parametrize(("dx", "dy"), [(0.6, 0.0), (-0.6, 0.0), (0.0, 0.5), (0.0, -0.5)])
+    def test_an_extreme_gaze_is_held_inside_what_the_mesh_can_carry(self, dx, dy):
+        """Far enough out, the triangles around the iris shear it into a dark
+        diamond with visible edges. Rendered across the range, that is where it
+        stops being clean, so that is where the pupil stops."""
+        from sha256.avatar.engine_warp import (
+            _EYE_PAIRS,
+            _GAZE_LIMIT_DOWN,
+            _GAZE_LIMIT_UP,
+            _GAZE_LIMIT_X,
+            _damp_brows,
+        )
+
+        damped = _damp_brows(self.mesh_looking(0.0), self.mesh_looking(dx, dy))
+
+        for socket, iris in _EYE_PAIRS:
+            width = float(damped[socket][:, 0].max() - damped[socket][:, 0].min())
+            offset = (damped[iris].mean(axis=0) - damped[socket].mean(axis=0)) / width
+            assert abs(offset[0]) <= _GAZE_LIMIT_X + 0.01
+            assert -_GAZE_LIMIT_UP - 0.01 <= offset[1] <= _GAZE_LIMIT_DOWN + 0.01
+            # And it still points the right way.
+            assert np.sign(offset[0]) == np.sign(dx) or dx == 0
+
+    def test_the_pupil_keeps_the_avatars_own_size(self):
+        """Gaze is a direction. Nothing about the user's iris should transfer."""
+        from sha256.avatar.engine_warp import _EYE_PAIRS, _damp_brows
+
+        source = self.mesh_looking(0.0)
+        target = self.mesh_looking(0.3)
+        # A user whose iris is half again the size of the avatar's.
+        for _, iris in _EYE_PAIRS:
+            centre = target[iris].mean(axis=0)
+            target[iris] = centre + (target[iris] - centre) * 1.5
+
+        damped = _damp_brows(source, target)
+
+        for _, iris in _EYE_PAIRS:
+
+            def spread(points: np.ndarray) -> float:
+                return float(np.abs(points - points.mean(axis=0)).max())
+
+            assert spread(damped[iris]) == pytest.approx(spread(source[iris]), rel=0.05)
+
+    def test_looking_straight_ahead_leaves_the_pupil_centred(self):
+        from sha256.avatar.engine_warp import _EYE_PAIRS, _damp_brows
+
+        source = self.mesh_looking(0.0)
+        damped = _damp_brows(source, self.mesh_looking(0.0))
+
+        for socket, iris in _EYE_PAIRS:
+            width = float(damped[socket][:, 0].max() - damped[socket][:, 0].min())
+            offset = (damped[iris].mean(axis=0) - damped[socket].mean(axis=0)) / width
+            assert abs(offset[0]) < 0.03
+            assert abs(offset[1]) < 0.03
+
     def test_the_avatar_does_not_inherit_the_users_eye_shape(self):
         from sha256.avatar.engine_warp import _EYE_POSITIONS, _damp_brows
 
@@ -593,44 +687,27 @@ class TestEyeGeometry:
         given = np.abs(damped[_EYE_POSITIONS] - source[_EYE_POSITIONS]).sum()
         assert given < asked * 0.5, "the avatar followed the user's eye shape"
 
-    def test_only_one_gaze_photograph_is_ever_used(self):
-        """Two put the pupil in two places and the blend ghosts it into neither."""
-        from sha256.avatar.engine_warp import _GAZE_ROLES
+    def test_no_photograph_is_used_for_gaze(self):
+        """Gaze is geometry now. A photograph cannot express it.
 
+        Two gaze photographs blended put the pupil in two places; one blended
+        with the base does the same against a forward-looking iris. Both render
+        as the ghost eye the owner reported, and no weighting fixes it, because
+        a blend of two positions is both of them rather than a third.
+        """
         weights = weights_from_rest(
             expressive_tracking(
                 gap=0.0,
                 extra={
-                    "eyeLookOutLeft": 0.7,
-                    "eyeLookInRight": 0.68,
+                    "eyeLookOutLeft": 0.8,
+                    "eyeLookInRight": 0.78,
                     "eyeLookUpLeft": 0.6,
                     "eyeLookUpRight": 0.58,
                 },
             )
         )
 
-        used = [role for role in _GAZE_ROLES if role in weights]
-        assert len(used) == 1, f"blended {used}"
-        assert used[0] == "source_look_left", "and it must be the strongest one"
-
-    @pytest.mark.parametrize("strength", [0.35, 0.5, 0.7, 0.9])
-    def test_a_held_gaze_is_never_half_mixed(self, strength):
-        """A half-mixed gaze renders two pupils — the owner's "ghost eye".
-
-        Cross-fading works for every other photograph because they change how a
-        feature looks. Gaze changes where the pupil *is*, and the iris is not a
-        landmark, so geometry cannot interpolate it the way it interpolates a
-        blink. Rendered at weight 0.5 the eye is a grey wash of two irises.
-        """
-        weights = weights_from_rest(
-            expressive_tracking(
-                gap=0.0,
-                extra={"eyeLookOutLeft": strength, "eyeLookInRight": strength - 0.02},
-            )
-        )
-
-        gaze = weights.get("source_look_left", 0.0)
-        assert gaze == 0.0 or gaze > 0.9, f"half-mixed at {gaze}"
+        assert not [role for role in weights if role.startswith("source_look_")]
 
 
 class TestRelighting:
@@ -919,9 +996,8 @@ class TestExpandedSourceSet:
     @pytest.mark.parametrize(
         ("left_role", "right_role", "left_shape", "right_shape"),
         [
-            ("source_look_left", "source_look_right", "eyeLookOutLeft", "eyeLookOutRight"),
-            ("source_look_up", "source_look_down", "eyeLookUpLeft", "eyeLookDownLeft"),
             ("source_brows_up", "source_brows_down", "browInnerUp", "browDownLeft"),
+            ("source_eyes_wide", "source_squint", "eyeWideLeft", "eyeSquintLeft"),
         ],
     )
     def test_opposing_photographs_are_never_both_used(
@@ -937,22 +1013,13 @@ class TestExpandedSourceSet:
         assert weights.get(right_role, 0.0) == 0.0
         assert weights.get(left_role, 0.0) > 0.0
 
-    def test_gaze_left_and_right_are_not_swapped(self):
-        """Looking one way must not fetch the photograph of the other."""
-        left = weights_from_rest(expressive_tracking(gap=0.0, eyeLookOutLeft=0.6))
-        right = weights_from_rest(expressive_tracking(gap=0.0, eyeLookOutRight=0.6))
-
-        assert left["source_look_left"] > 0.9
-        assert "source_look_right" not in left
-        assert right["source_look_right"] > 0.9
-        assert "source_look_left" not in right
-
-    def test_looking_up_and_down(self):
-        up = weights_from_rest(expressive_tracking(gap=0.0, eyeLookUpLeft=0.6))
-        down = weights_from_rest(expressive_tracking(gap=0.0, eyeLookDownLeft=0.6))
-
-        assert up["source_look_up"] > 0.9
-        assert down["source_look_down"] > 0.9
+    def test_gaze_asks_for_no_photograph_at_all(self):
+        """It is geometry now — see TestEyeGeometry. The four gaze photographs
+        are no longer used, and an avatar that has them is not penalised for it.
+        """
+        for shape in ("eyeLookOutLeft", "eyeLookOutRight", "eyeLookUpLeft", "eyeLookDownLeft"):
+            weights = weights_from_rest(expressive_tracking(gap=0.0, extra={shape: 0.6}))
+            assert not [role for role in weights if role.startswith("source_look_")]
 
     def test_a_closed_smile_asks_for_the_closed_smile_photo(self):
         """And not for the one with teeth in it."""
