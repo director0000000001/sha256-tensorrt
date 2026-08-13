@@ -101,6 +101,62 @@ facing forward.
 *Fixes: the mouth interior during speech, which the smile photo alone does not
 cover.*
 
+### 6 — Brows raised
+
+```
+Both eyebrows are raised high, as in surprise, with the forehead lightly
+creased. The eyes are open a little wider because of it. The mouth stays closed
+with a neutral expression. Head stays facing forward.
+```
+
+*Fixes: the eyes stretching when the brows go up. The avatar currently takes the
+user's brow position as a shape to match; with this photograph it can take the
+expression instead.*
+
+### 7 — Mouth open wide
+
+```
+The mouth is open wide, as in a yawn or saying "aah" loudly, the jaw dropped
+much further than a normal speaking position. Upper and lower teeth clearly
+visible, the dark interior of the mouth visible behind them, tongue resting flat
+and not sticking out. The eyes stay open and look at the camera. Head stays
+facing forward.
+```
+
+*Replaces photograph 5 if it is wider. The engine measures each photograph's own
+opening and treats the widest as "fully open", so a wider one simply extends the
+range — nothing in the code needs changing.*
+
+### 8 — Broad smile
+
+```
+A broad, genuine smile with the mouth open and the upper and lower teeth clearly
+visible, cheeks raised, eyes slightly narrowed as they naturally are in a real
+smile. The eyes still look at the camera. Head stays facing forward.
+```
+
+*Replaces photograph 1 if it shows more teeth. The current one is a modest
+smile, and a modest smile cannot supply the teeth for a broad one.*
+
+---
+
+## What to name them
+
+The engine looks these up by role in `avatars/<id>/metadata.json`:
+
+| Role | File |
+|---|---|
+| `source_portrait` | `portrait.png` (the base) |
+| `source_smile` | `portrait_smile.png` |
+| `source_mouth_open` | `portrait_mouth_open.png` |
+| `source_eyes_closed` | `portrait_eyes_closed.png` |
+| `source_brows_up` | `portrait_brows_up.png` |
+| `source_turn_left` | `portrait_turn_left.png` |
+| `source_turn_right` | `portrait_turn_right.png` |
+
+Drop a file in with the matching name and it is used; leave one out and the
+avatar simply does without it.
+
 ---
 
 ## Checking what comes back

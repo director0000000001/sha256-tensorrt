@@ -72,9 +72,15 @@ _VARIANT_ROLES: tuple[str, ...] = (
     "source_smile",
     "source_mouth_open",
     "source_eyes_closed",
+    "source_brows_up",
     "source_turn_left",
     "source_turn_right",
 )
+
+# The role whose own mouth opening defines "fully open". Measured from the
+# photograph at load rather than hard-coded, so supplying a wider one simply
+# extends the range instead of needing a constant changed here.
+_OPENING_REFERENCE_ROLE = "source_mouth_open"
 
 # Yaw at which a turned photograph is fully in play. Set from the photographs
 # the owner generated, which measured +21.1 and -19.6 degrees: past their own
@@ -95,11 +101,12 @@ _FOREHEAD_LANDMARK, _CHIN_LANDMARK = 10, 152
 _LIP_GAP_CLOSED = 0.012
 _LIP_GAP_OPEN = 0.055
 
-# The open-mouth photograph's own lip gap. Used to scale how much of it is
-# needed: at this opening it should be supplying the mouth almost entirely,
-# because anything left of the closed-mouth base is pixels with no teeth in
-# them being stretched across the gap.
+# Fallback for "fully open" when no open-mouth photograph is supplied. Measured
+# from the owner's first set; a real photograph's own gap always wins.
 _LIP_GAP_FULL = 0.095
+
+# Brow blendshape above which the raised-brow photograph fully applies.
+_BROW_RAISE_FULL = 0.55
 
 # The smiling photograph's own mouthSmile reading, so "how much of a smile is
 # this" is measured against the photograph rather than against 1.0.
@@ -218,7 +225,16 @@ class _LoadedAvatar:
     blending them is an average rather than a registration problem.
     """
 
-    __slots__ = ("descriptor", "image", "points", "sources", "triangles")
+    __slots__ = (
+        "cavity",
+        "descriptor",
+        "full_gap",
+        "image",
+        "mouth_mask",
+        "points",
+        "sources",
+        "triangles",
+    )
 
     def __init__(
         self,
@@ -227,12 +243,19 @@ class _LoadedAvatar:
         points: np.ndarray,
         triangles: np.ndarray,
         sources: dict[str, np.ndarray],
+        full_gap: float = _LIP_GAP_FULL,
     ) -> None:
+        self.full_gap = full_gap
         self.descriptor = descriptor
         self.image = image
         self.points = points
         self.triangles = triangles
         self.sources = sources
+
+        # Which pixels of the photograph are *inside* its mouth, and what colour
+        # that cavity is. Both are needed when the user opens wider than the
+        # photograph did — see _paint_mouth_interior.
+        self.mouth_mask, self.cavity = _mouth_interior(image, points)
 
 
 class WarpAvatarEngine:
@@ -305,9 +328,12 @@ class WarpAvatarEngine:
         # measured 31 ms down to single digits.
         image, points = _crop_to_face(full, full_points)
         triangles = _triangulate(points, image.shape[1], image.shape[0])
-        sources = self._align_variants(descriptor, image, points, triangles)
+        sources, gaps = self._align_variants(descriptor, image, points, triangles)
+        full_gap = gaps.get(_OPENING_REFERENCE_ROLE, _LIP_GAP_FULL)
 
-        self._loaded[descriptor.id] = _LoadedAvatar(descriptor, image, points, triangles, sources)
+        self._loaded[descriptor.id] = _LoadedAvatar(
+            descriptor, image, points, triangles, sources, full_gap
+        )
         _LOG.info(
             "Loaded avatar %s: %dx%d portrait, %d mesh points, %d triangles, "
             "%d extra source(s): %s",
@@ -326,7 +352,7 @@ class WarpAvatarEngine:
         base_image: np.ndarray,
         base_points: np.ndarray,
         triangles: np.ndarray,
-    ) -> dict[str, np.ndarray]:
+    ) -> tuple[dict[str, np.ndarray], dict[str, float]]:
         """Warp every extra photograph onto the base portrait's geometry.
 
         Done once, here, because it is the expensive half: each variant needs a
@@ -339,6 +365,7 @@ class WarpAvatarEngine:
         """
         height, width = base_image.shape[:2]
         aligned: dict[str, np.ndarray] = {}
+        gaps: dict[str, float] = {}
 
         for role in _VARIANT_ROLES:
             asset = descriptor.manifest.asset_by_role(role)
@@ -354,8 +381,9 @@ class WarpAvatarEngine:
                 continue
 
             aligned[role] = warp_mesh(image, points, base_points, triangles, width, height)
+            gaps[role] = _lip_gap_of(points)
 
-        return aligned
+        return aligned, gaps
 
     def unload_avatar(self, avatar_id: str) -> None:
         self._loaded.pop(avatar_id, None)
@@ -610,8 +638,9 @@ def _warp_onto(
     # OpenCV's geometry functions only accept 32-bit float or int.
     local = (target - (fx0, fy0)).astype(np.float32)
 
+    blended = _blend_sources(avatar, tracking)
     canvas = warp_mesh(
-        _blend_sources(avatar, tracking),
+        blended,
         avatar.points,
         _damp_brows(avatar.points, local),
         avatar.triangles,
@@ -619,7 +648,7 @@ def _warp_onto(
         box_h,
     )
 
-    _paint_mouth_interior(canvas, _blend_sources(avatar, tracking), avatar.points, local)
+    _paint_mouth_interior(avatar, canvas, blended, local)
 
     alpha = _destination_mask(local, box_w, box_h)
 
@@ -631,36 +660,77 @@ def _warp_onto(
     return output
 
 
+def _mouth_interior(image: np.ndarray, points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """The photograph's own mouth opening: which pixels, and their mean colour.
+
+    The colour stands in for cavity depth when the user opens wider than the
+    photograph did, which is most of the time — no still photograph is taken
+    mid-yawn.
+    """
+    import cv2
+
+    mask = np.zeros(image.shape[:2], dtype=np.uint8)
+    cv2.fillPoly(mask, [points[_INNER_LIP_SLICE].astype(np.int32)], 255)
+
+    inside = mask > 0
+    if not bool(inside.any()):
+        return mask, np.zeros(3, dtype=np.float32)
+
+    # The darker half of the opening: teeth are the bright part and would make
+    # a poor stand-in for the back of a throat.
+    pixels = image[inside].astype(np.float32)
+    luminance = pixels.mean(axis=1)
+    darker = pixels[luminance <= float(np.median(luminance))]
+    cavity: np.ndarray = darker.mean(axis=0) if len(darker) else pixels.mean(axis=0)
+    return mask, cavity
+
+
 def _paint_mouth_interior(
-    canvas: np.ndarray, image: np.ndarray, source: np.ndarray, target: np.ndarray
+    avatar: _LoadedAvatar, canvas: np.ndarray, image: np.ndarray, target: np.ndarray
 ) -> None:
     """Fill the mouth opening from the photograph, in one piece.
 
     The mesh no longer covers this area, because triangulating across an opening
-    slices whatever is behind it into strips. Here the whole mouth region is
-    placed by a single similarity transform fitted to the lip landmarks, so the
-    teeth arrive at the right size and orientation and stay one object.
+    slices whatever is behind it into strips. The mouth region is placed instead
+    by a single similarity transform fitted to the lip landmarks, so the teeth
+    arrive at the right size and stay one object.
 
-    It cannot invent an interior the photograph does not have — that is what the
-    open-mouth source is for, and why it is weighted to take over as the lips
-    part.
+    **Only the photograph's own mouth interior is copied.** Placing the whole
+    image and trusting the fit put the photograph's *lips* inside the live
+    opening whenever the user opened wider than the photograph did — a second,
+    smaller mouth inside the first, which is what the owner saw. Anything the
+    photograph cannot cover is filled with the cavity colour, so opening wider
+    reveals more darkness. That is also what it does in life: the teeth stay the
+    size they are.
     """
     import cv2
 
     matrix: Any = cv2.estimateAffinePartial2D(
-        source[_INNER_LIP_SLICE], target[_INNER_LIP_SLICE], method=cv2.LMEDS
+        avatar.points[_INNER_LIP_SLICE], target[_INNER_LIP_SLICE], method=cv2.LMEDS
     )[0]
     if matrix is None:
         return
 
     height, width = canvas.shape[:2]
+    opening = np.zeros((height, width), dtype=np.uint8)
+    cv2.fillPoly(opening, [target[_INNER_LIP_SLICE].astype(np.int32)], 255)
+
+    # Everything inside the live opening starts as cavity, so no part of it can
+    # ever show a lip or a cheek.
+    canvas[opening > 0] = avatar.cavity.astype(np.uint8)
+
     placed = cv2.warpAffine(
         image, matrix, (width, height), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE
     )
-
-    opening = np.zeros((height, width), dtype=np.uint8)
-    cv2.fillPoly(opening, [target[_INNER_LIP_SLICE].astype(np.int32)], 255)
-    cv2.copyTo(placed, opening, canvas)
+    covered = cv2.warpAffine(
+        avatar.mouth_mask,
+        matrix,
+        (width, height),
+        flags=cv2.INTER_NEAREST,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=0,
+    )
+    cv2.copyTo(placed, cv2.bitwise_and(opening, covered), canvas)
 
 
 def _damp_brows(source: np.ndarray, target: np.ndarray) -> np.ndarray:
@@ -712,6 +782,19 @@ def _crop_to_face(image: np.ndarray, points: np.ndarray) -> tuple[np.ndarray, np
     return cropped, moved
 
 
+def _lip_gap_of(points: np.ndarray) -> float:
+    """The lip gap of an already-subsetted mesh, as a fraction of face height.
+
+    Used at load to learn each photograph's own opening, so "fully open" is
+    whatever the widest photograph supplied actually shows rather than a number
+    written here.
+    """
+    inner = points[_INNER_LIP_SLICE]
+    gap = float(inner[:, 1].max() - inner[:, 1].min())
+    height = float(points[:, 1].max() - points[:, 1].min())
+    return gap / height if height > 1e-6 else 0.0
+
+
 def _lip_gap(tracking: FaceTrackingResult) -> float:
     """How far the lips are actually parted, as a fraction of face height.
 
@@ -733,7 +816,9 @@ def _lip_gap(tracking: FaceTrackingResult) -> float:
     return gap / height
 
 
-def _source_weights(tracking: FaceTrackingResult) -> dict[str, float]:
+def _source_weights(
+    tracking: FaceTrackingResult, full_gap: float = _LIP_GAP_FULL
+) -> dict[str, float]:
     """How much each extra photograph should contribute to this frame.
 
     Read from the tracker: the blendshapes already measure "how closed is this
@@ -754,7 +839,7 @@ def _source_weights(tracking: FaceTrackingResult) -> dict[str, float]:
         # open-mouth photograph's own gap. At full opening the base portrait
         # must contribute nothing to the mouth: its lips are closed, and a
         # closed mouth stretched across an open one is what produced fangs.
-        opening = (gap - _LIP_GAP_CLOSED) / (_LIP_GAP_FULL - _LIP_GAP_CLOSED)
+        opening = (gap - _LIP_GAP_CLOSED) / max(full_gap - _LIP_GAP_CLOSED, 1e-6)
         opening = min(max(opening, 0.0), 1.0)
 
         # Which of the two open-mouth photographs it should come from: a smile
@@ -770,6 +855,13 @@ def _source_weights(tracking: FaceTrackingResult) -> dict[str, float]:
         blink = min(shapes.get("eyeBlinkLeft"), shapes.get("eyeBlinkRight"))
         closed = (blink - _BLINK_START) / (_BLINK_FULL - _BLINK_START)
         weights["source_eyes_closed"] = min(max(closed, 0.0), 1.0)
+
+        raised = max(
+            shapes.get("browInnerUp"),
+            shapes.get("browOuterUpLeft"),
+            shapes.get("browOuterUpRight"),
+        )
+        weights["source_brows_up"] = min(raised / _BROW_RAISE_FULL, 1.0)
 
     pose = tracking.head_pose
     if pose is not None:

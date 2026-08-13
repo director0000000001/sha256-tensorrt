@@ -585,3 +585,48 @@ class TestTeethGate:
         weights = _source_weights(expressive_tracking(gap=0.03, smile=1.0))
 
         assert 0.1 < weights["source_smile"] < 0.9
+
+
+class TestMouthInterior:
+    """What fills the mouth when the user opens wider than the photograph did.
+
+    Which is most of the time: no still portrait is taken mid-yawn. Placing the
+    whole photograph and trusting the fit put its *lips* inside the live
+    opening — a second, smaller mouth inside the first.
+    """
+
+    def test_opening_wider_than_the_photo_shows_cavity_not_lips(self, engine, tmp_path):
+        engine.load_avatar(make_descriptor(tmp_path, image=_striped(256)))
+        avatar = engine._loaded["avatar_test"]
+
+        # A cavity the photograph's own mouth never contains, so anything of
+        # this colour in the result can only have come from the fallback.
+        avatar.cavity = np.array([7.0, 11.0, 13.0], dtype=np.float32)
+
+        frame = camera_frame()
+        result = engine.animate("avatar_test", tracking_from(synthetic_landmarks()), frame)
+
+        distance = np.abs(result.data.astype(np.int16) - avatar.cavity.astype(np.int16))
+        assert int((distance.sum(axis=2) < 30).sum()) > 0, "the opening was never filled"
+
+    def test_the_photographs_own_opening_sets_what_fully_open_means(self, engine, tmp_path):
+        """A wider photograph should extend the range, not need a constant changed."""
+        engine.load_avatar(make_descriptor(tmp_path))
+        avatar = engine._loaded["avatar_test"]
+
+        narrow = _source_weights(expressive_tracking(gap=0.05, jaw=0.5), full_gap=0.05)
+        wide = _source_weights(expressive_tracking(gap=0.05, jaw=0.5), full_gap=0.15)
+
+        assert narrow["source_mouth_open"] > wide["source_mouth_open"]
+
+
+class TestBrowSource:
+    def test_raised_brows_call_for_the_raised_brow_photo(self):
+        weights = _source_weights(expressive_tracking(gap=0.0, browInnerUp=0.6))
+
+        assert weights["source_brows_up"] > 0.9
+
+    def test_resting_brows_do_not(self):
+        weights = _source_weights(expressive_tracking(gap=0.0, browInnerUp=0.01))
+
+        assert "source_brows_up" not in weights
