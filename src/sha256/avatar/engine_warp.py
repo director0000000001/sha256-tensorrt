@@ -237,6 +237,11 @@ _EYE_POSITIONS = _positions(_LEFT_EYE, _RIGHT_EYE)
 _BROW_POSITIONS = _positions(_LEFT_BROW, _RIGHT_BROW)
 _MOUTH_POSITIONS = _positions(_OUTER_LIPS, _INNER_LIPS)
 
+# Landmarks that an *expression* does not move: the face outline and the nose
+# bridge. Used to place an expression photograph on the base's frame without
+# letting the expression itself drag the fit.
+_STABLE_POSITIONS = _positions(_FACE_OVAL, _NOSE)
+
 # Which part of the face each photograph actually describes.
 #
 # This is the fix for the defect that made the avatar look like a multiple
@@ -452,7 +457,7 @@ class _Region:
     building, no full-face arithmetic.
     """
 
-    __slots__ = ("box", "mask", "name", "sources")
+    __slots__ = ("box", "mask", "name", "positions", "sources")
 
     def __init__(
         self,
@@ -460,11 +465,20 @@ class _Region:
         box: tuple[int, int, int, int],
         mask: np.ndarray,
         sources: dict[str, np.ndarray],
+        positions: list[int],
     ) -> None:
         self.name = name
         self.box = box
         self.mask = mask
         self.sources = sources
+        self.positions = positions
+        """Mesh positions this region owns.
+
+        The blend moves these landmarks as well as these pixels. It has to: an
+        open-mouth photograph is only useful if the mesh driving it also says
+        the mouth is open, and a mesh still describing closed lips would simply
+        crush it shut again.
+        """
 
 
 class _LoadedAvatar:
@@ -476,6 +490,7 @@ class _LoadedAvatar:
     """
 
     __slots__ = (
+        "blend_points",
         "cached_blend",
         "cached_weights",
         "cavity",
@@ -488,6 +503,7 @@ class _LoadedAvatar:
         "points",
         "regions",
         "scratch",
+        "source_points",
         "sources",
         "triangles",
     )
@@ -500,6 +516,7 @@ class _LoadedAvatar:
         triangles: np.ndarray,
         sources: dict[str, np.ndarray],
         full_gap: float = _LIP_GAP_FULL,
+        source_points: dict[str, np.ndarray] | None = None,
     ) -> None:
         self.full_gap = full_gap
         self.descriptor = descriptor
@@ -507,6 +524,16 @@ class _LoadedAvatar:
         self.points = points
         self.triangles = triangles
         self.sources = sources
+
+        # Where each source's own landmarks ended up once it was placed. For an
+        # expression photograph these differ from the base's — that difference
+        # *is* the open mouth — and for a pose photograph they are the base's,
+        # because a turn is warped onto the base mesh on purpose.
+        self.source_points = source_points if source_points is not None else {}
+
+        # The mesh describing the current blend. Recomputed with it, so the two
+        # are always a description of the same face.
+        self.blend_points = points
 
         # Which pixels of the photograph are *inside* its mouth, and what colour
         # that cavity is. Both are needed when the user opens wider than the
@@ -606,11 +633,11 @@ class WarpAvatarEngine:
         # measured 31 ms down to single digits.
         image, points = _crop_to_face(full, full_points)
         triangles = _triangulate(points, image.shape[1], image.shape[0])
-        sources, gaps = self._align_variants(descriptor, image, points, triangles)
+        sources, source_points, gaps = self._align_variants(descriptor, image, points, triangles)
         full_gap = gaps.get(_OPENING_REFERENCE_ROLE, _LIP_GAP_FULL)
 
         self._loaded[descriptor.id] = _LoadedAvatar(
-            descriptor, image, points, triangles, sources, full_gap
+            descriptor, image, points, triangles, sources, full_gap, source_points
         )
         _LOG.info(
             "Loaded avatar %s: %dx%d portrait, %d mesh points, %d triangles, "
@@ -630,19 +657,40 @@ class WarpAvatarEngine:
         base_image: np.ndarray,
         base_points: np.ndarray,
         triangles: np.ndarray,
-    ) -> tuple[dict[str, np.ndarray], dict[str, float]]:
-        """Warp every extra photograph onto the base portrait's geometry.
+    ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, float]]:
+        """Bring every extra photograph onto the base portrait's frame.
+
+        **Two different alignments, because two different things are being
+        borrowed**, and using one for both is what made the teeth and the
+        eyelids fail:
+
+        *   **Expression photographs are placed by a similarity transform** —
+            rotate, scale, translate — fitted on the landmarks an expression
+            does not move. Their own geometry survives, so an open mouth stays
+            open and a closed eyelid stays closed. Their landmarks are returned
+            alongside, moved by the same transform, so the mesh that drives them
+            later describes the picture that is actually there.
+
+        *   **Pose photographs are warped onto the base's mesh**, as before. For
+            a turn, the geometry is exactly what should *not* be borrowed: the
+            live face supplies the angle, and the photograph is wanted only for
+            the shading and the parts of the cheek a frontal shot cannot show.
+
+        The previous version mesh-warped everything, which forced every source
+        into the base's geometry — the base has a closed mouth and open eyes. So
+        the open-mouth photograph was crushed shut, leaving a sliver of teeth
+        that the live warp then stretched, and the closed-eye photograph had its
+        eyelid pulled across an open eye socket, which rendered as vertical
+        streaks. Both were plainly visible and neither was subtle.
 
         Done once, here, because it is the expensive half: each variant needs a
-        face detection and a full mesh warp. Afterwards they are interchangeable
-        pixel buffers of the same shape, and mixing them costs an average.
-
-        A variant that cannot be read, or has no face in it, is skipped with a
-        warning rather than failing the load. The avatar still works without it,
-        and losing one expression is a smaller harm than refusing to start.
+        face detection. A variant that cannot be read, or has no face in it, is
+        skipped with a warning rather than failing the load — losing one
+        expression is a smaller harm than refusing to start.
         """
         height, width = base_image.shape[:2]
         aligned: dict[str, np.ndarray] = {}
+        aligned_points: dict[str, np.ndarray] = {}
         gaps: dict[str, float] = {}
 
         for role in _VARIANT_ROLES:
@@ -658,10 +706,23 @@ class WarpAvatarEngine:
                 _LOG.warning("Avatar %s: skipping %s — %s", descriptor.id, role, exc)
                 continue
 
-            aligned[role] = warp_mesh(image, points, base_points, triangles, width, height)
             gaps[role] = _lip_gap_of(points)
 
-        return aligned, gaps
+            if role in _ROLE_REGION:
+                placed = _place_by_similarity(image, points, base_points, width, height)
+                if placed is not None:
+                    aligned[role], aligned_points[role] = placed
+                    continue
+                _LOG.warning(
+                    "Avatar %s: %s could not be placed by similarity, using the mesh",
+                    descriptor.id,
+                    role,
+                )
+
+            aligned[role] = warp_mesh(image, points, base_points, triangles, width, height)
+            aligned_points[role] = base_points
+
+        return aligned, aligned_points, gaps
 
     def unload_avatar(self, avatar_id: str) -> None:
         self._loaded.pop(avatar_id, None)
@@ -922,10 +983,16 @@ def _warp_onto(
     local = (target - (fx0, fy0)).astype(np.float32)
 
     blended = _blend_sources(avatar, tracking)
+
+    # The mesh that describes `blended`, not the base portrait's. They differ
+    # exactly where an expression photograph brought its own geometry — an open
+    # mouth, a closed eyelid — and warping from the base's mesh instead was what
+    # crushed the teeth into a sliver and stretched the eyelids into streaks.
+    source_mesh = avatar.blend_points
     canvas = warp_mesh(
         blended,
-        avatar.points,
-        _damp_brows(avatar.points, local),
+        source_mesh,
+        _damp_brows(source_mesh, local),
         avatar.triangles,
         box_w,
         box_h,
@@ -988,8 +1055,11 @@ def _paint_mouth_interior(
     """
     import cv2
 
+    # From the blended mesh, for the same reason the warp uses it: when an
+    # open-mouth photograph is mixed in, the inner lips of the picture are open,
+    # and fitting from the base's closed ones would place the interior wrongly.
     matrix: Any = cv2.estimateAffinePartial2D(
-        avatar.points[_INNER_LIP_SLICE], target[_INNER_LIP_SLICE], method=cv2.LMEDS
+        avatar.blend_points[_INNER_LIP_SLICE], target[_INNER_LIP_SLICE], method=cv2.LMEDS
     )[0]
     if matrix is None:
         return
@@ -1268,6 +1338,62 @@ def _source_weights(
     }
 
 
+def _place_by_similarity(
+    image: np.ndarray,
+    points: np.ndarray,
+    base_points: np.ndarray,
+    width: int,
+    height: int,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Put a photograph on the base's frame without reshaping the face in it.
+
+    Rotation, uniform scale and translation only, fitted on the landmarks an
+    expression does not move — the face outline and the nose bridge. Fitting on
+    all of them would let the expression itself drag the alignment, which is
+    self-defeating for a photograph taken *because* of that expression.
+
+    Returns the placed image and its landmarks moved by the same transform, so
+    that the two continue to describe each other. ``None`` when the fit fails,
+    which is rare enough to be worth a warning at the call site rather than a
+    silent fallback here.
+    """
+    import cv2
+
+    # Typed as Any: OpenCV's stubs declare a non-optional return, but the fit
+    # genuinely can fail and returns None when it does.
+    matrix: Any = cv2.estimateAffinePartial2D(
+        points[_STABLE_POSITIONS, :2].astype(np.float32),
+        base_points[_STABLE_POSITIONS, :2].astype(np.float32),
+        method=cv2.LMEDS,
+    )[0]
+    if matrix is None:
+        return None
+
+    placed = cv2.warpAffine(
+        image,
+        matrix,
+        (width, height),
+        flags=cv2.INTER_AREA if _shrinks(matrix) else cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_REPLICATE,
+    )
+    moved = points.copy()
+    moved[:, :2] = cv2.transform(
+        points[:, :2].reshape(-1, 1, 2).astype(np.float32), matrix
+    ).reshape(-1, 2)
+    return placed, moved
+
+
+def _shrinks(matrix: np.ndarray) -> bool:
+    """Whether a similarity transform reduces the image.
+
+    INTER_AREA is the correct filter for a reduction and INTER_LINEAR is not —
+    bilinear samples a 2x2 neighbourhood and discards the rest, which on a
+    photograph being shrunk is most of it.
+    """
+    scale = float(np.hypot(matrix[0, 0], matrix[1, 0]))
+    return scale < 1.0
+
+
 def _build_regions(
     image: np.ndarray, points: np.ndarray, sources: dict[str, np.ndarray]
 ) -> tuple[_Region, ...]:
@@ -1321,6 +1447,7 @@ def _build_regions(
                 sources={
                     role: np.ascontiguousarray(sources[role][y0:y1, x0:x1]) for role in present
                 },
+                positions=list(positions),
             )
         )
 
@@ -1371,6 +1498,7 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
     and no per-frame decision about which pixels are "the mouth".
     """
     if not avatar.sources:
+        avatar.blend_points = avatar.points
         return avatar.image
 
     weights = {
@@ -1379,6 +1507,7 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
         if role in avatar.sources
     }
     if not weights:
+        avatar.blend_points = avatar.points
         return avatar.image
 
     # Expressions move far more slowly than frames arrive, so the same blend is
@@ -1402,6 +1531,12 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
         np.copyto(avatar.scratch, avatar.image)
         blended = avatar.scratch
 
+    # The mesh that describes the picture being built. It starts as the base
+    # portrait's and moves with the photographs mixed in — an open-mouth
+    # photograph is only useful if the mesh also says the mouth is open, and one
+    # still describing closed lips would crush it shut on the very next step.
+    mesh = avatar.points.copy()
+
     for region in avatar.regions:
         local = {role: weights[role] for role in region.sources if role in weights}
         if not local:
@@ -1416,8 +1551,21 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
         composed = mixed * region.mask + underneath * (1.0 - region.mask)
         blended[y0:y1, x0:x1] = composed.astype(np.uint8)
 
+        # The same weights, applied to the landmarks, so the mesh and the pixels
+        # stay descriptions of one face.
+        share = sum(local.values())
+        scale = min(1.0 / share, 1.0) if share > 1.0 else 1.0
+        moved = avatar.points[region.positions] * (1.0 - min(share, 1.0))
+        for role, weight in local.items():
+            # A source with no recorded landmarks contributes no geometry, which
+            # is exactly what the base's own landmarks express.
+            own = avatar.source_points.get(role, avatar.points)
+            moved = moved + own[region.positions] * (weight * scale)
+        mesh[region.positions] = moved
+
     avatar.cached_weights = quantised
     avatar.cached_blend = blended
+    avatar.blend_points = mesh
 
     result: np.ndarray = blended
     return result

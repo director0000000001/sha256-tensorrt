@@ -341,6 +341,61 @@ ranged 0.05 to 0.92 on a still subject — which changed the face's appearance
 every frame. That is a flicker by any definition, and it appeared when
 multi-source landed. Plausible, not proven; the owner has to look.
 
+## 11. Aligning the photographs destroyed the very thing they were for — FIXED 2026-08-14
+
+**The one that actually mattered**, and the reason three measured fixes in a row
+produced no visible change. It was found by rendering the mouth and the eyes and
+*looking at them*, after measuring proxies stopped explaining anything.
+
+**Seen**, at 2× magnification on the composed source:
+
+- **Blinking rendered as vertical brown streaks** across the eye socket. Not a
+  soft eyelid, not a half-closed eye — streaks. This is what the owner meant by
+  "the eyes make it obvious this is a deepfake-type program".
+- **The teeth were a sliver.** They *were* present, crushed into a horizontal
+  line perhaps two pixels tall between closed lips, which the live warp then
+  stretched into a smear.
+
+**Why.** Every source photograph was mesh-warped onto the base portrait's
+landmark layout at load, so that blending them would be a straight average. The
+base portrait has **a closed mouth and open eyes**. So:
+
+- the open-mouth photograph was warped *shut*, its teeth compressed to nothing;
+- the closed-eye photograph had its eyelid pulled *across an open eye socket*,
+  and the few triangles spanning that socket each stretched their own strip of
+  eyelid independently — which is exactly the "fangs" failure already documented
+  for the mouth, appearing again in the eyes.
+
+The alignment was destroying precisely the geometry each photograph had been
+taken to supply. It worked for gaze — where the difference is texture, not shape
+— which is why *some* sources always looked right and the geometric ones never
+did.
+
+**Fixed: two alignments, because two different things are being borrowed.**
+
+- **Expression photographs are placed by a similarity transform** — rotate,
+  scale, translate — fitted on the landmarks an expression does not move (the
+  face outline and the nose bridge). Their own geometry survives intact. Their
+  landmarks are carried through the same transform and stored.
+- **Pose photographs are still mesh-warped.** For a turn the geometry is exactly
+  what should *not* be borrowed: the live face supplies the angle, and the
+  photograph is wanted for shading and for the cheek a frontal shot cannot show.
+
+And the mesh now travels with the pixels: `_blend_sources` blends **landmarks**
+with the same per-region weights it blends pixels, and the warp is driven from
+that blended mesh rather than the base portrait's. A photograph of an open mouth
+is only useful if the mesh also says the mouth is open.
+
+**Result, rendered and looked at:** blinks are closed eyelids with eyelashes; a
+smile shows a full row of teeth; a wide-open mouth shows teeth and tongue. The
+comparison images are not kept in the repository — they are the owner's avatar —
+but the change is not subtle and does not need a number.
+
+**The lesson worth keeping.** Sharpness of the blended source rose from 20 to 52
+and the relighting's identity leakage halved, and neither was visible, because
+this defect sat downstream of both. Proxy measurements can be right and useless
+at the same time. Render the thing and look at it.
+
 ## 10. The relighting was printing the user's face onto the avatar — FIXED 2026-08-14
 
 **The biggest one, and it was hiding behind all the others.**
