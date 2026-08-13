@@ -13,10 +13,33 @@ record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
 | # | | Why it blocks |
 |---|---|---|
-| 1 | **Choose a video generator.** Sora is gone — the app shut down 2026-04-26 and the API goes on 2026-09-24. | The whole video→frames plan depends on which tool, and its licence and watermark have to be checked *before* time is spent generating. A visible watermark on the face makes the frames useless, and Sora's was deliberately unremovable. Candidates still live: Runway, Kling, Luma, Pika, Veo, Hailuo. |
+| 1 | **Choose a video generator.** Sora is gone — the app shut down 2026-04-26 and the API goes on 2026-09-24. | See the checklist below. Candidates still live: Runway, Kling, Luma, Pika, Veo, Hailuo. |
 | 2 | **The scope decision.** Promised for day 7 and now overdue. | Licence server, download site, avatar encryption, `.exe` packaging and a shippable virtual camera total 6–7 days. Seven remain, before any quality work. Something has to come off, and that is not an engineering call. |
 | 3 | Regenerate the two **far-turn** photographs at ~40°. | The current pair measures 17–20° and is swapped relative to its filenames. |
 | 4 | An avatar whose **hair** resembles the owner's. | The mask stops at the hairline, so the hair on screen is always theirs. Matching it is free; replacing it needs segmentation the frame budget cannot afford. |
+
+### Buying a video generator — what to check, in this order
+
+The owner is paying for one, so this is what decides whether the money buys
+anything usable. Ordered by what kills the plan outright.
+
+1. **Image-to-video, starting from `portrait.png`.** The single most important
+   one and the easiest to overlook. A tool that only generates from a text
+   prompt produces a *different person*, and every photograph, the manifest and
+   the tuning already built around this identity become worthless. The avatar
+   must be driven from the portrait that already exists.
+2. **No watermark at the tier being bought.** Not "removable" — absent. A mark
+   across the face makes a frame useless as a source, and removing one is
+   normally a licence breach in exactly the commercial case this is for.
+3. **Commercial use, output owned by the user.** The shape to look for is
+   OpenAI's: *"you own the Output; we assign to you all our right, title, and
+   interest, if any"*.
+4. **1080p or better**, and the face filling much of the frame. Frames are cut
+   from this and the current portrait is 1024×1024 — a small face in a 720p clip
+   is a downgrade, not an upgrade.
+5. **Length and identity stability.** One long clip beats several short ones:
+   every restart is a chance for the face to drift. Whatever arrives, every
+   frame goes through `scripts/check_avatar_photos.py` before it is used.
 
 ### Queued here, in order
 
