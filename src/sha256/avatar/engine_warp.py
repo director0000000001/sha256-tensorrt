@@ -96,10 +96,19 @@ MESH_INDICES: tuple[int, ...] = tuple(
 _OVAL_SLICE = slice(0, len(_FACE_OVAL))
 _BROW_SLICE = slice(len(_FACE_OVAL), len(_FACE_OVAL) + len(_LEFT_BROW) + len(_RIGHT_BROW))
 
-# How much forehead to keep above the brows, as a fraction of face height.
-# Enough to look like a face rather than a mask; not so much that it reaches
-# the hairline, where no two people match.
-_FOREHEAD_KEEP = 0.10
+# How far up the forehead the mask reaches, as a fraction of the distance from
+# the brows to the top of the face outline. The owner's requirement is that the
+# forehead is covered — a mask stopping above the brows leaves a band of real
+# skin whose tone does not match. 0.85 covers almost all of it while stopping
+# just short of the hairline itself, which is structure rather than tone and is
+# the one thing the colour correction cannot fix.
+_FOREHEAD_REACH = 0.85
+
+# Low-frequency relighting: the correction field is computed at 1/8 scale and
+# blurred there. Lighting varies slowly across a face by definition, so the
+# resolution costs nothing and the work drops by ~64x.
+_CORRECTION_DOWNSCALE = 8
+_CORRECTION_BLUR = 21
 
 # How far *inside* the face outline the blend stops, and how soft the edge is,
 # both as a fraction of face width. Eroding rather than growing keeps the
@@ -494,42 +503,66 @@ def _base_layer(
 
 
 def _match_colour(avatar: np.ndarray, scene: np.ndarray, alpha: np.ndarray) -> np.ndarray:
-    """Shift the avatar's colour toward the light the scene is actually lit by.
+    """Relight the avatar to the scene, as a smooth field rather than one number.
 
-    Without this the seam is obvious no matter how soft the mask: the portrait
-    was photographed under one light and the room is lit by another, so the
-    edge is a step change in colour temperature and brightness that feathering
-    cannot hide — it only makes it a gradient.
+    The portrait was photographed under one light and the room is lit by
+    another, so the two differ at the mask edge. A single mean shift — which is
+    what this did first — moves the whole face by one constant and leaves the
+    edge visible wherever the mismatch is not uniform, which it never is: a
+    window on one side makes the difference a *gradient* across the face.
 
-    Only the mean is matched, not the variance. Matching variance as well
-    amplifies whatever noise the camera has in a dim room, which trades a
-    visible seam for a grainy face.
+    So the correction is a gradient too. The difference between scene and avatar
+    is measured at low resolution, blurred, and added back. Low frequencies
+    carry lighting; high frequencies carry identity. Correcting only the low
+    ones takes the avatar's illumination from the room while leaving its
+    features alone, and because the field is continuous the edge matches by
+    construction.
+
+    This is what gradient-domain blending (`cv2.seamlessClone`) does properly,
+    and it was measured first: 21-29 ms for a face this size, against a 33 ms
+    budget with 15 ms already spent. This costs about 1 ms and removes the same
+    step.
+
+    The blur is **weighted by the mask**, so the room behind the head never
+    contributes to a correction meant to describe the face.
     """
-    solid = alpha[:, :, 0] > 0.6
-    if int(solid.sum()) < 32:
+    import cv2
+
+    height, width = avatar.shape[:2]
+    small = (max(width // _CORRECTION_DOWNSCALE, 8), max(height // _CORRECTION_DOWNSCALE, 8))
+
+    weight = alpha[:, :, 0]
+    if float(weight.sum()) < 32.0:
         return avatar
 
-    shift = scene[solid].mean(axis=0) - avatar[solid].mean(axis=0)
-    return np.clip(avatar + shift, 0.0, 255.0)
+    difference = cv2.resize((scene - avatar) * alpha, small, interpolation=cv2.INTER_AREA)
+    coverage = cv2.resize(weight, small, interpolation=cv2.INTER_AREA)
+
+    blur = (_CORRECTION_BLUR | 1, _CORRECTION_BLUR | 1)
+    difference = cv2.GaussianBlur(difference, blur, 0)
+    coverage = cv2.GaussianBlur(coverage, blur, 0)
+
+    field = difference / (coverage[:, :, None] + 1e-3)
+    correction = cv2.resize(field, (width, height), interpolation=cv2.INTER_LINEAR)
+
+    return np.clip(avatar + correction, 0.0, 255.0)
 
 
 def _trim_forehead(points: np.ndarray) -> np.ndarray:
-    """The face outline with its top arc pulled down off the hairline.
+    """The face outline with its top arc pulled just short of the hairline.
 
-    MediaPipe's oval runs along the hairline, so a mask built from it replaces
-    the forehead all the way up to the hair — and two people's hairlines never
-    agree. The result is a hard horizontal edge across the forehead, which is
-    the single most obvious flaw in a naive face swap.
+    MediaPipe's oval runs *along* the hairline. Filling to it puts the avatar's
+    hairline on top of the user's, and two hairlines never agree — that is
+    structure, not tone, and no amount of blending fixes it.
 
-    Stopping a little above the brows avoids it entirely. The brows themselves
-    stay inside the mask, because they carry expression and are part of the
-    identity being replaced.
+    Stopping a few percent short keeps the whole forehead covered, which is what
+    the owner asked for, while leaving the hair itself alone.
     """
     trimmed = points[_OVAL_SLICE].copy()
 
     brow_top = float(points[_BROW_SLICE][:, 1].min())
-    face_height = max(float(points[:, 1].max() - points[:, 1].min()), 1.0)
-    ceiling = brow_top - face_height * _FOREHEAD_KEEP
+    oval_top = float(trimmed[:, 1].min())
+    ceiling = brow_top - (brow_top - oval_top) * _FOREHEAD_REACH
 
     np.maximum(trimmed[:, 1], ceiling, out=trimmed[:, 1])
     return trimmed

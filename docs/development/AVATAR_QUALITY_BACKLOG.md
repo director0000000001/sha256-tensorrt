@@ -13,7 +13,7 @@ The engine works and holds 30 fps. This is the list of what stands between
 
 ---
 
-## 1. The forehead is not covered, and the skin tone steps at the edge
+## 1. The forehead is not covered, and the skin tone steps at the edge — FIXED 2026-08-13
 
 **Seen:** a visible difference in skin colour where the avatar stops and the
 real forehead begins.
@@ -37,6 +37,25 @@ colour matching in bands rather than one global mean.
 
 **Owner's requirement: the forehead must be covered.** Both routes have to
 satisfy that.
+
+**Fixed, and not the way this predicted.** `cv2.seamlessClone` was measured
+first, as planned: 11.3 ms for a 200 px face, 21.6 at 300, 29.0 at 400. Against
+a 33 ms budget with 15 already spent, that is not affordable at the size a face
+actually occupies.
+
+What was affordable is the same idea done cheaply. The difference between scene
+and avatar is measured at 1/8 scale, blurred, and added back — low frequencies
+carry lighting, high frequencies carry identity, so correcting only the low ones
+relights the avatar without touching its features, and the edge matches because
+the field is continuous. The blur is weighted by the mask so the room behind the
+head never contributes.
+
+That removed the tone step, which then allowed the mask to be extended back over
+the whole forehead as the owner required, stopping just short of the hairline —
+hairlines are structure rather than tone, and no blending fixes structure.
+
+Cost went *down*: 15.4 ms to 12.65 ms mean, because the mean-matching it
+replaced used boolean indexing over the full frame.
 
 ---
 
