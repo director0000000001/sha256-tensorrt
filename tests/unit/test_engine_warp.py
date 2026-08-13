@@ -613,6 +613,25 @@ class TestEyeGeometry:
         assert len(used) == 1, f"blended {used}"
         assert used[0] == "source_look_left", "and it must be the strongest one"
 
+    @pytest.mark.parametrize("strength", [0.35, 0.5, 0.7, 0.9])
+    def test_a_held_gaze_is_never_half_mixed(self, strength):
+        """A half-mixed gaze renders two pupils — the owner's "ghost eye".
+
+        Cross-fading works for every other photograph because they change how a
+        feature looks. Gaze changes where the pupil *is*, and the iris is not a
+        landmark, so geometry cannot interpolate it the way it interpolates a
+        blink. Rendered at weight 0.5 the eye is a grey wash of two irises.
+        """
+        weights = weights_from_rest(
+            expressive_tracking(
+                gap=0.0,
+                extra={"eyeLookOutLeft": strength, "eyeLookInRight": strength - 0.02},
+            )
+        )
+
+        gaze = weights.get("source_look_left", 0.0)
+        assert gaze == 0.0 or gaze > 0.9, f"half-mixed at {gaze}"
+
 
 class TestRelighting:
     """The avatar must take the room's light and none of the user's face.

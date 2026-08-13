@@ -410,6 +410,24 @@ _GAZE_ROLES = (
     "source_look_down",
 )
 
+# Gaze is all-or-nothing, and it is the only source family that has to be.
+#
+# Every other photograph changes how a feature *looks* and cross-fades into the
+# base cleanly. A gaze photograph changes where the pupil *is*, and a cross-fade
+# of two positions renders both: at weight 0.5 the eye is a grey wash of two
+# overlapping irises, and at 0.75 there is a solid pupil with a faint second one
+# beside it. That is exactly what the owner reported as a ghost eye, and it was
+# visible in a render across the weight range before it was fixed.
+#
+# Geometry cannot rescue this the way it rescues a blink: the mesh carries the
+# eyelids, so a half-closed eye interpolates honestly, but the iris is not a
+# landmark and a half-shifted gaze has nowhere to go. So the weight ramps from
+# nothing to full across a narrow band and spends almost no time between.
+#
+# A jump is also the truthful behaviour. Eyes move in saccades — they are not
+# capable of a slow pan — so switching is closer to life than fading ever was.
+_GAZE_ON, _GAZE_FULL = 0.12, 0.25
+
 # Source weights are rounded to this before deciding whether the previous blend
 # can be reused. Fine enough that no step is visible, coarse enough that a
 # still face rebuilds nothing.
@@ -1379,11 +1397,19 @@ def _source_weights(
     # drop the rest — a pupil somewhere definite, roughly in the right
     # direction, beats a precise average of two wrong ones.
     gazing = {role: chosen[role] for role in _GAZE_ROLES if role in chosen}
-    if len(gazing) > 1:
+    if gazing:
         strongest = max(gazing, key=lambda role: gazing[role])
         for role in gazing:
             if role != strongest:
                 del chosen[role]
+
+        # And all-or-nothing, because a half-mixed gaze renders two pupils.
+        ramped = (chosen[strongest] - _GAZE_ON) / (_GAZE_FULL - _GAZE_ON)
+        ramped = min(max(ramped, 0.0), 1.0) * _MAX_VARIANT_WEIGHT
+        if ramped <= 0.02:
+            del chosen[strongest]
+        else:
+            chosen[strongest] = ramped
 
     return chosen
 
