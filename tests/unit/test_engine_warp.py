@@ -25,6 +25,7 @@ from sha256.avatar.engine_warp import (
     MESH_INDICES,
     WarpAvatarEngine,
     _blend_sources,
+    _build_regions,
     _Neutral,
     _source_weights,
 )
@@ -527,11 +528,45 @@ class TestSourceBlending:
         avatar = engine._loaded["avatar_test"]
         # A variant that is pure white, so its contribution is unmistakable.
         avatar.sources["source_mouth_open"] = np.full_like(avatar.image, 255)
+        # Regions hold their own crop of each photograph, cut at load, so one
+        # injected afterwards has to be re-cut. Loading a real variant is not an
+        # option here: alignment runs face detection, and a white square has no
+        # face in it.
+        avatar.regions = _build_regions(avatar.image, avatar.points, avatar.sources)
 
         blended = _blend_sources(avatar, expressive_tracking(jaw=0.5))
 
         assert float(blended.mean()) > float(avatar.image.mean())
         assert float(blended.mean()) < 255.0
+
+    def test_a_mouth_photograph_leaves_the_forehead_alone(self, engine, tmp_path):
+        """The defect that made the avatar a multiple exposure of itself.
+
+        Every photograph used to be averaged across the whole face, so a smile
+        repainted the forehead and the hairline too. Confining each to its own
+        region is what stops expressions interfering — and what makes a larger
+        photograph set worth having at all.
+        """
+        engine.load_avatar(make_descriptor(tmp_path))
+        avatar = engine._loaded["avatar_test"]
+        avatar.sources["source_mouth_open"] = np.full_like(avatar.image, 255)
+        avatar.regions = _build_regions(avatar.image, avatar.points, avatar.sources)
+
+        blended = _blend_sources(avatar, expressive_tracking(jaw=0.5))
+
+        # Everything outside the mouth's own box is untouched. Asserted against
+        # the box rather than against "the forehead", because the synthetic
+        # landmarks here are a ring of points and do not put a mouth where a
+        # real face has one — the invariant is what is being tested, not the
+        # anatomy of the fixture.
+        mouth = next(region for region in avatar.regions if region.name == "mouth")
+        x0, y0, x1, y1 = mouth.box
+
+        untouched = blended.copy()
+        untouched[y0:y1, x0:x1] = avatar.image[y0:y1, x0:x1]
+        np.testing.assert_array_equal(untouched, avatar.image)
+
+        assert float(blended.mean()) > float(avatar.image.mean())
 
 
 class TestTrackingLoss:

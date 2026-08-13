@@ -25,13 +25,27 @@ record of the foundation milestone see `FOUNDATION_STATUS.md`.
 17–20° of yaw, which the ordinary turn photographs already cover, and they are
 swapped relative to their filenames. They need regenerating at roughly 40°.
 
-**Day 6 — the avatar stopped looking like its own portrait, and is fixed.** A
-motionless face was scoring eleven simultaneous expressions, because expression
-was measured absolutely rather than against rest and opposing photographs were
-being averaged together. The blended source measured sharpness 17 against the
-portrait's 62 — a multiple exposure. Now: **0 sources at rest, byte-identical to
-the portrait**, 3 sources when actually smiling and turned. See
-`AVATAR_QUALITY_BACKLOG.md` item 8.
+**Day 6 — three quality defects found and fixed**, all of them the same mistake:
+a signal compared against a fixed threshold when it should have been compared
+against *this* face, or *this* photograph, or confined to *its own* region.
+
+1. **A motionless face scored eleven simultaneous expressions**, because
+   expression was measured absolutely and opposing photographs were averaged
+   together. Now **0 sources at rest, byte-identical to the portrait**.
+2. **A shut eyelid was ghosted over an open eye on every frame** — `eyeBlink`
+   was the one signal still measured absolutely, and a relaxed eye reads 0.26
+   against a 0.20 threshold. That was the owner's "two sets of eyes".
+3. **Every photograph repainted the whole face.** Each is now confined to its
+   own region. Under expression, sharpness went from **20 to 52** on the same
+   weights; the base portrait measures 62.
+
+Also fixed: the teeth stopped appearing because the replacement open-mouth
+photograph is a yawn (lip gap 0.229 against 0.095), and the opening was being
+scored against it. See `AVATAR_QUALITY_BACKLOG.md` items 8 and 9.
+
+**Not yet re-measured end to end:** the camera dropped off the bus during the
+final run (`no cameras detected`). The engine numbers above are from the
+avatar's own photographs and do not need it; the pipeline figure does.
 
 ---
 

@@ -223,6 +223,77 @@ MESH_INDICES: tuple[int, ...] = tuple(
 _OVAL_SLICE = slice(0, len(_FACE_OVAL))
 _BROW_SLICE = slice(len(_FACE_OVAL), len(_FACE_OVAL) + len(_LEFT_BROW) + len(_RIGHT_BROW))
 
+# Where each landmark group ended up in the mesh, looked up rather than counted.
+# MESH_INDICES de-duplicates, so positions cannot be derived by adding group
+# lengths without knowing which groups overlap — and two of them do.
+_MESH_POSITION = {index: position for position, index in enumerate(MESH_INDICES)}
+
+
+def _positions(*groups: tuple[int, ...]) -> list[int]:
+    return [_MESH_POSITION[index] for group in groups for index in group]
+
+
+_EYE_POSITIONS = _positions(_LEFT_EYE, _RIGHT_EYE)
+_BROW_POSITIONS = _positions(_LEFT_BROW, _RIGHT_BROW)
+_MOUTH_POSITIONS = _positions(_OUTER_LIPS, _INNER_LIPS)
+
+# Which part of the face each photograph actually describes.
+#
+# This is the fix for the defect that made the avatar look like a multiple
+# exposure of itself. Every source used to be averaged across the *whole* face,
+# so a smile photograph changed the forehead, the ears and the hairline as well
+# as the mouth, and twelve active sources meant twelve photographs fighting over
+# every pixel. Sharpness measured 62 on the portrait and 17 on the blend.
+#
+# Confining each photograph to its own region does three things, and the third
+# is the reason it matters most:
+#
+#   1. ghosting stops, because a region is drawn from one or two photographs
+#      rather than from all of them;
+#   2. cost falls, because a mouth blend touches the mouth's pixels;
+#   3. **expressions stop interfering**, so a smile and a glance compose instead
+#      of averaging. That is what makes a larger photograph set worth having —
+#      without it, more photographs make the picture worse, which was measured.
+#
+# Roles absent from this table describe the whole head — a turn or a tilt really
+# does change every pixel — and are applied globally, as before.
+_REGION_ROLES: dict[str, tuple[str, ...]] = {
+    "mouth": (
+        "source_smile",
+        "source_smile_closed",
+        "source_mouth_open",
+        "source_mouth_o",
+        "source_mouth_wide",
+        "source_mouth_pressed",
+        "source_frown",
+    ),
+    "eyes": (
+        "source_eyes_closed",
+        "source_eyes_wide",
+        "source_squint",
+        "source_look_left",
+        "source_look_right",
+        "source_look_up",
+        "source_look_down",
+    ),
+    "brows": (
+        "source_brows_up",
+        "source_brows_down",
+    ),
+}
+
+_ROLE_REGION: dict[str, str] = {
+    role: region for region, roles in _REGION_ROLES.items() for role in roles
+}
+
+# How far each region reaches beyond its own landmarks, and how soft its edge
+# is, both as a fraction of face width. Generous on purpose: an eye photograph
+# has to carry the lid and the socket shadow, not just the lash line, or the
+# boundary shows as a ring around the eye. The feather is what keeps the join
+# invisible — a hard edge would trade ghosting for a visible patch.
+_REGION_MARGIN: dict[str, float] = {"mouth": 0.10, "eyes": 0.11, "brows": 0.09}
+_REGION_FEATHER = 0.05
+
 # How far up the forehead the mask reaches, as a fraction of the distance from
 # the brows to the top of the face outline. The owner's requirement is that the
 # forehead is covered — a mask stopping above the brows leaves a band of real
@@ -342,6 +413,31 @@ class _Neutral:
         return value - rest
 
 
+class _Region:
+    """One part of the face, and the photographs allowed to change it.
+
+    Everything here is precomputed at load: the box the region occupies in the
+    avatar's own image, a feathered mask inside that box, and each source
+    photograph already cropped to it. Per frame the work is then a weighted sum
+    over a small rectangle and one alpha composite — no cropping, no mask
+    building, no full-face arithmetic.
+    """
+
+    __slots__ = ("box", "mask", "name", "sources")
+
+    def __init__(
+        self,
+        name: str,
+        box: tuple[int, int, int, int],
+        mask: np.ndarray,
+        sources: dict[str, np.ndarray],
+    ) -> None:
+        self.name = name
+        self.box = box
+        self.mask = mask
+        self.sources = sources
+
+
 class _LoadedAvatar:
     """Everything precomputed for one avatar, held for the life of the load.
 
@@ -361,6 +457,8 @@ class _LoadedAvatar:
         "mouth_mask",
         "neutral",
         "points",
+        "regions",
+        "scratch",
         "sources",
         "triangles",
     )
@@ -386,9 +484,18 @@ class _LoadedAvatar:
         # photograph did — see _paint_mouth_interior.
         self.mouth_mask, self.cavity = _mouth_interior(image, points)
 
+        # Where each group of photographs is allowed to act, with their pixels
+        # already cropped to it.
+        self.regions = _build_regions(image, points, sources)
+
         # The most recent blend and the weights that produced it.
         self.cached_weights: dict[str, int] = {}
         self.cached_blend: np.ndarray | None = None
+
+        # Working buffer for the region composite, allocated on first use. Safe
+        # to reuse: it is only rewritten when the cache misses, and a cache hit
+        # returns it untouched.
+        self.scratch: np.ndarray | None = None
 
         # The previous frame's relighting field, kept at its small working size.
         self.correction: np.ndarray | None = None
@@ -1132,13 +1239,107 @@ def _source_weights(
     }
 
 
+def _build_regions(
+    image: np.ndarray, points: np.ndarray, sources: dict[str, np.ndarray]
+) -> tuple[_Region, ...]:
+    """Precompute each region's box, feathered mask, and cropped photographs.
+
+    Regions whose photographs the avatar does not have are not built at all, so
+    an avatar with only a base portrait costs nothing here.
+    """
+    import cv2
+
+    height, width = image.shape[:2]
+    face_width = max(float(points[:, 0].max() - points[:, 0].min()), 1.0)
+    feather = max(3, int(face_width * _REGION_FEATHER) | 1)
+
+    built: list[_Region] = []
+    for name, positions in (
+        ("mouth", _MOUTH_POSITIONS),
+        ("eyes", _EYE_POSITIONS),
+        ("brows", _BROW_POSITIONS),
+    ):
+        present = [role for role in _REGION_ROLES[name] if role in sources]
+        if not present:
+            continue
+
+        margin = int(face_width * _REGION_MARGIN[name])
+        group = points[positions]
+        x0 = max(int(group[:, 0].min()) - margin, 0)
+        y0 = max(int(group[:, 1].min()) - margin, 0)
+        x1 = min(int(group[:, 0].max()) + margin, width)
+        y1 = min(int(group[:, 1].max()) + margin, height)
+        if x1 - x0 < 4 or y1 - y0 < 4:
+            continue
+
+        # The mask is drawn in the box's own coordinates, as the convex hull of
+        # the region's landmarks grown by the margin, then blurred. Blurring
+        # inside the box means the edge fades to zero at the box border, so the
+        # composite can never produce a seam at the rectangle itself.
+        local = (group[:, :2] - (x0, y0)).astype(np.int32)
+        filled = np.zeros((y1 - y0, x1 - x0), dtype=np.uint8)
+        cv2.fillConvexPoly(filled, cv2.convexHull(local), 255)
+        grown = cv2.dilate(
+            filled, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (margin | 1, margin | 1))
+        )
+        mask = cv2.GaussianBlur(grown, (feather, feather), 0).astype(np.float32) / 255.0
+
+        built.append(
+            _Region(
+                name=name,
+                box=(x0, y0, x1, y1),
+                mask=mask[:, :, None],
+                sources={
+                    role: np.ascontiguousarray(sources[role][y0:y1, x0:x1]) for role in present
+                },
+            )
+        )
+
+    return tuple(built)
+
+
+def _weighted_sum(
+    base: np.ndarray, sources: dict[str, np.ndarray], weights: dict[str, float]
+) -> np.ndarray:
+    """``base`` with each source mixed in at its weight, the base keeping the rest.
+
+    ``addWeighted`` rather than numpy arithmetic, and uint8 throughout: the
+    obvious float expression allocates a buffer per source per operation, which
+    measured 31 ms of a 33 ms budget when this was written.
+    """
+    import cv2
+
+    total = sum(weights.values())
+    if total > 1.0:
+        weights = {role: weight / total for role, weight in weights.items()}
+        total = 1.0
+
+    # Scaling by (1 - total) expressed as a weighted sum, which is the one
+    # overload OpenCV types accept for a scalar multiply of an image.
+    out = cv2.addWeighted(base, 1.0 - total, base, 0.0, 0.0)
+    for role, weight in weights.items():
+        out = cv2.addWeighted(out, 1.0, sources[role], weight, 0.0)
+    return out
+
+
 def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.ndarray:
     """The source photograph for this frame: the base, plus whatever applies.
 
-    A weighted average, in the base portrait's geometry. The variants were
-    aligned to it at load, so this is a straight blend of pixels — no
-    registration, no per-feature masks, no decision about which pixels are
-    "the mouth". The images only differ where the photographs differ.
+    Composed, not averaged. Each photograph is mixed into **its own region only**
+    — mouth photographs into the mouth, eye photographs into the eyes — over a
+    feathered mask precomputed at load. Photographs that describe the whole head,
+    which is to say the turns and the tilts, are still applied across the whole
+    image because that is genuinely what they change.
+
+    The averaging version is what made the avatar look like a multiple exposure
+    of itself: a smile photograph repainted the forehead and the hairline too,
+    so twelve active sources meant twelve photographs contending for every
+    pixel. Composing by region means a smile and a glance no longer interfere,
+    which is also the property that makes a larger photograph set worth having.
+
+    The variants were aligned to the base portrait's geometry at load, so within
+    a region this is still a straight weighted sum of pixels — no registration,
+    and no per-frame decision about which pixels are "the mouth".
     """
     if not avatar.sources:
         return avatar.image
@@ -1159,24 +1360,32 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
     if avatar.cached_blend is not None and quantised == avatar.cached_weights:
         return avatar.cached_blend
 
-    # Variants share the frame with the base rather than replacing it, so the
-    # total never exceeds one and the base always keeps the remainder.
-    total = sum(weights.values())
-    if total > 1.0:
-        weights = {role: weight / total for role, weight in weights.items()}
-        total = 1.0
+    # Whole-head photographs first, across the whole image. Everything after
+    # composes on top of the result, so a turned head still gets its mouth.
+    whole_head = {role: weight for role, weight in weights.items() if role not in _ROLE_REGION}
+    if whole_head:
+        blended = _weighted_sum(avatar.image, avatar.sources, whole_head)
+    else:
+        # Reused rather than reallocated. This is a couple of megabytes on every
+        # frame that has an expression but no head turn, which is most of them.
+        if avatar.scratch is None:
+            avatar.scratch = np.empty_like(avatar.image)
+        np.copyto(avatar.scratch, avatar.image)
+        blended = avatar.scratch
 
-    # addWeighted rather than numpy arithmetic, and uint8 throughout. The
-    # obvious `image.astype(float32) * w + ...` allocates a float buffer per
-    # source and per operation; on the frame path that measured 31 ms against
-    # 33 ms of budget. This is the same sum with SIMD behind it.
-    import cv2
+    for region in avatar.regions:
+        local = {role: weights[role] for role in region.sources if role in weights}
+        if not local:
+            continue
 
-    # Scaling by (1 - total) expressed as a weighted sum, which is the one
-    # overload OpenCV types accept for a scalar multiply of an image.
-    blended = cv2.addWeighted(avatar.image, 1.0 - total, avatar.image, 0.0, 0.0)
-    for role, weight in weights.items():
-        blended = cv2.addWeighted(blended, 1.0, avatar.sources[role], weight, 0.0)
+        x0, y0, x1, y1 = region.box
+        underneath = np.ascontiguousarray(blended[y0:y1, x0:x1])
+        mixed = _weighted_sum(underneath, region.sources, local)
+
+        # Feathered so the region's own boundary never shows. Float only over
+        # the region's few thousand pixels, not the whole face.
+        composed = mixed * region.mask + underneath * (1.0 - region.mask)
+        blended[y0:y1, x0:x1] = composed.astype(np.uint8)
 
     avatar.cached_weights = quantised
     avatar.cached_blend = blended

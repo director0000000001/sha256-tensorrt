@@ -341,7 +341,7 @@ ranged 0.05 to 0.92 on a still subject — which changed the face's appearance
 every frame. That is a flicker by any definition, and it appeared when
 multi-source landed. Plausible, not proven; the owner has to look.
 
-## 9. Every photograph changes the whole face — opened day 6
+## 9. Every photograph changes the whole face — FIXED 2026-08-14
 
 **The one that decides whether more photographs help or hurt**, so it is the
 next piece of work.
@@ -391,7 +391,46 @@ Worth doing alongside it: the source is warped down by about **3×** (773 px fac
 to 255 px on screen) with `INTER_LINEAR`, which samples 2×2 and discards the
 rest. Downscaling the blended source with `INTER_AREA` before the mesh warp is
 the correct filter for a reduction, and it makes the warp cheaper at the same
-time.
+time. **Still to do** — it is the remaining softness after this fix.
+
+### Fixed, and measured against the version it replaced
+
+Each photograph is now confined to a feathered region built at load from the
+avatar's own landmarks: mouth photographs to the mouth, eye photographs to the
+eyes, brow photographs to the brows. Turns and tilts stay global, because a
+turned head genuinely does change every pixel.
+
+On the owner's avatar, driven with readings taken from the real camera. The same
+weights, blended both ways:
+
+| what the face is doing | sources | **before**<br>whole-face average | **after**<br>by region |
+|---|---|---|---|
+| resting | 0 | 51 | 52 |
+| smiling | 2 | **28** | **53** |
+| smiling + glancing + brow raised | 4 | **20** | **52** |
+| all of that, plus a 22° turn | 6 | **20** | **92** |
+
+Sharpness is variance of the Laplacian on the blended source; the base portrait
+measures 62. **The whole-face average lost two-thirds of the detail the moment
+the face did more than one thing at once.** Composing by region keeps it.
+
+The regions are small, which is the other half of the point:
+
+| region | size | share of the face | photographs |
+|---|---|---|---|
+| mouth | 243×149 | 5.5% | 7 |
+| eyes | 388×130 | 7.6% | 7 |
+| brows | 439×109 | 7.2% | 2 |
+
+Cost is roughly unchanged — 1.0 to 3.7 ms depending on how much is happening,
+against 1.0 to 3.8 before. **This change bought quality, not speed**, and it
+should be reported that way. The speed came from day 6's neutral baseline, which
+removed the sources that had no business being active.
+
+**What this unlocks.** More photographs are now worth generating. A mouth
+photograph and an eye photograph no longer interfere, so the set can grow along
+each axis without the combinations problem that made 150 photographs a worse
+idea than 22.
 
 ## 7. The source blend outgrew its cache — opened day 5
 
