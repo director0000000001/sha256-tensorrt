@@ -11,7 +11,35 @@ Versions below `1.0.0` carry no API stability guarantee.
 
 ## [Unreleased]
 
-Nothing yet. The next milestone will be assigned explicitly.
+### Added
+
+- **Virtual camera output.** `PyVirtualCameraSink` publishes rendered frames to
+  an existing Windows virtual camera device, so the avatar is visible in Meet,
+  Zoom, Discord and OBS rather than only in sha256's own preview. Verified by
+  round trip: a DirectShow consumer reads back the exact pixels published
+  (`docs/benchmarks/B004-virtual-camera.md`).
+- Publishing is a checkbox in the window and can be switched during a call —
+  `PipelineController.set_publish_output()`. It is off until asked for.
+- `sha256.virtual_camera.devices` reports which virtual camera devices are
+  registered, by reading the DirectShow capture category rather than by opening
+  a device, so the UI can say what to install without briefly advertising a
+  camera to every application on the machine.
+- `virtual_camera.device` setting: bind to one named device when a machine has
+  several.
+
+### Fixed
+
+- The virtual camera sink was never configured by the composition root, so
+  `virtual_camera.auto_start = true` failed on the very check that exists to
+  catch that ordering mistake. Sinks are now configured where they are wired.
+- `docs/development/AVATAR_QUALITY_BACKLOG.md` had been overwritten by a copy of
+  `PROJECT_STATUS.md`. Recovered, and brought up to date.
+
+### Notes
+
+- `pyvirtualcam` is **GPL-2.0** and stays in the optional `vcam-gpl` extra. It is
+  a development backend and cannot be distributed; the shipping decision is due
+  at the day 7 scope review (ADR-0005).
 
 ---
 

@@ -57,8 +57,28 @@ output_height = 720
 target_fps = 30.0
 
 [virtual_camera]
+# `null` counts frames and discards them. It stays the committed default on
+# purpose: the only working backend today is `pyvirtualcam`, which is GPL-2.0
+# and must never reach a distributed build by inheriting a default nobody chose.
+# Turn it on per machine in configs/local.toml, which is gitignored:
+#
+#     [virtual_camera]
+#     backend = "pyvirtualcam"
+#
+# It writes to an existing device — install OBS Studio once to register one.
+# OBS does not need to be running. See ADR-0005 and docs/benchmarks/B004.
 backend = "null"
+
+# Only used by a backend that creates its own device. `pyvirtualcam` writes to
+# somebody else's and reports the real name back instead.
 device_name = "sha256 Virtual Camera"
+
+# Exact OS device to bind to, e.g. "OBS Virtual Camera". Empty picks the first
+# that works, which is right unless a machine has several.
+# device = "OBS Virtual Camera"
+
+# Publishing starts from the window's checkbox, not at launch: appearing in
+# every application's camera list before anyone asked for it is not acceptable.
 auto_start = false
 
 [gpu]

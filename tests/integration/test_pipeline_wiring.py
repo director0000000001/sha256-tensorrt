@@ -25,6 +25,7 @@ from sha256.core.interfaces import (
     Renderer,
     VirtualCameraSink,
 )
+from sha256.virtual_camera.null import NullVirtualCameraSink
 from tests.conftest import write_avatar
 
 pytestmark = pytest.mark.integration
@@ -152,12 +153,10 @@ class TestVirtualCameraPublishing:
         context = build_application(settings=settings, paths=app_paths, setup_logging=False)
 
         try:
+            # No configure() call here on purpose: wiring the sink is the
+            # composition root's job, and it not doing it was a real bug —
+            # auto_start could not work at all.
             sink = context.controller.components.virtual_camera
-            sink.configure(
-                settings.rendering.output_width,
-                settings.rendering.output_height,
-                settings.rendering.target_fps,
-            )
             context.avatars.select("avatar_001")
             context.controller.start()
 
@@ -167,12 +166,56 @@ class TestVirtualCameraPublishing:
         finally:
             context.shutdown()
 
-    def test_sink_refuses_to_start_before_being_configured(self, app_context: ApplicationContext):
-        """Enforcing the ordering here keeps the bug out of the real backend."""
-        sink = app_context.controller.components.virtual_camera
+    def test_publishing_is_off_until_it_is_asked_for(self, app_context: ApplicationContext):
+        """Appearing in every application's camera list unasked is not acceptable."""
+        controller = app_context.controller
+        controller.start()
 
-        with pytest.raises(VirtualCameraError, match="configure"):
-            sink.start()
+        assert not controller.publish_output
+        assert not controller.components.virtual_camera.is_running
+
+    def test_publishing_can_be_switched_on_while_the_pipeline_runs(
+        self, app_context: ApplicationContext
+    ):
+        """The owner turns the camera on mid-call; it cannot be a startup-only flag."""
+        controller = app_context.controller
+        controller.start()
+
+        controller.set_publish_output(True)
+
+        sink = controller.components.virtual_camera
+        assert controller.publish_output
+        assert sink.is_running
+
+        _step_until_frame(app_context)
+        assert sink.frames_sent >= 1  # type: ignore[attr-defined]
+
+    def test_switching_publishing_off_releases_the_device(self, app_context: ApplicationContext):
+        """A stopped sink exposes no device — that is what keeps sha256 out of Zoom's list."""
+        controller = app_context.controller
+        sink = controller.components.virtual_camera
+        controller.start()
+        controller.set_publish_output(True)
+
+        controller.set_publish_output(False)
+
+        assert not controller.publish_output
+        assert not sink.is_running
+        assert sink.device_name is None
+
+    def test_an_unavailable_sink_leaves_publishing_off(
+        self, app_context: ApplicationContext, monkeypatch
+    ):
+        """A failed switch-on must not leave the controller believing it published."""
+        controller = app_context.controller
+        monkeypatch.setattr(NullVirtualCameraSink, "is_available", property(lambda self: False))
+        controller.start()
+
+        with pytest.raises(VirtualCameraError, match="not available"):
+            controller.set_publish_output(True)
+
+        assert not controller.publish_output
+        assert not controller.components.virtual_camera.is_running
 
 
 class TestTrackingContract:

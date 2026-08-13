@@ -19,11 +19,11 @@ requests at all in its current form. See [`docs/PRIVACY.md`](docs/PRIVACY.md).
 
 ---
 
-## Current status: foundation only
+## Current status: the pipeline runs end to end
 
-**This build does not yet do the thing described above.** It is scaffolding:
-architecture, contracts, configuration, and a technology evaluation, built so
-the real pipeline can be added incrementally without rework.
+The whole path described above works: a camera frame is tracked, an avatar is
+warped onto the face, and the result is published as a webcam other applications
+can select. Quality is the open work, not connectivity.
 
 | Area | Status |
 |---|---|
@@ -32,18 +32,24 @@ the real pipeline can be added incrementally without rework.
 | Data models (landmarks, pose, expression, frames) | Implemented |
 | Configuration, logging, paths | Implemented |
 | Avatar library: discovery, validation, residency, selection | Implemented |
-| Performance metric collection | Implemented (nothing benchmarked yet) |
-| Application shell (PySide6) | Minimal, runs |
-| **Face tracking** | **Not implemented** — placeholder emits synthetic data |
-| **Avatar animation / inference** | **Not implemented** — placeholder draws a schematic face |
-| **Camera capture** | **Not implemented** — placeholder generates frames |
-| **Virtual camera output** | **Not implemented** — placeholder discards frames |
-| **Real-time processing loop** | **Not implemented** — single-step only |
+| Performance metric collection | Implemented |
+| Application shell (PySide6) | One screen, live preview |
+| Camera capture | Implemented — DirectShow via OpenCV (B002) |
+| Face tracking | Implemented — MediaPipe Face Landmarker (B003) |
+| Avatar animation | Implemented — landmark warp, 22 photograph roles |
+| Real-time processing loop | Implemented — one capture thread, newest frame wins |
+| Virtual camera output | **Development backend only** — see below (B004) |
+| **Photorealistic synthesis** | **Not implemented.** Blocked on model-weight licences |
 
-No performance numbers are claimed anywhere in this repository, because nothing
-has been benchmarked yet. See
-[`docs/development/FOUNDATION_STATUS.md`](docs/development/FOUNDATION_STATUS.md)
-for the precise verification record.
+**The virtual camera cannot ship as built.** The working backend is
+`pyvirtualcam`, which is GPL-2.0 and needs OBS Studio installed for its device
+to exist. It is an optional extra, never a default, and a licence-clean
+replacement is an open decision — see
+[`docs/decisions/ADR-0005-virtual-camera-strategy.md`](docs/decisions/ADR-0005-virtual-camera-strategy.md).
+
+Every performance number in this repository traces to a numbered benchmark in
+[`docs/benchmarks/`](docs/benchmarks/), reported with its hardware, sample count
+and percentiles. Nothing is estimated.
 
 ---
 

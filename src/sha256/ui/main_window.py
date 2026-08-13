@@ -154,6 +154,7 @@ class MainWindow(QMainWindow):
 
         self._populate_avatars()
         self._populate_cameras()
+        self._refresh_publish_state()
         self._refresh_status()
 
     # --- construction ------------------------------------------------------
@@ -246,6 +247,17 @@ class MainWindow(QMainWindow):
         self._preview.set_mirror(self._mirror_check.isChecked())
         layout.addWidget(self._mirror_check)
 
+        layout.addSpacing(10)
+
+        # The one control that decides whether anything outside this window can
+        # see the avatar. It is a checkbox rather than an always-on behaviour
+        # because appearing in every application's camera list unasked is not a
+        # thing a user should have to discover after the fact.
+        self._publish_check = QCheckBox("Virtual camera")
+        self._publish_check.setChecked(self._context.controller.publish_output)
+        self._publish_check.toggled.connect(self._on_publish_toggled)
+        layout.addWidget(self._publish_check)
+
         layout.addStretch(1)
 
         # Empty unless something went wrong, so the bar stays quiet in normal
@@ -306,6 +318,42 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Avatar unavailable", str(exc))
             self._avatar_combo.setCurrentIndex(0)
 
+    def _on_publish_toggled(self, enabled: bool) -> None:
+        try:
+            self._context.controller.set_publish_output(enabled)
+        except Sha256Error as exc:
+            # The sink refused. Say why — "no virtual camera installed" and "OBS
+            # is holding the device" need different actions from the user — and
+            # put the checkbox back where the controller actually is.
+            _LOG.warning(
+                "Virtual camera could not be switched %s: %s", "on" if enabled else "off", exc
+            )
+            QMessageBox.warning(self, "Virtual camera", str(exc))
+            self._publish_check.blockSignals(True)
+            self._publish_check.setChecked(self._context.controller.publish_output)
+            self._publish_check.blockSignals(False)
+        self._refresh_publish_state()
+
+    def _refresh_publish_state(self) -> None:
+        """Reflect what the sink can actually do, in the tooltip and the enabling."""
+        sink = self._context.controller.components.virtual_camera
+
+        if not sink.is_available:
+            self._publish_check.setEnabled(False)
+            self._publish_check.setToolTip(
+                "No virtual camera device on this machine. Installing OBS Studio "
+                "once registers one — OBS itself does not have to be running."
+            )
+            return
+
+        self._publish_check.setEnabled(True)
+        device = sink.device_name
+        self._publish_check.setToolTip(
+            f"Other applications see this as {device!r}."
+            if device
+            else "Show the avatar in Meet, Zoom, Discord and OBS as a webcam."
+        )
+
     def _on_start(self) -> None:
         try:
             self._runner.start()
@@ -317,6 +365,7 @@ class MainWindow(QMainWindow):
 
         self._preview_timer.start()
         self._stack.setCurrentIndex(1)
+        self._refresh_publish_state()
         self._refresh_status()
 
     def _on_stop(self) -> None:
@@ -324,6 +373,7 @@ class MainWindow(QMainWindow):
         self._runner.stop()
         self._preview.clear_frame()
         self._stack.setCurrentIndex(0)
+        self._refresh_publish_state()
         self._refresh_status()
 
     # --- display -----------------------------------------------------------
@@ -357,6 +407,12 @@ class MainWindow(QMainWindow):
 
         self._fps_label.setText(f"{self._runner.fps:.1f} fps" if running else "")
         self._status_line.setText("")
+
+        if not self._publish_check.isEnabled():
+            # Poll only for the one transition that matters — the owner installs
+            # a virtual camera while sha256 is open. Once it is available nothing
+            # can change it except a toggle, which refreshes on its own.
+            self._refresh_publish_state()
 
         if (
             self._context.settings.developer_mode

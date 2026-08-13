@@ -3,7 +3,7 @@
 **Living document.** Update it at the end of each working day. For the frozen
 record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
-**Last updated:** 2026-08-13 · **Day 3 of a 14-day plan**
+**Last updated:** 2026-08-13 · **Day 5 of a 14-day plan**
 
 ---
 
@@ -14,11 +14,15 @@ record of the foundation milestone see `FOUNDATION_STATUS.md`.
 | 1 | GPU and toolchain verification | ✅ Done — B001 |
 | 2 | Real camera capture | ✅ Done — B002 |
 | 3 | Face tracking (MediaPipe) | ✅ Done — B003 |
-| 4 | Avatar engine — first moving avatar | ✅ Done — landmark warp |
-| **5** | **Virtual camera, or avatar quality** | **⬅️ owner's call — see the backlog** |
+| 4 | Avatar engine — first moving avatar | ✅ Done — landmark warp, 22 source roles |
+| **5** | **Virtual camera** | **✅ Done — B004. Visible in Meet, Zoom, Discord, OBS** |
 | 6–10 | Quality iteration | |
 | 11–12 | UI, avatar gallery, licence server | |
 | 13–14 | Bugs, buffer | |
+
+**Blocked on the owner:** `avatars/my_avatar/portrait.png` is missing, so no
+avatar loads at all. Everything else runs — camera, tracking, publishing — and
+shows the placeholder. It is a photograph, not code.
 
 ---
 
@@ -58,26 +62,50 @@ record of the foundation milestone see `FOUNDATION_STATUS.md`.
 **Avatar engine** (day 4)
 - **Landmark-warp engine**: the portrait is deformed per frame onto the tracked
   face. No neural network, no model weights, **no licensing risk**.
-- 11.5 ms mean / 15.5 ms p95 per animated frame; 97 mesh points, 156 triangles.
-- Full pipeline holds **29.6 fps** with the avatar composited.
+- **13.8 ms mean / 17.7 ms p95** in ordinary use; 15.2 / 19.2 in the worst case
+  where the expression changes every single frame. 97 mesh points, 156
+  triangles, at a face the size one occupies at desk distance.
 - First version cost 42 ms at p95 — over budget. The fix was one warp per
-  triangle instead of two, and working inside the face's bounding box.
+  triangle instead of two, and working inside the face's bounding box. A second
+  round cached the source blend against weights quantised to 0.02 and painted
+  the mouth interior inside the mouth's own box rather than the whole face's.
+- **Multi-source: 22 photograph roles**, selected and blended per frame from
+  blendshapes the tracker already measures and the head pose B003 verified. No
+  thresholds, no state machine; every role is optional. Six supplied so far.
+- **Seam fixed** by low-frequency relighting rather than Poisson blending, which
+  measured 21–29 ms and did not fit. The forehead is now covered.
 - Not photorealistic synthesis. LivePortrait remains the quality target and is
   still blocked on the weight-licence question.
-- **Five quality problems observed on real use** — forehead seam, no teeth when
-  smiling, eyes do not close, eyes grow when opened wide, and rotation past
-  ~15° losing alignment. Recorded with causes and candidate fixes in
-  `AVATAR_QUALITY_BACKLOG.md`. Three of the five come down to one limit: the
-  engine can only show what the source photograph contains.
+- Five quality problems were observed on real use and recorded with causes in
+  `AVATAR_QUALITY_BACKLOG.md`. One is fixed, three became supply problems that
+  the 22-role set answers, one is engine-side and done. **A periodic flicker had
+  three causes addressed on day 4; the owner is verifying whether a fourth
+  remains.**
+
+**Virtual camera** (day 5, B004)
+- `pyvirtualcam 0.15.0` behind `VirtualCameraSink`, writing to the **OBS Virtual
+  Camera** device. OBS must be *installed*; it does not need to be running.
+- **1.44 ms mean / 1.54 ms p95** per 720p BGR frame. RGB placeholder frames cost
+  0.65 ms more because they are converted first.
+- Full pipeline sustained **29.65 fps** with publishing on, 593 frames, **zero
+  dropped by the sink** — measured without an avatar loaded, so it does not yet
+  include the warp engine's 13.8 ms.
+- **GPL-2.0, verified from the installed package's own metadata. It cannot
+  ship** — copyleft would oblige giving the client source, and source is all
+  anyone needs to remove the licence server's kill switch. The committed default
+  stays `null`; this machine selects it in gitignored `configs/local.toml`.
+- Publishing is a **checkbox in the window**, off until asked for, and it can be
+  switched during a call.
 
 **Budget**
 ```
 33.3 ms  frame budget at 30 fps
- 6.3 ms  face tracking (p95 6.9 ms), CPU
-11.5 ms  avatar warp (p95 15.5 ms), CPU
+ 6.3 ms  face tracking (p95 6.9 ms), CPU — B003
+13.8 ms  avatar warp (p95 17.7 ms), CPU — day 4
  0.3 ms  rendering
+ 1.4 ms  virtual camera output (p95 1.5 ms) — B004
 -------
-~15 ms   headroom
+21.8 ms  spent, ~11.5 ms headroom (26.4 ms if every stage hits its p95)
 ```
 
 ---
@@ -87,7 +115,11 @@ record of the foundation milestone see `FOUNDATION_STATUS.md`.
 - **Camera and USB latency.** Everything upstream of `read()` returning —
   sensor, in-camera processing, USB transfer, driver buffering. Needs an
   external reference (film a millisecond timer, compare).
-- Anything about avatar quality. No real engine exists yet.
+- **The full pipeline with an avatar *and* publishing.** Blocked on the missing
+  `portrait.png`. B004's 29.65 fps was measured on placeholder frames.
+- **The virtual camera with a consumer attached.** Every B004 figure is sha256
+  writing into the queue with nothing reading from it. Worth re-running with
+  Meet open.
 - **Tracker robustness** in poor light, motion blur, or occlusion (scenario S7).
   100% detection so far is one cooperative subject in a well-lit room.
 - Sustained behaviour beyond one minute.
@@ -102,7 +134,11 @@ Already installed in `.venv` beyond the declared dependencies:
 torch 2.11.0+cu128 · torchvision · onnxruntime-gpu 1.28.0
 opencv-python-headless 5.0.0.93
 mediapipe 1.0.0 (installed --no-deps) + absl-py · certifi · matplotlib
+pyvirtualcam 0.15.0          <- GPL-2.0, development only, never distributed
 ```
+
+`pyvirtualcam` also needs **OBS Studio installed** for its device to exist. It
+is present on this machine and the DirectShow filter is registered.
 
 `opencv-python-headless` is deliberate — the normal `opencv-python` wheel
 bundles its own Qt and conflicts with PySide6.
@@ -131,7 +167,7 @@ python scripts/fetch_face_landmarker.py    # model bundle, ~3.6 MiB, not in Git
   percentiles. See `docs/benchmarks/PERFORMANCE_PLAN.md`.
 - **Benchmarks are numbered** `B00N-topic.md` in `docs/benchmarks/`.
 - Run after every change: `pytest` · `ruff check` · `ruff format` · `mypy`.
-  All four are currently clean; 309 tests pass.
+  All four are currently clean; 368 tests pass.
 - Commit messages explain *why*. Push to `origin main` (private repo).
 
 ---
@@ -140,8 +176,10 @@ python scripts/fetch_face_landmarker.py    # model bundle, ~3.6 MiB, not in Git
 
 | Decision | State |
 |---|---|
-| Project licence | `LICENSE` is a restrictive placeholder |
-| Virtual camera approach | ADR-0005 — owner chose a **licence server with instant on/off** over the offline option |
+| Project licence | `LICENSE` is a restrictive placeholder. **Not GPL** — settled by the kill-switch requirement, see ADR-0005 |
+| Virtual camera — development | ✅ **Settled** — pyvirtualcam, day 5, B004 |
+| Virtual camera — shipping | ❌ **Open, due at the day 7 review.** Needs a native component; pyvirtualcam cannot ship |
+| Is Windows 10 in scope? | Open. `MFCreateVirtualCamera` is Windows 11 only, and it is the licence-clean option |
 | LivePortrait weight licence | **UNCLEAR** — unresolved, blocks commercial use |
 | InsightFace replacement | Required — its weights are non-commercial research only |
 

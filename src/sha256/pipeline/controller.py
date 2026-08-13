@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 from sha256.avatar.manager import AvatarManager
 from sha256.core.enums import PipelineStage, PipelineState
+from sha256.core.errors import VirtualCameraError
 from sha256.core.interfaces import (
     CameraProvider,
     FaceTracker,
@@ -100,6 +101,46 @@ class PipelineController:
     def components(self) -> PipelineComponents:
         return self._components
 
+    @property
+    def publish_output(self) -> bool:
+        """Whether rendered frames are reaching the virtual camera."""
+        return self._publish_output
+
+    def set_publish_output(self, enabled: bool) -> None:
+        """Turn publishing on or off, including while the pipeline runs.
+
+        Publishing is a decision made *during* a call — "put me on the virtual
+        camera now" — so it cannot be fixed at construction. The sink's lifecycle
+        follows the flag rather than the pipeline's: a stopped sink exposes no
+        device, which is what keeps sha256 out of Zoom's camera list while the
+        owner is only looking at the preview.
+
+        Raises:
+            VirtualCameraError: the sink is unavailable or refused to start. The
+                flag stays off in that case, so a failure leaves the pipeline
+                running and un-published rather than in a half-on state.
+        """
+        if enabled == self._publish_output:
+            return
+
+        if not self.is_running:
+            self._publish_output = enabled
+            return
+
+        sink = self._components.virtual_camera
+        if enabled:
+            self._start_sink(sink)
+        else:
+            sink.stop()
+        self._publish_output = enabled
+
+    @staticmethod
+    def _start_sink(sink: VirtualCameraSink) -> None:
+        if not sink.is_available:
+            msg = f"virtual camera backend {sink.backend_id!r} is not available"
+            raise VirtualCameraError(msg)
+        sink.start()
+
     # --- lifecycle ---------------------------------------------------------
 
     def start(self) -> None:
@@ -127,10 +168,7 @@ class PipelineController:
 
             if self._publish_output:
                 sink = self._components.virtual_camera
-                if not sink.is_available:
-                    msg = f"virtual camera backend {sink.backend_id!r} is not available"
-                    raise RuntimeError(msg)
-                sink.start()
+                self._start_sink(sink)
                 started.append(sink)
 
             self._state = PipelineState.RUNNING

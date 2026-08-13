@@ -1,162 +1,296 @@
-# sha256 — Current Status
+# Avatar quality — known problems
 
-**Living document.** Update it at the end of each working day. For the frozen
-record of the foundation milestone see `FOUNDATION_STATUS.md`.
+**Opened:** 2026-08-13, after the first real look at the landmark-warp engine on
+the owner's own portrait and camera.
 
-**Last updated:** 2026-08-13 · **Day 3 of a 14-day plan**
+Every item here was **observed**, not predicted. Each records what was seen, why
+it happens, and what would actually fix it — because for several of these the
+obvious fix is not the real one, and knowing that in advance is the point of
+writing them down.
 
----
-
-## Where the project is
-
-| Day | Work | State |
-|---|---|---|
-| 1 | GPU and toolchain verification | ✅ Done — B001 |
-| 2 | Real camera capture | ✅ Done — B002 |
-| 3 | Face tracking (MediaPipe) | ✅ Done — B003 |
-| 4 | Avatar engine — first moving avatar | ✅ Done — landmark warp |
-| **5** | **Virtual camera, or avatar quality** | **⬅️ owner's call — see the backlog** |
-| 6–10 | Quality iteration | |
-| 11–12 | UI, avatar gallery, licence server | |
-| 13–14 | Bugs, buffer | |
+The engine works and holds 30 fps. This is the list of what stands between
+"working" and the quality bar: *believable on a video call*.
 
 ---
 
-## Verified facts — do not re-derive these
+## 1. The forehead is not covered, and the skin tone steps at the edge — FIXED 2026-08-13
 
-**Hardware** (`scripts/check_gpu.py`)
-- RTX 5070 Ti, 16303 MiB, compute capability 12.0 (`sm_120`), driver 610.62
-- i7-14700KF, 32 GB, Windows 11
+**Seen:** a visible difference in skin colour where the avatar stops and the
+real forehead begins.
 
-**Toolchain** (B001)
-- `torch 2.11.0+cu128` includes `sm_120` kernels and a real kernel launch
-  succeeds. The Blackwell support problem reported through 2025 is resolved.
-- `onnxruntime-gpu 1.28.0` exposes **both** CUDA and TensorRT providers.
-- A portrait-shaped conv stack at 256×256 runs in 1.83 ms fp32 / 1.33 ms fp16.
+**Why:** the mask deliberately stops just above the brows. That was done to
+avoid a different artifact — MediaPipe's face outline runs along the hairline,
+and no two people's hairlines match, so covering up to it left a hard
+horizontal edge. Trading the hairline seam for a mid-forehead seam is not a
+fix; it moves it.
 
-**Camera** (B002)
-- Sony ZV-E10 over USB Streaming: **1280×720 @ 29.77 fps**, median interval
-  33.19 ms, jitter 4.4 ms.
-- **DirectShow is required.** Media Foundation cannot open this device.
-- **NTSC/PAL gates the frame rate.** PAL offers only 25 fps; NTSC gives 30.
-  Global camera setting, separate from the recording format.
-- 720p is a limit of the camera's USB Streaming, not the cable. Accepted —
-  the engine works at 256×256 internally.
+**What would actually fix it:** the seam exists because the two images have
+different colour *gradients*, not just different means. Matching the mean —
+which the engine does now — cannot remove that. Gradient-domain blending
+(`cv2.seamlessClone`, Poisson) solves it properly by construction: the edge is
+made to match by definition, whatever the two sources look like.
 
-**Face tracking** (B003)
-- MediaPipe Face Landmarker `1.0.0`: **6.30 ms mean / 6.93 ms p95** per frame
-  over 1747 frames, 100% detection, 478 landmarks + 52 blendshapes.
-- **No GPU delegate exists on the Windows Python wheel** — it is compiled out.
-  Tracking is CPU/XNNPACK, which leaves the GPU entirely free for the engine.
-- MediaPipe emits **no confidence score**. Detection is binary.
-- Colour conversion must use OpenCV, not numpy: 0.45 ms vs 2.90 ms per frame.
-- Head-pose signs are verified, not assumed. Two of three were wrong initially.
-- **Full pipeline with the real tracker: 29.50 fps sustained**, tracking 6.37 ms
-  inside the application versus 6.30 ms standalone — integration costs nothing
-  measurable.
+The cost has to be measured before committing: seamless cloning at this face
+size plausibly costs 10–30 ms, against 15.4 ms for the entire current warp. If
+it is too slow, the fallback is a much wider feather at the top plus local
+colour matching in bands rather than one global mean.
 
-**Avatar engine** (day 4)
-- **Landmark-warp engine**: the portrait is deformed per frame onto the tracked
-  face. No neural network, no model weights, **no licensing risk**.
-- 11.5 ms mean / 15.5 ms p95 per animated frame; 97 mesh points, 156 triangles.
-- Full pipeline holds **29.6 fps** with the avatar composited.
-- First version cost 42 ms at p95 — over budget. The fix was one warp per
-  triangle instead of two, and working inside the face's bounding box.
-- Not photorealistic synthesis. LivePortrait remains the quality target and is
-  still blocked on the weight-licence question.
-- **Multi-source avatars**: five extra photographs of one identity, aligned at
-  load and blended per frame from blendshapes and yaw. 14.85 ms mean / 17.94 ms
-  p95. Fixes teeth on a smile, improves blinking and head rotation.
-- **Seam fixed** by low-frequency relighting rather than Poisson blending, which
-  measured 21-29 ms and did not fit. The forehead is now covered.
-- **Five quality problems observed on real use** — forehead seam, no teeth when
-  smiling, eyes do not close, eyes grow when opened wide, and rotation past
-  ~15° losing alignment. Recorded with causes and candidate fixes in
-  `AVATAR_QUALITY_BACKLOG.md`. Three of the five come down to one limit: the
-  engine can only show what the source photograph contains.
+**Owner's requirement: the forehead must be covered.** Both routes have to
+satisfy that.
 
-**Budget**
-```
-33.3 ms  frame budget at 30 fps
- 6.3 ms  face tracking (p95 6.9 ms), CPU
-11.5 ms  avatar warp (p95 15.5 ms), CPU
- 0.3 ms  rendering
--------
-~15 ms   headroom
-```
+**Fixed, and not the way this predicted.** `cv2.seamlessClone` was measured
+first, as planned: 11.3 ms for a 200 px face, 21.6 at 300, 29.0 at 400. Against
+a 33 ms budget with 15 already spent, that is not affordable at the size a face
+actually occupies.
+
+What was affordable is the same idea done cheaply. The difference between scene
+and avatar is measured at 1/8 scale, blurred, and added back — low frequencies
+carry lighting, high frequencies carry identity, so correcting only the low ones
+relights the avatar without touching its features, and the edge matches because
+the field is continuous. The blur is weighted by the mask so the room behind the
+head never contributes.
+
+That removed the tone step, which then allowed the mask to be extended back over
+the whole forehead as the owner required, stopping just short of the hairline —
+hairlines are structure rather than tone, and no blending fixes structure.
+
+Cost went *down*: 15.4 ms to 12.65 ms mean, because the mean-matching it
+replaced used boolean indexing over the full frame.
 
 ---
 
-## Not yet measured
+## 2. No teeth when smiling
 
-- **Camera and USB latency.** Everything upstream of `read()` returning —
-  sensor, in-camera processing, USB transfer, driver buffering. Needs an
-  external reference (film a millisecond timer, compare).
-- Anything about avatar quality. No real engine exists yet.
-- **Tracker robustness** in poor light, motion blur, or occlusion (scenario S7).
-  100% detection so far is one cooperative subject in a well-lit room.
-- Sustained behaviour beyond one minute.
+**Seen:** smiling opens the avatar's mouth shape, but the mouth interior is
+wrong — there are no teeth.
 
----
+**Why:** this is a hard limit of the method, not a bug. The engine reshapes
+pixels that exist in the portrait. The portrait's mouth is closed, so there are
+no teeth pixels anywhere in the source; stretching the lips apart can only
+reveal more of the lips.
 
-## Environment
-
-Already installed in `.venv` beyond the declared dependencies:
-
-```
-torch 2.11.0+cu128 · torchvision · onnxruntime-gpu 1.28.0
-opencv-python-headless 5.0.0.93
-mediapipe 1.0.0 (installed --no-deps) + absl-py · certifi · matplotlib
-```
-
-`opencv-python-headless` is deliberate — the normal `opencv-python` wheel
-bundles its own Qt and conflicts with PySide6.
-
-**MediaPipe must be installed with `--no-deps`.** It declares a hard dependency
-on `opencv-contrib-python`, which would replace the headless build and
-reintroduce exactly that Qt conflict. Its three genuinely required imports are
-installed separately:
-
-```powershell
-uv pip install mediapipe --no-deps
-uv pip install absl-py certifi matplotlib
-python scripts/fetch_face_landmarker.py    # model bundle, ~3.6 MiB, not in Git
-```
-
-`configs/local.toml` (gitignored) selects the real camera on this machine.
+**What would actually fix it:** a second photograph of the same face with the
+mouth open, used as the source for the mouth region when the tracked jaw is
+open. This is the owner's own suggestion and it is the correct one.
 
 ---
 
-## Working agreements
+## 3. Eyes do not close when blinking
 
-- **Verify, do not assume.** Every claim in this repository traces to a
-  measurement or a primary source. Package availability is checked with
-  `uv pip install --dry-run`; licences are read from the project's own files.
-- **No performance number without its conditions** — hardware, sample count,
-  percentiles. See `docs/benchmarks/PERFORMANCE_PLAN.md`.
-- **Benchmarks are numbered** `B00N-topic.md` in `docs/benchmarks/`.
-- Run after every change: `pytest` · `ruff check` · `ruff format` · `mypy`.
-  All four are currently clean; 309 tests pass.
-- Commit messages explain *why*. Push to `origin main` (private repo).
+**Seen:** blinking closes the user's eyes; the avatar's stay open.
+
+**Why:** two causes stacked. The mesh carries only six points per eye, which is
+too few to describe an eyelid closing. And, as with the teeth, the portrait has
+open eyes — there are no closed-eyelid pixels to move into place.
+
+**What would actually fix it:** more eye landmarks (MediaPipe provides the full
+eyelid contour, it is simply not in the current subset), plus either a
+closed-eye source photograph or a synthesised lid. The landmark part is cheap
+and worth doing first, to see how far it gets on its own.
 
 ---
 
-## Open decisions
+## 4. Eyes grow when the brows are raised or the eyes opened wide
 
-| Decision | State |
+**Seen:** raising the brows or opening the eyes wide makes the avatar's eyes
+grow larger than they should.
+
+**Why:** the warp maps the avatar's eye region onto the user's eye *geometry*
+directly. A wider eye opening therefore stretches the avatar's eye rather than
+opening it. The avatar inherits the user's proportions where it should be
+inheriting only their expression.
+
+**What would actually fix it:** drive the eye and brow regions from the tracked
+**blendshapes** — which are already measured every frame, and are exactly
+"how open is this eye" as a number — with clamping, rather than from raw
+landmark positions. The identity's proportions then stay the avatar's while the
+motion comes from the user.
+
+---
+
+## 5. Head rotation past roughly 15 degrees breaks the alignment
+
+**Seen:** turning the head about 15° or more and the avatar stops following
+convincingly.
+
+**Why:** the warp is two-dimensional. A rotated head reveals parts of the face
+the portrait never photographed, and a flat mesh cannot invent them — it
+stretches the pixels it has across a surface that has turned away.
+
+**What would actually fix it:** source photographs at several yaw angles, chosen
+or blended by the yaw already measured every frame (B003 verified that
+measurement). This is again the owner's suggestion, and it is the standard
+answer for image-based avatars.
+
+The alternative is a genuinely 3-D-aware method — which is what LivePortrait
+is, and it remains blocked on its weight licence.
+
+---
+
+## The common thread: more than one photograph
+
+Three of the five (teeth, eyes, rotation) come down to the same limit: **the
+engine can only show what the source photograph contains.** The owner's
+suggestion — several versions of the same face — addresses all three, and is
+cheap compared with any alternative.
+
+What that needs from the avatar format:
+
+- the manifest already supports multiple assets with roles, so this is an
+  additive change, not a redesign;
+- a rule for choosing between them per frame (yaw for rotation, jaw-open for
+  the mouth, eye-blink for the eyes);
+- blending between sources so switching is not visible as a jump.
+
+**Photographs to request, all of the same person, same lighting, same distance:**
+
+| Purpose | Photograph |
 |---|---|
-| Project licence | `LICENSE` is a restrictive placeholder |
-| Virtual camera approach | ADR-0005 — owner chose a **licence server with instant on/off** over the offline option |
-| LivePortrait weight licence | **UNCLEAR** — unresolved, blocks commercial use |
-| InsightFace replacement | Required — its weights are non-commercial research only |
+| Base | Front, neutral, mouth closed, eyes open (**already have**) |
+| Teeth | Front, smiling with teeth visible |
+| Blink | Front, eyes closed |
+| Rotation | Turned ~20–30° left; the same to the right |
 
 ---
 
-## Scope watch
+## The 3-D question
 
-The owner has added, beyond the original pipeline: a licence server with a
-kill switch, a download website behind an unguessable path, avatar encryption,
-and `.exe` packaging. Each is small; together they exceed 14 days.
+Raised by the owner: would building a 3-D model of the face work better?
 
-**A scope review was promised for day 7.** Staged payment was recommended as
-the primary protection, with the kill switch as backup.
+For robustness, yes — and it is already this project's documented backup engine
+(`docs/OPEN_SOURCE_EVALUATION.md` B4). Real geometry solves rotation, eyelids,
+and jaw opening by construction rather than by collecting more photographs,
+because the shape exists whether or not a camera ever saw that angle.
+
+**But there is something cheaper to do first, and it is already paid for.**
+MediaPipe returns 478 landmarks with a **z** coordinate and a 4×4 head-pose
+matrix, both verified in B003. The warp engine currently uses **x and y only**
+and discards the rest. Rotating the avatar's landmark mesh by the measured head
+pose before projecting it — a 3-D-aware warp of the same photograph — should
+recover a good part of item 5 with no new dependency, no new model, no new
+photographs, and no new licence question. That is the first thing to try.
+
+What it still cannot do is invent the far cheek when the head turns. Nothing
+that reshapes one photograph can.
+
+Beyond that, in rough order of what they cost:
+
+| Approach | Solves | Costs |
+|---|---|---|
+| 3-D-aware warp of the current photo | rotation alignment | a day; nothing else |
+| Morphable face model (3DMM) fitted to the photo | rotation, lids, jaw, teeth | a real component, and **licence checks** — the well-known face models are research-only or need a separate commercial agreement, the same trap InsightFace already set |
+| Per-identity neural head avatar | best quality of all | training per avatar from *video*, which does not exist for a person who was generated |
+| LivePortrait | rotation and expression from one photo | unresolved weight licence; already the documented primary |
+
+The honest limit of every 3-D route: a head built from a single photograph
+looks like a game character rather than a person, and hair is the hardest part
+of it. Robustness and photorealism pull in opposite directions here, which is
+why the evaluation kept both a neural and a 3-D path alive.
+
+---
+
+## Order of work
+
+Cheapest and most visible first; each is independently useful.
+
+1. **Forehead and the seam** (item 1). It is the most visible flaw and affects
+   every frame. Measure seamless cloning first, since it may make the mask
+   question disappear entirely.
+1b. **Use the depth already being measured** — the 3-D-aware warp described
+   above. Cheapest attack on item 5, and it needs nothing from anyone.
+2. **Eye landmarks** (item 3, first half). Cheap, no new photographs needed.
+3. **Blendshape-driven eyes and brows** (item 4). Removes a distortion rather
+   than adding a feature.
+4. **Multi-photo sources** (items 2, 3, 5). The largest piece, and it needs the
+   owner to shoot the photographs first.
+
+---
+
+## Scheduling note
+
+The 14-day plan has **day 5 as the virtual camera** — the part that makes any of
+this usable in Zoom or Meet at all. Today's quality work is not on that plan.
+
+Both matter, and the order is the owner's call. Worth knowing when deciding:
+until the virtual camera exists, none of this quality work can be seen by anyone
+outside this application.
+
+---
+
+# Update — end of day 4
+
+This file was **overwritten** by a copy of `PROJECT_STATUS.md` in commit
+`5e7a788`, and everything above is recovered from `4ec86f8`. Nothing was lost
+permanently; it was invisible for a day, which is its own lesson about a
+document nobody reads until they need it.
+
+What has happened to the five items since they were written:
+
+| # | Problem | State |
+|---|---|---|
+| 1 | Forehead seam | **Fixed** — low-frequency relighting, see above |
+| 2 | No teeth when smiling | **Engine done, waiting on a photograph** |
+| 3 | Eyes do not close | **Engine done, waiting on a photograph** |
+| 4 | Eyes grow when opened wide | **Engine done** — expression drives the blend, not the mesh |
+| 5 | Rotation past ~15° | **Engine done, waiting on photographs** |
+
+The common thread the original diagnosis identified — *the engine can only show
+what the source photograph contains* — was addressed by building the
+multi-source path (`b4b7d7c`). The source set grew from 6 roles to **22**: mouth
+shapes, gaze in four directions, wide eyes, squint, brow positions, far turns
+and head tilts. Each is selected and blended from a blendshape the tracker
+already measures or from the head pose B003 verified — no thresholds, no state
+machine — and every role is optional, so an avatar uses whatever photographs it
+has.
+
+Which means items 2, 3 and 5 are no longer engineering problems. They are
+**supply** problems: the photographs decide the quality now, and the prompts for
+all twenty-two are written out in `AVATAR_PROMPTS.txt`.
+
+Cost, at a face the size one occupies at desk distance: 13.8 ms mean, 17.7 ms
+p95 in ordinary use; 15.2 / 19.2 in the worst case where the expression changes
+every frame.
+
+## 6. Periodic flicker — three causes fixed, a fourth not ruled out
+
+Reported by the owner after the multi-source work. Three independent causes were
+addressed in `85cc6d6` because none could be excluded without watching it:
+
+- **The camera was passed through whenever tracking dropped**, showing the
+  owner's real face. There is no length of tracking loss at which that is the
+  right answer — the product exists to keep that face off the call. The avatar
+  now holds its last position indefinitely.
+- **The relighting chased the camera's exposure.** A webcam hunting exposure
+  brightens and dims the whole scene, and a correction recomputed each frame
+  followed it instantly, so the face pulsed against a merely drifting
+  background. The field now carries 80% of the previous frame forward.
+- **Landmark smoothing was off** at 0.35 in configuration but zero in effect
+  since day 3. Jitter moves the mask edge a pixel or two per frame, which reads
+  as a shimmer.
+
+**Still open: the owner is verifying whether it is gone.** If it persists it is
+a fourth cause, and the three above are then known-good rather than suspected.
+
+## Blocked right now: `avatars/my_avatar/portrait.png` is missing
+
+The manifest declares seven assets and six are on disk. The one absent is
+`portrait.png` — the neutral front source that every other photograph is aligned
+*to*. Without it the avatar fails validation and **nothing loads at all**: the
+application runs, tracks a face, publishes to the virtual camera, and shows the
+placeholder.
+
+Two photographs on disk are not declared by the manifest
+(`portrait_smile_modest.png`, `portrait_mouth_open_narrow.png`), which suggests
+the set was regenerated and the base portrait was renamed or not carried over.
+
+This is the first thing to fix, and only the owner can: it is a photograph, not
+code.
+
+---
+
+# Update — day 5
+
+The virtual camera exists (B004). Everything in this file is now visible in
+Meet, Zoom, Discord and OBS rather than only in our own preview window, which
+is the condition the original scheduling note said all of this quality work was
+waiting on.

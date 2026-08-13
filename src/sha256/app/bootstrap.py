@@ -43,6 +43,7 @@ from sha256.tracking.mediapipe_tracker import (
 from sha256.tracking.null import NullFaceTracker
 from sha256.utils.logging import configure_logging, get_logger
 from sha256.virtual_camera.null import NullVirtualCameraSink
+from sha256.virtual_camera.pyvirtualcam_sink import PyVirtualCameraSink
 
 __all__ = ["ApplicationContext", "build_application", "register_builtin_backends"]
 
@@ -98,6 +99,15 @@ def register_builtin_backends(registries: Registries) -> None:
         "null",
         NullVirtualCameraSink,
         description="Discards frames. Exposes nothing to the OS.",
+    )
+    registries.virtual_camera.register(
+        "pyvirtualcam",
+        PyVirtualCameraSink,
+        description=(
+            "Publishes to an existing virtual camera device (OBS). "
+            "GPL-2.0 — development only, never distributed."
+        ),
+        requires=("pyvirtualcam",),
     )
 
 
@@ -179,10 +189,7 @@ def build_application(
         width=settings.rendering.output_width,
         height=settings.rendering.output_height,
     )
-    virtual_camera: VirtualCameraSink = registries.virtual_camera.create(
-        settings.virtual_camera.backend,
-        device_name=settings.virtual_camera.device_name,
-    )
+    virtual_camera: VirtualCameraSink = _create_virtual_camera(registries, settings)
     engine: AvatarEngine = _create_engine(registries, settings, paths)
     engine.start()
 
@@ -217,6 +224,38 @@ def build_application(
         avatars=avatars,
         controller=controller,
     )
+
+
+def _create_virtual_camera(registries: Registries, settings: Settings) -> VirtualCameraSink:
+    """Build the output sink and declare its format.
+
+    Configured here, not at pipeline start, because the output format is a
+    property of the wiring rather than of a run. Nothing was calling
+    ``configure()`` at all, which made ``virtual_camera.auto_start = true``
+    fail on the very check that exists to catch that ordering mistake — the
+    placeholder sink caught the bug exactly as designed, and this is the fix.
+
+    The two backends take different arguments for the same reason the trackers
+    do: a sink that *creates* a device can be told what to call it, and a sink
+    that writes to somebody else's device can only be told which one to pick.
+    """
+    virtual_camera = settings.virtual_camera
+
+    if virtual_camera.backend == "pyvirtualcam":
+        sink: VirtualCameraSink = registries.virtual_camera.create(
+            "pyvirtualcam", device=virtual_camera.device
+        )
+    else:
+        sink = registries.virtual_camera.create(
+            virtual_camera.backend, device_name=virtual_camera.device_name
+        )
+
+    sink.configure(
+        settings.rendering.output_width,
+        settings.rendering.output_height,
+        settings.rendering.target_fps,
+    )
+    return sink
 
 
 def _create_engine(registries: Registries, settings: Settings, paths: AppPaths) -> AvatarEngine:

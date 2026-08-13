@@ -78,7 +78,7 @@ class DebugPanel(QWidget):
                     f"tracker       : {settings.tracking.backend}",
                     f"engine        : {settings.engine.backend}",
                     f"renderer      : {settings.rendering.backend}",
-                    f"virtual camera: {settings.virtual_camera.backend}",
+                    f"virtual camera: {settings.virtual_camera.backend} — {self._sink_state()}",
                     "",
                     f"avatar library: {paths.avatars}",
                     f"developer mode: {settings.developer_mode}",
@@ -88,6 +88,28 @@ class DebugPanel(QWidget):
             )
         )
         self._metrics_view.setPlainText(self._format_metrics())
+
+    def _sink_state(self) -> str:
+        """One line answering "why does the call show black".
+
+        The three states that produce an empty picture downstream look identical
+        from outside: no device installed, publishing switched off, and frames
+        being dropped by the sink. Naming which one it is saves the whole guess.
+        """
+        sink = self._context.controller.components.virtual_camera
+        if not sink.is_available:
+            return "no device installed"
+        if not sink.is_running:
+            return "not publishing"
+
+        sent = getattr(sink, "frames_sent", None)
+        dropped = getattr(sink, "frames_dropped", 0)
+        state = f"publishing to {sink.device_name!r}"
+        if sent is not None:
+            state += f", {sent} sent"
+        if dropped:
+            state += f", {dropped} DROPPED ({getattr(sink, 'last_drop_reason', '')})"
+        return state
 
     def _format_metrics(self) -> str:
         snapshot = self._context.monitor.snapshot()

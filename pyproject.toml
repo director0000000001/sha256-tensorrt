@@ -140,6 +140,13 @@ ignore_missing_imports = true
 follow_untyped_imports = true
 
 [[tool.mypy.overrides]]
+# pyvirtualcam ships no type information and its Windows backends are compiled
+# extension modules. The sink adapter is the only module that imports it and it
+# returns sha256 types, so the untyped surface stops at that boundary.
+module = ["pyvirtualcam.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 # Tests are checked, but not required to annotate every `def test_...() -> None`.
 # The value of strict typing is in the contracts; enforcing it on test bodies
 # is noise that discourages writing tests.

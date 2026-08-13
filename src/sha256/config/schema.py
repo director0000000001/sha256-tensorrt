@@ -118,7 +118,21 @@ class RenderingSettings(_Section):
 
 class VirtualCameraSettings(_Section):
     backend: str = Field(default="null")
-    device_name: str = Field(default="sha256 Virtual Camera")
+    device_name: str = Field(
+        default="sha256 Virtual Camera",
+        description=(
+            "Name for a device sha256 creates itself. Backends that write to "
+            "someone else's device — pyvirtualcam does — cannot honour it and "
+            "report the real name instead."
+        ),
+    )
+    device: str | None = Field(
+        default=None,
+        description=(
+            "Exact OS device to bind to, e.g. 'OBS Virtual Camera'. None takes "
+            "the first that works, which is right unless a machine has several."
+        ),
+    )
     auto_start: bool = Field(
         default=False,
         description="Whether starting the pipeline also publishes to the virtual camera.",
