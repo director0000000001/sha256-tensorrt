@@ -14,9 +14,38 @@ record of the foundation milestone see `FOUNDATION_STATUS.md`.
 | # | | Why it blocks |
 |---|---|---|
 | 1 | **Choose a video generator.** Sora is gone — the app shut down 2026-04-26 and the API goes on 2026-09-24. | See the checklist below. Candidates still live: Runway, Kling, Luma, Pika, Veo, Hailuo. |
-| 2 | **The scope decision.** Promised for day 7 and now overdue. | Licence server, download site, avatar encryption, `.exe` packaging and a shippable virtual camera total 6–7 days. Seven remain, before any quality work. Something has to come off, and that is not an engineering call. |
+| 2 | ~~The scope decision~~ — **made 2026-08-15, see below.** | Settled. |
 | 3 | Regenerate the two **far-turn** photographs at ~40°. | The current pair measures 17–20° and is swapped relative to its filenames. |
 | 4 | An avatar whose **hair** resembles the owner's. | The mask stops at the hairline, so the hair on screen is always theirs. Matching it is free; replacing it needs segmentation the frame budget cannot afford. |
+
+### The scope decision — made 2026-08-15
+
+The owner's answer, and it removes most of what was threatening the schedule:
+
+- **No licence system and no payments.** The application is free to use. There
+  is nothing to check, no accounts, no entitlements.
+- **A kill switch is still wanted** — the owner wants to be able to turn the
+  application off when they choose.
+- **The download site they will build themselves**, separately. Not our work.
+- **Avatar encryption: dropped.**
+
+What that leaves is far smaller than the two days a licence server was costed
+at. A kill switch with no licensing behind it is a static file on any host —
+GitHub raw, a plain web page, anything — that the application reads and obeys.
+No server to write, nothing to keep running, nothing to administer.
+
+Three things have to be right, and they are design decisions rather than code:
+
+1. **It must fail open.** If the check cannot be reached, the application keeps
+   working. A network blip that ends a live call is a worse failure than a
+   delayed shutdown, and the owner can wait an hour for the switch to take.
+2. **It must not block the UI.** The check belongs off the frame path entirely,
+   at startup and then occasionally, never in the loop.
+3. **It is a courtesy switch, not enforcement.** Anyone technical can block the
+   address or patch the binary. It stops an ordinary user; it does not stop a
+   determined one, and it should not be sold to the client as though it does.
+
+Remaining before delivery: the kill switch, `.exe` packaging, and quality.
 
 ### Buying a video generator — what to check, in this order
 
