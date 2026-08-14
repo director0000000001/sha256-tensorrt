@@ -217,6 +217,57 @@ but the gaze does not. The head stays upright with no tilt.
 
 
 ================================================================================
+CLIP 4 — READY TO PASTE
+================================================================================
+
+  Copy everything between the lines, attach portrait.png, send.
+
+  Two things in it are requirements rather than description, and both exist
+  because of what the frames are for:
+
+    - IT PAUSES AT EACH ANGLE. A frame taken mid-turn is motion blurred, and the
+      extractor throws blurred frames away — 88 of 240 on the first clip. The
+      pauses are where the usable frames come from.
+    - THE SHOULDERS DO NOT FOLLOW. The engine measures the *head's* yaw against
+      the body. If the whole person rotates, the face is turned and the
+      measurement says it is not.
+
+  It sweeps the whole range rather than stopping at 40 degrees. The two far-turn
+  photographs the library is missing are somewhere in that sweep, and so is every
+  angle between them and centre — which no set of separate stills has ever given
+  us. The extractor picks them by the same measurement the renderer uses, so they
+  cannot come out swapped the way the hand-named pair did.
+
+--------------------------------------------------------------------------------
+The person in the attached photograph keeps a neutral expression with the mouth
+closed and the eyes open, and slowly turns their head from side to side while
+their shoulders and body stay square to the camera and completely still. They
+begin facing the camera and hold for two seconds. They then turn their head very
+slowly to their left, pausing for about a second when the head is a quarter
+turned, again when it is half turned, and again when it is almost in profile.
+They then return just as slowly to face the camera, pausing again at the same
+angles on the way back, and hold facing the camera for two seconds. They then
+repeat exactly the same movement to their right: slowly turning, pausing a
+quarter turned, half turned, and almost in profile, then slowly back to centre.
+Throughout, the head stays perfectly upright with no tilt up, down or sideways,
+the chin stays level, and the eyes stay on the camera lens so that the head
+turns but the gaze does not. The expression never changes.
+
+Static locked-off camera at eye level, no camera movement, no zoom, no pan, no
+cuts, one continuous take. Close-up head-and-shoulders framing with the face
+filling most of the frame, centred, the whole head visible with a small margin
+above the hair. Soft even frontal lighting that never changes. Plain uncluttered
+light grey background. Photorealistic, sharp focus on the face, natural skin
+texture, no film grain, no colour grading, no vignette, no depth-of-field blur
+on the face. The person keeps exactly the identity, hairstyle, facial hair,
+clothing and skin tone of the attached photograph. Hands stay out of frame and
+nothing ever covers the face. No on-screen text, captions or subtitles. All
+movements are slow and deliberate, with each expression held briefly before
+changing.
+--------------------------------------------------------------------------------
+
+
+================================================================================
 CLIP 5 — HEAD TILTS AND GAZE
 ================================================================================
 
