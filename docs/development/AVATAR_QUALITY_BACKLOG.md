@@ -874,3 +874,28 @@ rigged and I did not notice for two rounds. The driving frame was the same
 photograph as one of the sources, which turns that source's path into a copy and
 the other's into a warp. Any comparison of two source sets has to be driven by a
 frame belonging to neither.
+
+### Two things ruled out, 2026-08-15
+
+**It is not the filter in the runtime warp.** That was the obvious next
+candidate — `warp_mesh` reduces with `INTER_LINEAR`, and backlog 9's closing
+paragraph proposed `INTER_AREA` before the mesh warp and was never done *there*.
+Measured over 900 frames of the recorded clip, the runtime reduction is **1.47×
+mean, 1.55× worst**. Bilinear samples 2×2, which is very nearly right at 1.5×.
+The 3× figure in backlog 9 was real when it was written and is not any more:
+reducing oversized sources at load moved the runtime factor from about 3× to
+1.47×. So that commit did fix the reduction it was aimed at — it simply was not
+where the loss is.
+
+**And the metric cannot settle it.** Sharpness here is the variance of the
+Laplacian, and *aliasing raises it*. Point-sampling a reduction throws detail
+away and adds high-frequency noise, and the noise scores higher than the detail
+did. Measured on the inner face, the rendered output scores **181% of the
+blended source it came from** — which is not a gain, it is the proxy failing.
+Every number in this item rests on that measure, including "4K sources carry
+four times the detail", so the contradiction it records may be the metric rather
+than the engine.
+
+**What that means for the next attempt:** do not chase this with another
+Laplacian number. Render the two source sets, driven by a frame belonging to
+neither, and look at them side by side at the size a call actually shows.
