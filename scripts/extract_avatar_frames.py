@@ -66,6 +66,13 @@ MIN_SHARPNESS_FRACTION = 0.55
 # frame is treated as a different face. Matches the photo checker.
 IDENTITY_TOLERANCE = 0.08
 
+# How much room to leave around the face when writing a frame out, as a fraction
+# of face width. The engine crops to the face itself when it loads a source, so
+# everything beyond this is read from disk and thrown away — and at 4K that is
+# most of a ten megabyte file. Generous enough that the mesh and the rigid
+# backdrop layer never want a pixel that was cut off.
+WRITE_MARGIN = 0.6
+
 
 @dataclass(frozen=True)
 class Candidate:
@@ -195,6 +202,29 @@ def usable(
     return kept
 
 
+def crop_around_face(candidate: Candidate) -> np.ndarray:
+    """The frame trimmed to the face and a margin.
+
+    Written frames are avatar sources, and the engine crops to the face when it
+    loads one. Keeping the rest costs disk and load time for pixels no part of
+    the pipeline ever reads — at 4K, most of the file.
+    """
+    points = candidate.tracking.landmarks
+    assert points is not None
+
+    height, width = candidate.image.shape[:2]
+    scaled = points.points[:, :2] * (width, height)
+    margin = candidate.face_width * WRITE_MARGIN
+
+    x0 = max(int(scaled[:, 0].min() - margin), 0)
+    y0 = max(int(scaled[:, 1].min() - margin), 0)
+    x1 = min(int(scaled[:, 0].max() + margin), width)
+    y1 = min(int(scaled[:, 1].max() + margin), height)
+
+    cropped: np.ndarray = np.ascontiguousarray(candidate.image[y0:y1, x0:x1])
+    return cropped
+
+
 def best_per_role(candidates: list[Candidate]) -> dict[str, tuple[Candidate, float]]:
     """The clearest example of each role the clip contains.
 
@@ -319,8 +349,12 @@ def main(argv: list[str] | None = None) -> int:
             continue
         candidate, score = picked
         name = role.replace("source_", "portrait_") + ".png"
-        cv2.imwrite(str(args.out / name), candidate.image)
-        print(f"{role:<26}{candidate.index:>7}{score:>8.2f}{candidate.face_width:>9.0f}")
+        cropped = crop_around_face(candidate)
+        cv2.imwrite(str(args.out / name), cropped)
+        print(
+            f"{role:<26}{candidate.index:>7}{score:>8.2f}{candidate.face_width:>9.0f}"
+            f"{cropped.shape[1]:>7}x{cropped.shape[0]}"
+        )
 
     missing = [role for role in _VARIANT_ROLES if role not in chosen]
     print(f"\n{len(chosen)} of {len(_VARIANT_ROLES)} roles covered by this clip.")

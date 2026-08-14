@@ -478,6 +478,11 @@ _GAZE_ON, _GAZE_FULL = 0.12, 0.25
 # still face rebuilds nothing.
 _WEIGHT_QUANTUM = 0.02
 
+# How much larger than the base a source may be before it is reduced with area
+# averaging first. Below this the mesh's own resampling is milder than a second
+# resize would be.
+_REDUCE_THRESHOLD = 1.25
+
 
 class _Neutral:
     """The user's resting face, learned while they sit in front of the camera.
@@ -797,6 +802,9 @@ class WarpAvatarEngine:
                 continue
 
             gaps[role] = _lip_gap_of(points)
+            # Before either placement path: both reduce this source onto the
+            # base's scale, and both do it by point-sampling.
+            image, points = _reduce_to(image, points, base_points)
 
             if role in _ROLE_REGION:
                 placed = _place_by_similarity(image, points, base_points, width, height)
@@ -1285,6 +1293,42 @@ def _place_irises(damped: np.ndarray, target: np.ndarray, rigid: np.ndarray) -> 
         # the avatar's own socket.
         wanted = own_socket.mean(axis=0) + gaze * own_width
         damped[iris] = (rigid[iris] - rigid[iris].mean(axis=0)) * openness + wanted
+
+
+def _reduce_to(
+    image: np.ndarray, points: np.ndarray, base_points: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Shrink a source to roughly the base portrait's scale, with area averaging.
+
+    Every source is warped onto the base portrait's landmark layout, so the base
+    fixes the working resolution. A source photographed much larger — a face
+    filling a 4K frame against the base's 455 pixels — is therefore reduced, and
+    ``warpAffine`` reduces by point-sampling however far it has to go. Sampling
+    one pixel in four throws away three and aliases what is left, which is why a
+    4K source measured *softer* on screen than a smaller one: 298 against 317.
+
+    ``INTER_AREA`` averages instead, so the detail arrives as detail rather than
+    as noise. Done once at load; the frame path never sees it.
+
+    Sources already near the base's scale are left alone — resampling twice is
+    worse than the mild reduction the mesh does anyway.
+    """
+    import cv2
+
+    def face_width(pts: np.ndarray) -> float:
+        return float(pts[:, 0].max() - pts[:, 0].min())
+
+    ratio = face_width(points) / max(face_width(base_points), 1e-6)
+    if ratio < _REDUCE_THRESHOLD:
+        return image, points
+
+    scale = 1.0 / ratio
+    reduced = cv2.resize(
+        image,
+        (max(int(image.shape[1] * scale), 1), max(int(image.shape[0] * scale), 1)),
+        interpolation=cv2.INTER_AREA,
+    )
+    return reduced, (points * scale).astype(np.float32)
 
 
 def _crop_to_face(image: np.ndarray, points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:

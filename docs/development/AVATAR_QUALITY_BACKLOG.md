@@ -755,3 +755,46 @@ The virtual camera exists (B004). Everything in this file is now visible in
 Meet, Zoom, Discord and OBS rather than only in our own preview window, which
 is the condition the original scheduling note said all of this quality work was
 waiting on.
+
+---
+
+## 16. A 4K source renders *softer* than a small one — OPEN, measured
+
+**Seen:** the owner generated a 4K clip. Frames from it carry far more detail
+than any photograph in the library, and the rendered avatar came out worse.
+
+**Measured, both directions.** Every face normalised to 455 px wide, the base
+portrait's scale, so the comparison is detail per pixel of face rather than file
+size:
+
+| source | native face | detail at 455 px |
+|---|---|---|
+| base portrait, PNG still | 455 px | 84 |
+| smile, PNG still | 391 px | 116 |
+| **smile, 4K video frame** | **969 px** | **475** |
+| 720p video frame | 570 px | 36 |
+
+Four times the detail going in. And rendered, driven by a frame belonging to
+neither source set so that neither wins by being copied through a near-identity
+warp:
+
+| sources | rendered face detail |
+|---|---|
+| PNG stills | 113 |
+| 4K video frames | 91 |
+
+**Not diagnosed.** Reducing oversized sources with `INTER_AREA` before alignment
+was the obvious candidate — the queued backlog item 9 — and it is now done, and
+it moved the number by one part in three hundred. The loss is somewhere else in
+the alignment or the runtime warp.
+
+**What it means for the plan:** more 4K clips will not improve sharpness until
+this is found. They are still worth generating for *coverage* — poses and
+expressions the library does not have — but the resolution argument for them is
+suspended until the rendered number moves.
+
+**A caution for whoever picks this up:** the first render comparison I ran was
+rigged and I did not notice for two rounds. The driving frame was the same
+photograph as one of the sources, which turns that source's path into a copy and
+the other's into a warp. Any comparison of two source sets has to be driven by a
+frame belonging to neither.
