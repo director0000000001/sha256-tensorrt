@@ -74,6 +74,23 @@ def make_descriptor(
     return AvatarDescriptor(manifest=manifest, root=root)
 
 
+def set_eye_opening(points: np.ndarray, left: float, right: float) -> None:
+    """Place both eyelid rings at a given openness, 1.0 open and 0.0 shut.
+
+    Eye closure is measured on the **eyelids**, not on ``eyeBlink``: the
+    blendshape is trained on blinks and reads 0.14 on eyes held shut, which had
+    the avatar squinting back at a person whose eyes were closed. So a test that
+    wants a closed eye has to close one.
+    """
+    from sha256.avatar.engine_warp import _LEFT_EYE, _RIGHT_EYE
+
+    for ring, openness, x in ((_LEFT_EYE, left, 0.42), (_RIGHT_EYE, right, 0.58)):
+        angles = np.linspace(0.0, 2.0 * np.pi, len(ring), endpoint=False)
+        # A lid ring 0.06 wide and, fully open, a third of that tall.
+        points[list(ring), 0] = x + 0.03 * np.cos(angles)
+        points[list(ring), 1] = 0.44 + 0.01 * openness * np.sin(angles)
+
+
 def synthetic_landmarks(*, centre: tuple[float, float] = (0.5, 0.5), scale: float = 0.2):
     """A landmark set shaped like a face, normalised.
 
@@ -114,10 +131,22 @@ def relaxed_like(tracking: FaceTrackingResult) -> FaceTrackingResult:
 
     shapes = tracking.blendshapes
     names = shapes.names if shapes is not None else ()
+
+    # Open eyes are part of "at rest", and closure is measured on the lids, so
+    # a resting frame that kept the expression's shut eyelids would teach the
+    # engine that shut eyes are this person's normal.
+    landmarks = tracking.landmarks
+    if landmarks is not None:
+        from sha256.core.types import LandmarkSet as _LandmarkSet
+
+        points = landmarks.points.copy()
+        set_eye_opening(points, 1.0, 1.0)
+        landmarks = _LandmarkSet(points=points, scheme=landmarks.scheme)
+
     return FaceTrackingResult(
         metadata=tracking.metadata,
         face_detected=True,
-        landmarks=tracking.landmarks,
+        landmarks=landmarks,
         head_pose=HeadPose(yaw=0.0, pitch=0.0, roll=0.0),
         blendshapes=BlendshapeSet(
             names=names,
@@ -183,6 +212,10 @@ def expressive_tracking(
     points[152, 1] = 0.8
     points[13, 1] = 0.5
     points[14, 1] = 0.5 + gap * 0.6
+    # `blink` closes the eyelids as well as raising the blendshape. Closure is
+    # measured on the lids now, so a test asking for a blink has to produce one.
+    left, right = blink if blink is not None else (0.0, 0.0)
+    set_eye_opening(points, 1.0 - left, 1.0 - right)
 
     names = tuple(shapes)
     return FaceTrackingResult(
@@ -507,10 +540,48 @@ class TestSourceSelection:
         assert weights["source_eyes_closed"] > 0.8
 
     def test_eyes_held_shut_close_as_firmly_as_a_blink(self):
-        """A held closure reads much lower than a blink, and left the eyes open."""
-        weights = weights_from_rest(expressive_tracking(blink=(0.55, 0.5)))
+        """Shut lids are shut lids, whatever ``eyeBlink`` happens to say.
 
-        assert weights["source_eyes_closed"] > 0.7
+        The blendshape is trained on blinks, which are fast. Measured on the
+        owner's recording it peaks at 0.66 on a blink and reads **0.14** on two
+        seconds of held closure — lower than plenty of frames with the eyes
+        plainly open. So the avatar squinted back at a person whose eyes were
+        closed. Closure is measured on the eyelids now, and the eyelids are in
+        the same place either way.
+        """
+        blinking = weights_from_rest(
+            expressive_tracking(blink=(0.95, 0.95), eyeBlinkLeft=0.66, eyeBlinkRight=0.66)
+        )
+        holding = weights_from_rest(
+            expressive_tracking(blink=(0.95, 0.95), eyeBlinkLeft=0.14, eyeBlinkRight=0.14)
+        )
+
+        assert blinking["source_eyes_closed"] > 0.9
+        assert holding["source_eyes_closed"] == pytest.approx(blinking["source_eyes_closed"])
+
+    def test_a_closing_eye_does_not_also_squint(self):
+        """One eye, one opening, and the shut photograph must win it.
+
+        MediaPipe reports a squint *and* a blink on a blink, because narrowing
+        is how closing begins: measured on the owner's recording, `eyeSquint`
+        ran 0.83-0.94 at the moment `eyeBlink` peaked at 0.66. Both then shared
+        the eye region's budget, so the closed-eye photograph applied at half
+        strength and the eye never actually shut. That is the owner's "the eyes
+        still work very badly".
+        """
+        weights = weights_from_rest(
+            expressive_tracking(blink=(0.95, 0.95), eyeSquintLeft=0.9, eyeSquintRight=0.9)
+        )
+
+        assert weights["source_eyes_closed"] > 0.9
+        assert weights.get("source_squint", 0.0) < 0.05
+
+    def test_a_narrowed_eye_still_squints(self):
+        """The other half: closure yields the axis only while it is happening."""
+        weights = weights_from_rest(expressive_tracking(eyeSquintLeft=0.6, eyeSquintRight=0.6))
+
+        assert weights["source_squint"] > 0.5
+        assert weights.get("source_eyes_closed", 0.0) == 0.0
 
     def test_a_wink_does_not(self):
         """The photo closes both eyes; driving it from one would close the other."""

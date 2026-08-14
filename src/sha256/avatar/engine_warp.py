@@ -155,13 +155,27 @@ _BROW_RAISE_FULL = 0.55
 # this" is measured against the photograph rather than against 1.0.
 _SMILE_REFERENCE = 0.54
 
-# Eye closure is deliberately eager. A blink is fast and reads high, but holding
-# the eyes shut reads far lower, and the owner's eyes stayed open for it.
-# How far a blink has to rise **above the resting eye** before the closed-eye
-# photograph starts to apply, and where it fully applies. Relative, not
-# absolute: a relaxed eye does not read zero, and treating its resting value as
-# a partial blink kept a shut eyelid permanently ghosted over an open one.
-_BLINK_START, _BLINK_FULL = 0.08, 0.50
+# How far the eyelids have to close, as a fraction of their own resting
+# opening, before the closed-eye photograph starts to apply and where it fully
+# applies. Relative, not absolute: eyes differ in shape between people, and this
+# is measured on the user rather than on the avatar.
+#
+# Measured over the owner's recorded clip, which is labelled by segment, so a
+# blink, a held closure and a relaxed eye can each be summarised separately:
+#
+#     segment                        p50    p95    max
+#     sitting still                 0.00   0.23   0.62   <- the 0.62 is one blink
+#     blinking several times        0.27   0.70   0.76
+#     eyes held shut for 2 seconds  0.23   0.70   0.74
+#     looking left and right        0.09   0.20   0.25
+#
+# The third row is the point. **The blendshape read 0.66 for a blink and 0.14
+# for a held closure**; the lids read 0.70 for both, because the lids are shut
+# either way. That is the whole reason this signal moved to geometry.
+#
+# So the band starts above where a relaxed eye wanders and reaches full inside a
+# real closure of either kind.
+_CLOSE_START, _CLOSE_FULL = 0.25, 0.65
 
 # The camera is **never** passed through once an avatar has been placed on a
 # face. Tracking drops out constantly, and every dropout used to show the user's
@@ -553,10 +567,11 @@ class _Neutral:
     its own photograph.
     """
 
-    __slots__ = ("_floors", "_pose")
+    __slots__ = ("_ceilings", "_floors", "_pose")
 
     def __init__(self) -> None:
         self._floors: dict[str, float] = {}
+        self._ceilings: dict[str, float] = {}
         self._pose: dict[str, float] = {}
 
     def relative_expression(self, name: str, value: float) -> float:
@@ -570,6 +585,28 @@ class _Neutral:
         floor += rate * (value - floor)
         self._floors[name] = floor
         return max(value - floor, 0.0)
+
+    def relative_drop(self, name: str, value: float) -> float:
+        """How far ``value`` has fallen below its learned high, as a fraction.
+
+        The mirror of :meth:`relative_expression`, for a signal that *falls*
+        when something happens. An eye's height over its width is one: it sits
+        near 0.32 open and near 0.10 shut, so the interesting direction is down.
+
+        Tracked the same way and for the same reason, reflected: follow a new
+        high quickly, so the widest the eye has been is learned in about a
+        quarter of a second, and drift down slowly, so a person who blinks
+        often does not teach it that half-shut is their normal eye.
+        """
+        ceiling = self._ceilings.get(name)
+        if ceiling is None or ceiling <= 1e-6:
+            self._ceilings[name] = value
+            return 0.0
+
+        rate = _FLOOR_FALL if value > ceiling else _FLOOR_RISE
+        ceiling += rate * (value - ceiling)
+        self._ceilings[name] = ceiling
+        return max((ceiling - value) / max(ceiling, 1e-6), 0.0)
 
     def relative_pose(self, name: str, value: float) -> float:
         """``value`` as an offset from the resting head angle. Signed."""
@@ -594,6 +631,7 @@ class _Neutral:
         """
         made = _Neutral()
         made._floors = dict(self._floors)
+        made._ceilings = dict(self._ceilings)
         made._pose = dict(self._pose)
         return made
 
@@ -1474,6 +1512,48 @@ def _lip_gap_of(points: np.ndarray) -> float:
     return gap / height if height > 1e-6 else 0.0
 
 
+def _eye_opening(tracking: FaceTrackingResult) -> float:
+    """How open the eyes are: lid height over lid width, the narrower eye.
+
+    **The blendshape cannot answer this**, in the same way and for the same
+    reason ``mouthSmile`` could not answer whether the teeth show.
+    ``eyeBlink`` is trained on blinks, which are fast: measured on the owner's
+    own recording, a blink peaks at 0.66 and *holding the eyes shut* reads
+    0.14 — lower than some frames where they are plainly open. Two seconds of
+    shut eyes therefore scored as an ordinary squint, and the avatar squinted
+    back at a person whose eyes were closed.
+
+    Whether the eye is shut is a question about the eyelids, so it is measured
+    on the eyelids. That reading only became available this morning: it needs
+    the full lid ring, and the mesh carried six points per eye until then.
+
+    The **more open** of the two eyes, which is the same rule the blendshape
+    version used and for the same reason: the photograph has both eyes shut, so
+    driving it from one closing eye would shut the other one too. A wink has to
+    read as no closure at all until the open eye follows.
+
+    The landmarks are normalised over the frame, so this ratio carries the
+    frame's aspect ratio as a constant factor and is **not** a true height over
+    width. That is deliberate and it must stay that way: the only consumer
+    compares it with its own learned resting value, where a constant cancels.
+    Dividing it out here would change nothing except to invite someone to
+    recalibrate the thresholds against a number that had never been used.
+    """
+    landmarks = tracking.landmarks
+    if landmarks is None or landmarks.count <= max(max(_LEFT_EYE), max(_RIGHT_EYE)):
+        return 0.0
+
+    points = landmarks.points
+    openings = []
+    for ring in (_LEFT_EYE, _RIGHT_EYE):
+        block = points[list(ring), :2]
+        width = float(block[:, 0].max() - block[:, 0].min())
+        height = float(block[:, 1].max() - block[:, 1].min())
+        if width > 1e-6:
+            openings.append(height / width)
+    return max(openings) if openings else 0.0
+
+
 def _lip_gap(tracking: FaceTrackingResult) -> float:
     """How far the lips are actually parted, as a fraction of face height.
 
@@ -1568,10 +1648,10 @@ def _source_weights(
         # open eye, which is exactly the "two sets of eyes" the owner saw. Open
         # eyes are the floor by construction, since blinking only moves this
         # reading upward.
-        blink = min(shapes.get("eyeBlinkLeft"), shapes.get("eyeBlinkRight"))
-        above_rest = neutral.relative_expression("eyeBlink", blink)
-        closed = (above_rest - _BLINK_START) / (_BLINK_FULL - _BLINK_START)
-        weights["source_eyes_closed"] = min(max(closed, 0.0), 1.0)
+        shut = neutral.relative_drop("eyeOpen", _eye_opening(tracking))
+        closed = (shut - _CLOSE_START) / (_CLOSE_FULL - _CLOSE_START)
+        closed = min(max(closed, 0.0), 1.0)
+        weights["source_eyes_closed"] = closed
 
         def expression(*names: str) -> float:
             """How far into an expression this frame is, above the resting face."""
@@ -1587,10 +1667,22 @@ def _source_weights(
             expression("browInnerUp", "browOuterUpLeft", "browOuterUpRight"),
             expression("browDownLeft", "browDownRight"),
         )
-        weights["source_eyes_wide"], weights["source_squint"] = opposed(
+        # An eye has one opening, and these three photographs sit on it: wide,
+        # narrowed, shut. Blink and squint are not independent signals — a
+        # narrowing eye is how a closing one begins, and MediaPipe reports both.
+        # Measured across a blink in the owner's recording, `eyeSquint` ran
+        # 0.83-0.94 at the same moment `eyeBlink` peaked, and the two then
+        # *shared the eye region's budget*: the closed-eye photograph never
+        # applied at more than half strength, so the eye never actually shut.
+        #
+        # So closure takes precedence. As the lids come together the other two
+        # give way, by construction, in the same way opposing pairs already do.
+        wide, squint = opposed(
             expression("eyeWideLeft", "eyeWideRight"),
             expression("eyeSquintLeft", "eyeSquintRight"),
         )
+        weights["source_eyes_wide"] = wide * (1.0 - closed)
+        weights["source_squint"] = squint * (1.0 - closed)
         weights["source_frown"] = expression("mouthFrownLeft", "mouthFrownRight")
         weights["source_mouth_pressed"] = expression("mouthPressLeft", "mouthPressRight")
 
