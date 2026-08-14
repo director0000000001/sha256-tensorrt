@@ -189,8 +189,33 @@ _FACE_OVAL = (
 )
 _LEFT_BROW = (46, 53, 52, 65, 55, 107)
 _RIGHT_BROW = (276, 283, 282, 295, 285, 336)
-_LEFT_EYE = (33, 160, 158, 133, 153, 144)
-_RIGHT_EYE = (362, 385, 387, 263, 373, 380)
+# The complete eyelid ring, sixteen points per eye, in contour order — not a
+# six-point sample of it, and for a reason that took four failed attempts to
+# find.
+#
+# Six points do describe a closing lid well enough now that the photographs
+# carry the lid themselves. What they cannot do is *terminate* anything. With
+# only six, Delaunay leaves the eye connected to the rest of the face by long
+# thin triangles that reach in from the cheek and the brow, a whole fan of them
+# converging on each corner. Close the lid and that corner travels; every
+# triangle in the fan sweeps with it, and the sweep is the hard-edged light
+# wedge that appeared above the eye on every single blink.
+#
+# The ring gives those triangles somewhere to stop. Nothing reaches *through*
+# the eye any more, so a lid can move without dragging the brow and the cheek
+# after it. It also meshes the socket properly around the iris, which the four
+# iris points alone could not do.
+#
+# Ordering is load-bearing: these go around the ring, so the eye opening can be
+# used as a polygon the way the inner lip already is.
+_LEFT_EYE = (
+    33, 7, 163, 144, 145, 153, 154, 155, 133,
+    173, 157, 158, 159, 160, 161, 246,
+)
+_RIGHT_EYE = (
+    362, 382, 381, 380, 374, 373, 390, 249, 263,
+    466, 388, 387, 386, 385, 384, 398,
+)
 _NOSE = (168, 6, 197, 195, 5, 4, 98, 97, 2, 326, 327)
 # The complete lip contours, not a sample of them. Eight points around the
 # inner lip cannot describe an opening: the triangles spanning the mouth
@@ -258,11 +283,26 @@ _EYE_PAIRS = (
 )
 _IRIS_POSITIONS = _positions(_LEFT_IRIS, _RIGHT_IRIS)
 
+# What an eye photograph is allowed to move — the lids *and the irises inside
+# them*. The irises were left out, and on a blink that put the mesh's iris
+# above the eyelid that had just closed over it: the lid travelled and the
+# pupil it contains stayed at the open eye's position. The triangles between
+# the two are then inside-out, which is the wedge the owner saw.
+#
+# Gaze is still geometry rather than photographs — nothing here chooses where
+# the pupil points. This only keeps the pupil inside the eye while the eye
+# itself is being changed by a photograph.
+_EYE_REGION_POSITIONS = _EYE_POSITIONS + _IRIS_POSITIONS
+
+# Each eyelid ring in contour order, so the eye opening can be tested as a
+# polygon rather than as a cloud of points.
+_EYE_RINGS = tuple(eye for eye, _ in _EYE_PAIRS)
+
 # How far the pupil may travel inside its socket, as a fraction of eye width,
 # and how much of the user's travel it copies.
 #
-# The mesh has four points around each iris and a handful around the socket, so
-# the triangles between them shear as the pupil moves. Rendered across the full
+# The mesh has four points around each iris, so the triangles between them and
+# the lid shear as the pupil moves. Rendered across the full
 # range, a small shift is clean and an extreme one turns the iris into a dark
 # diamond with visible triangle edges. Vertically it is worse and asymmetric,
 # because the lower lid is closer than the upper one.
@@ -271,14 +311,15 @@ _IRIS_POSITIONS = _positions(_LEFT_IRIS, _RIGHT_IRIS)
 # gaze comfortably inside them. Nothing is lost by it: gaze reads as a
 # *direction* long before it reads as a magnitude, and a video call is not
 # looked at from the corner of the eye.
-# Height over width of an open eye, used to tell how far a lid has closed
-# without remembering anything. Measured across the owner's own photographs,
-# where an open eye sits near 0.33 and a closed one near 0.05.
-_EYE_OPEN_RATIO = 0.30
-
 _GAZE_SCALE = 0.55
 _GAZE_LIMIT_X = 0.065
 _GAZE_LIMIT_UP, _GAZE_LIMIT_DOWN = 0.035, 0.012
+
+# How much of the space between the pupil and the nearer lid the iris ring may
+# take up. See :func:`_contain_iris` for why it must take up less than all of
+# it: at exactly all of it the triangles joining iris to lid have no area, and
+# an affine transform fitted to three collinear points is singular.
+_IRIS_OF_OPENING = 0.85
 _BROW_POSITIONS = _positions(_LEFT_BROW, _RIGHT_BROW)
 _MOUTH_POSITIONS = _positions(_OUTER_LIPS, _INNER_LIPS)
 
@@ -727,6 +768,10 @@ class WarpAvatarEngine:
         # background and shoulders that the mesh never samples. Cropping first
         # measured 31 ms down to single digits.
         image, points = _crop_to_face(full, full_points)
+        # Before triangulating, not after: an iris standing proud of its own
+        # eyelid makes the triangles between them inside-out, and a
+        # triangulation computed from that is wrong for every frame after.
+        _contain_irises(points)
         triangles = _triangulate(points, image.shape[1], image.shape[0])
         sources, source_points, gaps = self._align_variants(descriptor, image, points, triangles)
         full_gap = gaps.get(_OPENING_REFERENCE_ROLE, _LIP_GAP_FULL)
@@ -1273,26 +1318,74 @@ def _place_irises(damped: np.ndarray, target: np.ndarray, rigid: np.ndarray) -> 
 
         own_socket = damped[eye]
         own_width = float(own_socket[:, 0].max() - own_socket[:, 0].min())
-        own_height = float(own_socket[:, 1].max() - own_socket[:, 1].min())
-
-        # An eyelid covers the iris as it closes, and the mesh has to be told
-        # so. Left at full size inside a socket that has shut, the iris is
-        # larger than the shape containing it and the triangles smear it into
-        # the dark vertical streaks the owner saw across a blink — the same
-        # artefact, in the same place, as before the photographs carried their
-        # own geometry, and it survived that fix because it comes from here.
-        #
-        # Height against width rather than against a remembered open eye: it
-        # needs no state, and an eye's proportions are what change when it
-        # closes. Shrinking the iris with the socket is a cheap stand-in for
-        # occlusion, and at a full blink it vanishes behind the lid, which is
-        # what it should do.
-        openness = min((own_height / max(own_width, 1e-6)) / _EYE_OPEN_RATIO, 1.0)
 
         # The avatar's iris, at its own size, centred where that gaze puts it in
-        # the avatar's own socket.
+        # the avatar's own socket. Then held inside the lid, by the same rule
+        # the source mesh is held to — see :func:`_contain_irises`.
         wanted = own_socket.mean(axis=0) + gaze * own_width
-        damped[iris] = (rigid[iris] - rigid[iris].mean(axis=0)) * openness + wanted
+        damped[iris] = (rigid[iris] - rigid[iris].mean(axis=0)) + wanted
+        _contain_iris(damped, eye, iris)
+
+
+def _contain_irises(points: np.ndarray) -> None:
+    """Hold both irises inside the eyelids that are supposed to contain them."""
+    for eye, iris in _EYE_PAIRS:
+        _contain_iris(points, eye, iris)
+
+
+def _contain_iris(points: np.ndarray, eye: list[int], iris: list[int]) -> None:
+    """Shrink one iris about its centre until it sits inside its lid. In place.
+
+    **MediaPipe reports the whole iris circle, including the part behind the
+    eyelid.** That is not an error in the tracker — it fits a circle to the
+    visible arc — but it makes the mesh describe something the photograph does
+    not contain. Measured on the owner's own photographs, in pixels of the
+    avatar's own frame:
+
+    =========================  =====  ======  =============
+    photograph                   lid    iris  iris outside
+    =========================  =====  ======  =============
+    base portrait               29.0    37.3           8.3
+    eyes wide open              38.2    39.8           1.6
+    **eyes closed**             12.9    30.0          17.0
+    =========================  =====  ======  =============
+
+    So on a blink the mesh says there is an iris standing seventeen pixels proud
+    of a thirteen-pixel eye. The triangles between the lid ring and the iris are
+    inside-out, and warping them drags the brow and the socket down into the
+    eye. **That is the hard-edged light wedge above a blinking eye**, and it is
+    why the full eyelid ring alone only shrank it: the ring stopped the long
+    triangles sweeping in from the cheek, and this is a different, smaller fan
+    living inside the eye itself.
+
+    The mesh warps pixels, and the pixels above a shut lid are eyelid rather
+    than iris, so the honest mesh is one where the iris ends where the lid does.
+    Shrinking is a stand-in for occlusion — the truthful operation would clip
+    the circle, which a triangulated mesh cannot express — and it costs nothing
+    visually because the part being removed is behind the lid either way.
+
+    Applied to the source mesh and to the target by the same rule, which is the
+    point: what a warp cannot tolerate is the two disagreeing.
+    """
+    lid = points[eye][:, 1]
+    top, low = float(lid.min()), float(lid.max())
+
+    own = points[iris]
+    centre = float(own[:, 1].mean())
+    reach = float(np.abs(own[:, 1] - centre).max())
+    if reach <= 1e-6:
+        return
+
+    # The pupil stays where it was put — that is the gaze, and it is the one
+    # thing here worth preserving. Clamping it into the opening is a safety net
+    # for a lid that has shut around a pupil looking hard up or down.
+    centre = min(max(centre, top), low)
+    room = min(centre - top, low - centre) * _IRIS_OF_OPENING
+
+    # Vertically only. A lid occludes an iris from above and below and leaves
+    # its width alone, so squashing describes what is happening; shrinking the
+    # whole disc would narrow a pupil that has not narrowed.
+    points[iris, 1] = centre + (own[:, 1] - centre) * min(room / reach, 1.0)
 
 
 def _reduce_to(
@@ -1611,7 +1704,7 @@ def _build_regions(
     built: list[_Region] = []
     for name, positions in (
         ("mouth", _MOUTH_POSITIONS),
-        ("eyes", _EYE_POSITIONS),
+        ("eyes", _EYE_REGION_POSITIONS),
         ("brows", _BROW_POSITIONS),
     ):
         present = [role for role in _REGION_ROLES[name] if role in sources]
@@ -1762,6 +1855,12 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
             own = avatar.source_points.get(role, avatar.points)
             moved = moved + own[region.positions] * (weight * scale)
         mesh[region.positions] = moved
+
+    # The lids have just moved and the irises have not — they belong to no
+    # region, because a gaze is geometry rather than a photograph. So the mesh
+    # can now claim an iris larger than the eye holding it, which is exactly
+    # what a closing lid produces.
+    _contain_irises(mesh)
 
     avatar.cached_weights = quantised
     avatar.cached_blend = blended

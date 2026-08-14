@@ -3,11 +3,20 @@
 **Living document.** Update it at the end of each working day. For the frozen
 record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
-**Last updated:** 2026-08-14 · **End of day 7 of a 14-day plan**
+**Last updated:** 2026-08-15 · **Day 8 of a 14-day plan**
 
 ---
 
-## Tomorrow — day 8
+## Day 8
+
+**Done today:** the wedge above a blinking eye (backlog 15), which had been
+diagnosed and left. The eyelid ring was only half the cause; the other half is
+that MediaPipe reports the whole iris circle including the part hidden behind
+the lid, so the mesh described a thirty-pixel iris inside a thirteen-pixel eye
+and the triangles between them were inside-out. Rendered before and after on
+the owner's recorded clip: gone, and gone from the brows-raised frame too,
+where the same mechanism showed as a hard dark M. It costs 1.18 ms of mean
+frame time out of roughly 2.5 ms of headroom.
 
 ### Waiting on the owner. Nothing below starts without these.
 
@@ -72,14 +81,17 @@ anything usable. Ordered by what kills the plan outright.
 
 ### Queued here, in order
 
-1. **The wedge above a blinking eye** (backlog 15). Diagnosed: six landmarks per
-   eye leave it anchored to the cheek by long triangles that sweep as the lid
-   closes. The fix is the full eyelid ring — sixteen points per eye — and it
-   invalidates ten tests that encode the six-point layout. A morning's work with
-   its own verification, not a tweak.
-2. **`INTER_AREA` before the mesh warp** (backlog 9). The source is reduced about
-   3× onto the face and bilinear discards most of it. The remaining softness.
-3. **If a video arrives:** extract frames, run every one through
+1. ~~The wedge above a blinking eye~~ (backlog 15) — **fixed 2026-08-15.** The
+   eyelid ring was half of it; the other half was that MediaPipe reports the
+   whole iris circle including the part behind the lid, so on a blink the mesh
+   claimed a 30-pixel iris inside a 13-pixel eye. Rendered before and after on
+   the recorded clip. Costs 1.18 ms of the ~2.5 ms headroom.
+2. ~~`INTER_AREA` before the mesh warp~~ (backlog 9) — **done**, and it moved
+   the rendered number by one part in three hundred. See backlog 16.
+3. **A 4K source renders *softer* than a small one** (backlog 16). Open,
+   measured, not diagnosed. Until it is, more 4K clips buy coverage but not
+   sharpness.
+4. **If a video arrives:** extract frames, run every one through
    `scripts/check_avatar_photos.py`, and then the real prize — switch the engine
    from *blending* sources to *selecting* the nearest. Dense coverage is what
    makes that possible, and it removes cross-fade ghosting by construction
@@ -103,8 +115,9 @@ when the quality work that needs it is done.**
 | 5 | Virtual camera | ✅ Done — B004. Visible in Meet, Zoom, Discord, OBS |
 | 6 | Quality: neutral baseline, eyes, teeth | ✅ Done — backlog 8, 9, 10 |
 | **7** | **Neural engine evaluated and closed; gaze as geometry; replay harness** | **✅ Done — B005** |
-| 8–10 | Quality iteration | |
-| 11–12 | UI, avatar gallery, licence server | |
+| **8** | **Quality: the wedge above a blinking eye (backlog 15)** | **✅ Done** |
+| 9–10 | Quality iteration | |
+| 11–12 | UI, avatar gallery, kill switch, `.exe` | |
 | 13–14 | Bugs, buffer | |
 
 **Day 7 in one line:** LivePortrait was measured and rejected on speed (B005),
@@ -179,8 +192,11 @@ avatar's own photographs and do not need it; the pipeline figure does.
 - **Landmark-warp engine**: the portrait is deformed per frame onto the tracked
   face. No neural network, no model weights, **no licensing risk**.
 - **13.8 ms mean / 17.7 ms p95** in ordinary use; 15.2 / 19.2 in the worst case
-  where the expression changes every single frame. 97 mesh points, 156
-  triangles, at a face the size one occupies at desk distance.
+  where the expression changes every single frame — six sources, and 97 mesh
+  points as the mesh then stood. It now carries **139 points and 229 triangles**
+  (the full lip contours, both irises, and since day 8 the full eyelid rings),
+  and with the owner's 20 sources costs **20.42 ms mean / 22.51 ms p95** over
+  1817 frames of the recorded clip.
 - First version cost 42 ms at p95 — over budget. The fix was one warp per
   triangle instead of two, and working inside the face's bounding box. A second
   round cached the source blend against weights quantised to 0.02 and painted

@@ -254,6 +254,44 @@ def engine(monkeypatch: pytest.MonkeyPatch):
     return built
 
 
+class TestMeshLayout:
+    """The slices into the mesh are counted, so changing a group can move them.
+
+    ``_OVAL_SLICE``, ``_BROW_SLICE`` and ``_INNER_LIP_SLICE`` are built by adding
+    up the lengths of the groups that come before them. That is only correct
+    while none of those groups share a landmark, and it fails *silently*: the
+    face outline would still be filled as a polygon, just over the wrong points.
+    Enlarging the eyes from six landmarks to the full lid ring is exactly the
+    kind of edit that would have found out the hard way.
+    """
+
+    def test_no_landmark_appears_twice(self):
+        assert len(MESH_INDICES) == len(set(MESH_INDICES))
+
+    @pytest.mark.parametrize(
+        ("slice_name", "group_names"),
+        [
+            ("_OVAL_SLICE", ("_FACE_OVAL",)),
+            ("_BROW_SLICE", ("_LEFT_BROW", "_RIGHT_BROW")),
+            ("_INNER_LIP_SLICE", ("_INNER_LIPS",)),
+        ],
+    )
+    def test_each_slice_lands_on_the_group_it_names(self, slice_name, group_names):
+        from sha256.avatar import engine_warp
+
+        where = getattr(engine_warp, slice_name)
+        expected = tuple(index for name in group_names for index in getattr(engine_warp, name))
+        assert tuple(MESH_INDICES[where]) == expected
+
+    def test_each_eye_carries_its_whole_lid(self):
+        """Six points leave the eye anchored to the cheek by long triangles that
+        sweep as the lid closes — the wedge above a blink. The ring terminates
+        them."""
+        from sha256.avatar.engine_warp import _EYE_RINGS
+
+        assert [len(ring) for ring in _EYE_RINGS] == [16, 16]
+
+
 class TestProtocolConformance:
     def test_satisfies_the_avatar_engine_protocol(self):
         assert isinstance(WarpAvatarEngine(), AvatarEngine)
@@ -580,7 +618,14 @@ class TestEyeGeometry:
 
     @staticmethod
     def mesh_looking(dx: float, dy: float = 0.0) -> np.ndarray:
-        """A mesh with square eye sockets and irises at a known gaze offset."""
+        """A mesh with eye sockets of a known size and irises at a known gaze offset.
+
+        The socket is built as a ring of however many points the mesh declares,
+        rather than a fixed list of corners: the engine carries the full eyelid
+        contour and the count is allowed to change again. Its extremes are the
+        same either way — a full width across and 0.6 of that tall — so what the
+        assertions measure does not move with the point count.
+        """
         from sha256.avatar.engine_warp import _EYE_PAIRS
 
         points: np.ndarray = (
@@ -589,11 +634,11 @@ class TestEyeGeometry:
         for index, (socket, iris) in enumerate(_EYE_PAIRS):
             centre = np.array([150.0 + 100.0 * index, 180.0], dtype=np.float32)
             width = 40.0
-            corners = np.array(
-                [(-0.5, 0.0), (-0.25, -0.3), (0.25, -0.3), (0.5, 0.0), (0.25, 0.3), (-0.25, 0.3)],
-                dtype=np.float32,
+            around_lid = np.linspace(0.0, 2.0 * np.pi, len(socket), endpoint=False)
+            ring = np.stack([-0.5 * np.cos(around_lid), -0.3 * np.sin(around_lid)], axis=1).astype(
+                np.float32
             )
-            points[socket] = centre + corners[: len(socket)] * width
+            points[socket] = centre + ring * width
 
             pupil = centre + np.array([dx, dy], dtype=np.float32) * width
             around = np.array(

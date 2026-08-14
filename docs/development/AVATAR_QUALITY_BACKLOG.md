@@ -341,7 +341,7 @@ ranged 0.05 to 0.92 on a still subject — which changed the face's appearance
 every frame. That is a flicker by any definition, and it appeared when
 multi-source landed. Plausible, not proven; the owner has to look.
 
-## 15. The wedge above a blinking eye — DIAGNOSED, NOT FIXED
+## 15. The wedge above a blinking eye — FIXED 2026-08-15
 
 **Seen:** on every blink, a hard-edged light triangle between the brow and the
 closed lid. Found by replaying the owner's recorded clip, which is what that
@@ -384,6 +384,82 @@ rather than half-landed.
 about an hour; the mesh drawing cost five minutes and ended it. When a defect
 has survived two hypotheses, stop proposing a third and render the thing that is
 actually being blamed.
+
+### Fixed, and the ring was only half of it
+
+The ring landed as described — sixteen points per eye, exactly ten tests
+rewritten — and the wedge shrank and **did not go away**. What remained was a
+second, smaller fan living *inside* the eye, and it had a cause of its own.
+
+**MediaPipe reports the whole iris circle, including the part behind the
+eyelid.** That is not a fault in the tracker: it fits a circle to the visible
+arc, and the circle is a circle whether or not a lid is over it. But the mesh
+warps *pixels*, and the pixels above a shut lid are eyelid rather than iris.
+Measured on the avatar's own photographs, in pixels of its own frame:
+
+| photograph | lid height | iris height | iris outside the lid |
+|---|---|---|---|
+| base portrait | 29.0 | 37.3 | 8.3 |
+| eyes wide open | 38.2 | 39.8 | 1.6 |
+| **eyes closed** | **12.9** | **30.0** | **17.0** |
+
+So it is not only a blink: on **every** photograph the iris stands proud of the
+lid ring that should contain it. A blink merely makes it absurd — a
+thirty-pixel iris inside a thirteen-pixel eye. The triangles joining the lid
+ring to the iris are then inside-out, and warping an inside-out triangle drags
+the brow and the socket down into the eye. That is the wedge.
+
+Two things were wrong, and both had to be fixed:
+
+1. **The irises were not part of the eye region.** An eye photograph moved the
+   lids and left the pupil where the open eye had put it, so on a blink the lid
+   closed *above* its own iris. They now move together — the region owns the
+   lids and the irises inside them. Gaze is still geometry, not photographs;
+   nothing here chooses where the pupil points.
+2. **Nothing kept the iris inside the eye.** It now is, by one rule applied to
+   the source mesh and the target alike: the iris ring is squashed vertically
+   until it fits within the nearer lid. Vertically only — a lid occludes from
+   above and below and leaves the width alone. Squashing stands in for
+   occlusion, which a triangulated mesh cannot express.
+
+The rule replaces `_EYE_OPEN_RATIO`, which shrank the *target* iris by the
+socket's aspect ratio and left the source mesh untouched. What a warp cannot
+tolerate is the two disagreeing, and they did.
+
+**Rendered, at the deepest blink in the owner's recorded clip** (frame 860,
+`eyeBlink` 0.70): the wedge is gone. The lid, the crease and the brow read as
+skin, with lashes and a sliver of iris. The same defect appeared as a hard dark
+M above each eye on the brows-raised frame — looking up narrows the opening the
+same way — and that is gone too. At rest the eye is unchanged, which it should
+be: source and target get the same treatment, so the warp between them does not
+move.
+
+The mesh is also better conditioned than before any of this. Worst triangle
+area ratio between source and target on the blink frame: **2.31 before, 2.04
+after**, with the inside-out ones removed rather than merely reduced.
+
+**What it costs.** RTX 5070 Ti, i7-14700KF; 1817 frames of the recorded clip,
+the same clip both ways.
+
+| | before | after |
+|---|---|---|
+| mesh points | 119 | 139 |
+| triangles | 189 | 229 |
+| animate mean | 19.24 ms | **20.42 ms** |
+| animate p95 | 22.05 ms | **22.51 ms** |
+| animate p99 | 25.11 ms | 25.16 ms |
+
+Forty more triangles for 1.18 ms of mean and 0.46 ms of p95 — about 30 µs each,
+which matches the per-call-overhead model this warp was written around. The
+budget had roughly 2.5 ms of headroom and this spends about half of it. That is
+a real price and it is worth it for a defect on every blink, but it means the
+next mesh point is not free either.
+
+**What is still not right, and is not this.** At a 40° turn and at extremes of
+gaze the eye is poor in both versions — a dark spur off the iris rather than a
+wedge above it. That is item 13's known limit (an iris dragged through a mesh
+instead of translated as a rigid disc) meeting item 5's (no usable far-turn
+photographs). Neither was made worse; neither was fixed here.
 
 ## 14. Direct light and a camera in front of the face — the owner's finding
 
