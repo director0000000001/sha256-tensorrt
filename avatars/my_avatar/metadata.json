@@ -2,8 +2,8 @@
   "manifest_version": 1,
   "id": "my_avatar",
   "name": "My Avatar",
-  "version": "1.1.0",
-  "description": "The owner's avatar. Twenty sources of one identity, selected and blended per frame from tracked blendshapes and head pose. The two far-turn roles are deliberately absent: the photographs supplied for them measured 17-20 degrees, which is the angle the ordinary turn photographs already cover.",
+  "version": "1.2.0",
+  "description": "The owner's avatar. Twenty-two sources of one identity, selected and blended per frame from tracked blendshapes and head pose. The two far-turn roles were absent while the only photographs for them measured 17-20 degrees; they now come from a head-turn video clip at +35.0 and -31.7 degrees, chosen and named by the same selector the renderer uses, so they cannot be swapped the way the hand-named pair was.",
   "tags": [
     "owner"
   ],
@@ -102,6 +102,16 @@
     {
       "path": "portrait_turn_right.png",
       "role": "source_turn_right",
+      "optional": true
+    },
+    {
+      "path": "portrait_turn_left_far.png",
+      "role": "source_turn_left_far",
+      "optional": true
+    },
+    {
+      "path": "portrait_turn_right_far.png",
+      "role": "source_turn_right_far",
       "optional": true
     },
     {

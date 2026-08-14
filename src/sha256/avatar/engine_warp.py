@@ -582,6 +582,21 @@ class _Neutral:
         self._pose[name] = rest
         return value - rest
 
+    def copy(self) -> _Neutral:
+        """An independent resting face with the same estimates.
+
+        For measuring frames *against a fixed rest* rather than against a rest
+        that keeps learning. Live, the learning is the point — the person
+        settles into a new position and the avatar should follow. Offline, when
+        the question is "how much of a turn is this frame, compared with the
+        base portrait", every frame has to be asked from the same starting
+        point, or the answer depends on what order the frames arrived in.
+        """
+        made = _Neutral()
+        made._floors = dict(self._floors)
+        made._pose = dict(self._pose)
+        return made
+
 
 class _Region:
     """One part of the face, and the photographs allowed to change it.

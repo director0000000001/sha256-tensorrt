@@ -39,7 +39,7 @@ import numpy as np
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from sha256.avatar.engine_warp import _VARIANT_ROLES, _source_weights  # noqa: E402
+from sha256.avatar.engine_warp import _VARIANT_ROLES, _Neutral, _source_weights  # noqa: E402
 from sha256.core.enums import PixelFormat  # noqa: E402
 from sha256.core.types import FaceTrackingResult, FrameMetadata, VideoFrame  # noqa: E402
 from sha256.tracking.mediapipe_tracker import (  # noqa: E402
@@ -59,8 +59,32 @@ MIN_ROLE_SCORE = 0.45
 
 # Sharpness is the variance of the Laplacian over the face. It has no absolute
 # meaning across cameras, so the threshold is relative: a frame must reach this
-# fraction of the sharpest frame in its own clip.
+# fraction of the sharpest frame **at a similar head angle**.
 MIN_SHARPNESS_FRACTION = 0.55
+
+# How far either side, in degrees of yaw, to look for the frame this one is
+# judged against.
+#
+# Against the sharpest frame in the *whole* clip, a turn clip rejects itself
+# entirely. Measured on the owner's head-turn clip, median Laplacian variance
+# over the face:
+#
+#     |yaw| 0-8 degrees    179      <- held, still, and what the floor was set by
+#     |yaw| 8-20 degrees    10
+#     |yaw| 20-35 degrees    9
+#     |yaw| 35-90 degrees   19
+#
+# An eighteen-fold drop, and none of it is focus: those frames are sharp enough
+# to count individual beard hairs, confirmed by looking at them. Some of it is
+# that a turned face presents a smooth cheek where a frontal one presents two
+# eyes, two brows and a hairline; the rest is the video codec, which spends bits
+# on a static shot and starves a moving one. Either way it tracks the head
+# angle, so every frame the clip was made for scored a tenth of the floor and
+# all 135 of them were thrown away.
+#
+# Comparing a frame with frames at its own angle asks the question that was
+# meant: is this soft *for a shot like this one*.
+SHARPNESS_YAW_WINDOW = 7.0
 
 # How far a structural proportion may move from the base portrait before the
 # frame is treated as a different face. Matches the photo checker.
@@ -179,6 +203,25 @@ def read_candidates(
     return candidates, rejected
 
 
+def yaw_of(candidate: Candidate) -> float:
+    pose = candidate.tracking.head_pose
+    return float(pose.yaw) if pose is not None else 0.0
+
+
+def sharpness_floor(candidates: list[Candidate], candidate: Candidate) -> float:
+    """The best sharpness achieved at roughly this head angle.
+
+    See ``SHARPNESS_YAW_WINDOW``: measured against the whole clip's best, a clip
+    of a head turning rejects every frame of the turn, because the frames it is
+    compared with are the still frontal ones at the start.
+    """
+    here = yaw_of(candidate)
+    nearby = [
+        other.sharpness for other in candidates if abs(yaw_of(other) - here) <= SHARPNESS_YAW_WINDOW
+    ]
+    return max(nearby) if nearby else candidate.sharpness
+
+
 def usable(
     candidates: list[Candidate], min_face: float, rejected: dict[str, int]
 ) -> list[Candidate]:
@@ -186,11 +229,9 @@ def usable(
     if not candidates:
         return []
 
-    sharpest = max(c.sharpness for c in candidates)
-    floor = sharpest * MIN_SHARPNESS_FRACTION
-
     kept: list[Candidate] = []
     for candidate in candidates:
+        floor = sharpness_floor(candidates, candidate) * MIN_SHARPNESS_FRACTION
         if candidate.face_width < min_face:
             rejected["face too small"] = rejected.get("face too small", 0) + 1
         elif candidate.sharpness < floor:
@@ -225,16 +266,48 @@ def crop_around_face(candidate: Candidate) -> np.ndarray:
     return cropped
 
 
-def best_per_role(candidates: list[Candidate]) -> dict[str, tuple[Candidate, float]]:
+def resting_face(base: FaceTrackingResult) -> _Neutral:
+    """The resting face every frame of the clip is measured against.
+
+    **This is the whole classifier**, and getting it wrong silently costs the
+    clip. `_source_weights` measures expression and head pose *relative to
+    rest*, and given no rest it makes one from the frame in front of it — which
+    reads as "nothing is happening" for every frame, because the frame is its
+    own baseline. Every role driven by a blendshape or by head pose then scores
+    exactly zero, and only the two driven by the lip gap survive, because the
+    gap is measured off the landmarks directly.
+
+    That is why a clip of a man turning his head end to end reported **0 of 22**
+    roles, and why the speaking clip before it reported 2 — the two that do not
+    go through here.
+
+    The right baseline is the base portrait: it is the face every source is
+    registered against, and it does not move.
+    """
+    neutral = _Neutral()
+    # One pass seeds a floor for every blendshape and a rest for every pose
+    # angle that the selector reads.
+    _source_weights(base, neutral=neutral)
+    return neutral
+
+
+def best_per_role(
+    candidates: list[Candidate], neutral: _Neutral
+) -> dict[str, tuple[Candidate, float]]:
     """The clearest example of each role the clip contains.
 
     Ties on score are broken by sharpness. Two frames a fifth of a second apart
     show the same expression, and there is no reason to take the softer one.
+
+    Each frame gets its own copy of the resting face, so a frame is scored the
+    same whatever order the clip is read in. Sharing one would let it learn from
+    the clip — and a clip that is a held turn would teach it that a turned head
+    is how this person sits.
     """
     chosen: dict[str, tuple[Candidate, float]] = {}
 
     for candidate in candidates:
-        for role, score in _source_weights(candidate.tracking).items():
+        for role, score in _source_weights(candidate.tracking, neutral=neutral.copy()).items():
             if score < MIN_ROLE_SCORE:
                 continue
             current = chosen.get(role)
@@ -338,7 +411,7 @@ def main(argv: list[str] | None = None) -> int:
         f"max {max(widths):.0f} px"
     )
 
-    chosen = best_per_role(kept)
+    chosen = best_per_role(kept, resting_face(base))
     args.out.mkdir(parents=True, exist_ok=True)
 
     print(f"\n{'role':<26}{'frame':>7}{'score':>8}{'face px':>9}")

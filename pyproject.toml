@@ -147,6 +147,14 @@ module = ["pyvirtualcam.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+# `scripts/` is not part of the package and is not on mypy's path — the tests
+# that cover the extractor put it on `sys.path` themselves, at runtime. Checking
+# it here would apply the package's strict settings to standalone tools, which
+# is a separate decision from testing them.
+module = ["extract_avatar_frames"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 # Tests are checked, but not required to annotate every `def test_...() -> None`.
 # The value of strict typing is in the contracts; enforcing it on test bodies
 # is noise that discourages writing tests.
