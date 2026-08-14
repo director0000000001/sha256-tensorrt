@@ -76,6 +76,102 @@ blinking. Small, gentle head movements only.
 
 
 ================================================================================
+CLIP 1 — READY TO PASTE, WITH THE SPOKEN SCRIPT
+================================================================================
+
+  Three versions of the same clip. Each is complete: copy one, attach
+  portrait.png, send. Generate them in order — the first alone is worth more
+  than the other two together.
+
+  The words are not arbitrary. Each script is loaded with the sounds that make
+  distinct mouth shapes, so a few seconds of speech produces frames the engine
+  cannot otherwise get:
+
+     m / b / p   lips fully closed        "may", "before", "problem"
+     f / v       upper teeth on lip       "for", "five", "value"
+     oo / oh     lips rounded forward     "you", "move", "show", "so"
+     ee / ay     lips wide, teeth close   "team", "each", "need"
+     aah         jaw open, teeth visible  "ask", "start", "large"
+     s / sh / ch what the teeth look like "sure", "show", "much"
+
+  He should sound like a sales manager on a first call: friendly, unhurried,
+  confident. Slow delivery matters more than a natural pace — every frame taken
+  mid-movement is blurred and wasted.
+
+--------------------------------------------------------------------------------
+VERSION A — the introduction
+--------------------------------------------------------------------------------
+The person in the attached photograph is a sales manager speaking directly to
+the camera on a video call. He holds exactly the pose he has in the photograph
+throughout: facing the camera straight on, head level and centred, shoulders
+square, as in an identity document photograph. He speaks warmly and unhurriedly,
+articulating every word clearly, with only small natural head movements and
+natural blinking. His eyes stay on the camera lens the entire time.
+
+He says: "Hi, thanks for making the time. Before we begin, let me show you what
+my team has built, and why it may matter for your business."
+
+Static locked-off camera at eye level, no camera movement, no zoom, no pan, no
+cuts, one continuous take. Close-up head-and-shoulders framing with the face
+filling most of the frame, centred, the whole head visible with a small margin
+above the hair. Soft even frontal lighting that never changes. Plain uncluttered
+light grey background. Photorealistic, sharp focus on the face, natural skin
+texture, no film grain, no colour grading, no vignette, no depth-of-field blur
+on the face. The person keeps exactly the identity, hairstyle, facial hair,
+clothing and skin tone of the attached photograph. Hands stay out of frame and
+nothing ever covers the face. No on-screen text, captions or subtitles. All
+movements are slow and deliberate.
+
+--------------------------------------------------------------------------------
+VERSION B — the offer
+--------------------------------------------------------------------------------
+The person in the attached photograph is a sales manager speaking directly to
+the camera on a video call. He holds exactly the pose he has in the photograph
+throughout: facing the camera straight on, head level and centred, shoulders
+square, as in an identity document photograph. He speaks warmly and unhurriedly,
+articulating every word clearly, with only small natural head movements and
+natural blinking. His eyes stay on the camera lens the entire time.
+
+He says: "Ask me anything you want. We can move as fast or as slow as you
+choose, and I am happy to walk you through the whole thing myself."
+
+Static locked-off camera at eye level, no camera movement, no zoom, no pan, no
+cuts, one continuous take. Close-up head-and-shoulders framing with the face
+filling most of the frame, centred, the whole head visible with a small margin
+above the hair. Soft even frontal lighting that never changes. Plain uncluttered
+light grey background. Photorealistic, sharp focus on the face, natural skin
+texture, no film grain, no colour grading, no vignette, no depth-of-field blur
+on the face. The person keeps exactly the identity, hairstyle, facial hair,
+clothing and skin tone of the attached photograph. Hands stay out of frame and
+nothing ever covers the face. No on-screen text, captions or subtitles. All
+movements are slow and deliberate.
+
+--------------------------------------------------------------------------------
+VERSION C — the close, with a smile
+--------------------------------------------------------------------------------
+The person in the attached photograph is a sales manager speaking directly to
+the camera on a video call. He holds exactly the pose he has in the photograph
+throughout: facing the camera straight on, head level and centred, shoulders
+square, as in an identity document photograph. He speaks warmly and unhurriedly,
+articulating every word clearly. He smiles openly at the beginning and again at
+the end, showing his teeth, and his eyes stay on the camera lens the entire time.
+
+He says: "So, if this looks useful, we should book a proper demo. Five minutes
+of your time, and you will see the whole thing for yourself."
+
+Static locked-off camera at eye level, no camera movement, no zoom, no pan, no
+cuts, one continuous take. Close-up head-and-shoulders framing with the face
+filling most of the frame, centred, the whole head visible with a small margin
+above the hair. Soft even frontal lighting that never changes. Plain uncluttered
+light grey background. Photorealistic, sharp focus on the face, natural skin
+texture, no film grain, no colour grading, no vignette, no depth-of-field blur
+on the face. The person keeps exactly the identity, hairstyle, facial hair,
+clothing and skin tone of the attached photograph. Hands stay out of frame and
+nothing ever covers the face. No on-screen text, captions or subtitles. All
+movements are slow and deliberate.
+
+
+================================================================================
 CLIP 2 — SMILES AND LAUGHTER
 ================================================================================
 
