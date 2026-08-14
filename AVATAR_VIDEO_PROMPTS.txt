@@ -1,0 +1,185 @@
+================================================================================
+AVATAR VIDEO PROMPTS — for Google Veo 3.1, image-to-video
+================================================================================
+
+WHY VIDEO INSTEAD OF MORE STILLS
+
+  One clip gives hundreds of frames of the same face under the same light, with
+  the same framing. That is worth more than any number of separately generated
+  stills, because the thing that ruins a still set is identity drift between
+  them — and within one clip there is none.
+
+  It also unlocks the change queued in PROJECT_STATUS: with dense coverage the
+  engine can stop *blending* sources and start *selecting the nearest* one,
+  which removes cross-fade ghosting by construction.
+
+
+BEFORE GENERATING ANYTHING — three things to confirm on the plan being paid for
+
+  1. IMAGE-TO-VIDEO from the attached portrait.png. Text-only generation makes a
+     different person and every photograph, threshold and mask already tuned to
+     this face becomes worthless.
+  2. NO VISIBLE WATERMARK at this tier. Not "removable" — absent. A mark across
+     the face makes a frame useless, and removing one is a licence breach in
+     exactly the commercial case this is for.
+  3. COMMERCIAL USE, output owned by you.
+
+  These are from the checklist in docs/development/PROJECT_STATUS.md. The first
+  is the one most likely to be missed and the most expensive to get wrong.
+
+
+WHAT MATTERS IN THE OUTPUT
+
+  - The face LARGE in frame. Frames are cut from this; the current portrait is
+    1024x1024 and a small face in a wide shot is a downgrade.
+  - SLOW, DELIBERATE movement. A frame taken during a fast movement is motion
+    blurred and useless. Every prompt below asks for unhurried motion and brief
+    holds — that is deliberate, not decoration.
+  - LOCKED CAMERA. Any camera move changes the framing between frames.
+  - CONSTANT LIGHT. The engine relights the avatar to the room; a source that
+    changes brightness mid-clip poisons that.
+  - ONE CONTINUOUS TAKE. No cuts.
+
+  Attach portrait.png to every one of these.
+
+
+================================================================================
+THE SHARED BLOCK — put this at the end of EVERY prompt below
+================================================================================
+
+Static locked-off camera at eye level, no camera movement, no zoom, no pan, no
+cuts, one continuous take. Close-up head-and-shoulders framing with the face
+filling most of the frame, centred, the whole head visible with a small margin
+above the hair. Soft even frontal lighting that never changes. Plain uncluttered
+light grey background. Photorealistic, sharp focus on the face, natural skin
+texture, no film grain, no colour grading, no vignette, no depth-of-field blur
+on the face. The person keeps exactly the identity, hairstyle, facial hair,
+clothing and skin tone of the attached photograph. Hands stay out of frame and
+nothing ever covers the face. No on-screen text, captions or subtitles. All
+movements are slow and deliberate, with each expression held briefly before
+changing.
+
+
+================================================================================
+CLIP 1 — SPEECH  (the most valuable one; generate this first)
+================================================================================
+
+The person in the attached photograph is speaking directly to the camera in a
+calm, friendly conversation, as if on a video call. They talk continuously at an
+unhurried pace, articulating clearly, so the mouth passes through the full range
+of natural speech shapes — wide open vowels, rounded lips, closed consonants,
+teeth showing and hidden. They pause briefly between sentences with the mouth
+closed and relaxed. Their eyes stay on the camera lens throughout, with natural
+blinking. Small, gentle head movements only.
+
+[+ shared block]
+
+
+================================================================================
+CLIP 2 — SMILES AND LAUGHTER
+================================================================================
+
+The person in the attached photograph looks at the camera and moves slowly
+through a range of positive expressions: first a neutral relaxed face, then a
+gentle closed-mouth smile, then a warm open smile showing the teeth, then a
+genuine laugh with the mouth open and the eyes narrowing, then settling back to
+a soft smile and finally to neutral. Each expression is held for about a second
+before changing. Their eyes stay on the camera lens throughout.
+
+[+ shared block]
+
+
+================================================================================
+CLIP 3 — BROWS AND EYES
+================================================================================
+
+The person in the attached photograph looks at the camera with a neutral face
+and moves slowly through a range of expressions using the eyes and brows only,
+with the mouth closed: eyebrows raised high in surprise, then relaxed, then
+drawn down and together in a frown of concentration, then relaxed, then eyes
+opened wide in alertness, then narrowed in a squint, then relaxed, then both
+eyes closed gently for a moment, then open again. Each is held for about a
+second. The head stays still and facing the camera.
+
+[+ shared block]
+
+
+================================================================================
+CLIP 4 — HEAD TURNS
+================================================================================
+
+The person in the attached photograph keeps a neutral expression with the mouth
+closed and turns their head very slowly and smoothly from side to side: from
+facing the camera, gradually to one side until they are almost in profile, then
+slowly back through centre, then gradually to the other side until almost in
+profile, then slowly back to centre. The movement is continuous and unhurried,
+taking several seconds in each direction, with a brief pause at each extreme and
+at centre. Their eyes stay on the camera lens the whole time, so the head turns
+but the gaze does not. The head stays upright with no tilt.
+
+[+ shared block]
+
+
+================================================================================
+CLIP 5 — HEAD TILTS AND GAZE
+================================================================================
+
+The person in the attached photograph keeps a neutral expression with the mouth
+closed. First they slowly raise their chin and tilt the head back, hold, and
+return to level; then slowly lower the chin and tilt the head forward, hold, and
+return to level. Then, keeping the head still and level and facing the camera,
+they move only their eyes: looking slowly to one side, back to the lens, to the
+other side, back to the lens, upward, back, downward, and back to the lens. Each
+position is held for about a second.
+
+[+ shared block]
+
+
+================================================================================
+CLIP 6 — MOUTH SHAPES
+================================================================================
+
+The person in the attached photograph looks at the camera and slowly forms a
+series of distinct mouth shapes, holding each for about a second and returning
+briefly to a closed relaxed mouth between them: lips pressed firmly together as
+in "m", lips rounded and pushed forward as in "oo", lips stretched wide and flat
+with the teeth close together as in "ee", the jaw dropped wide open as in "aah"
+with the teeth and the dark interior of the mouth visible, the upper teeth
+resting on the lower lip as in "f", and finally the corners of the mouth pulled
+down in a frown. The head stays still and facing the camera, eyes on the lens.
+
+[+ shared block]
+
+
+================================================================================
+IF ONLY ONE CLIP IS POSSIBLE
+================================================================================
+
+Generate CLIP 1. Natural speech alone passes through most of the mouth shapes,
+blinks, and small head movements, and it is the case the avatar spends almost
+all of its time in on a real call.
+
+If two: add CLIP 4. Head rotation is the one thing stills have consistently
+failed to cover well, and it is what breaks first when someone turns to look at
+a second monitor.
+
+
+================================================================================
+WHEN THE CLIPS ARRIVE
+================================================================================
+
+Do not sort frames by hand. The plan already recorded in PROJECT_STATUS is:
+
+  1. extract frames from the video;
+  2. run every one through scripts/check_avatar_photos.py, which measures
+     identity, framing, lighting and pose, so a clip where the face drifted is
+     caught rather than trusted;
+  3. classify each usable frame by its own blendshapes and head pose — the same
+     measurements the engine already uses to choose a source;
+  4. switch the engine from blending sources to selecting the nearest.
+
+  Step 4 is the reason the video is worth generating. It needs dense coverage,
+  which is exactly what a clip gives and a set of stills never will.
+
+  Keep the original video files. Frames can always be re-extracted; a clip that
+  has been deleted has to be paid for again.
