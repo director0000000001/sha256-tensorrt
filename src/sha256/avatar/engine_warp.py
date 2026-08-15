@@ -530,11 +530,16 @@ _INNER_LIP_SLICE = slice(
     + len(_INNER_LIPS),
 )
 
-# The features that stand outside the face oval once the head turns, and so
-# have to be added to the mask by hand or they are never replaced. See
-# :func:`_destination_mask` — this is the difference between an avatar and the
-# user's own nose on screen.
-_PROFILE_POSITIONS = _positions(_NOSE, _OUTER_LIPS)
+# Everything the face oval stops covering once the head turns, which is one
+# whole side of it. See :func:`_destination_mask` — this is the difference
+# between an avatar and the user's own eye on screen.
+#
+# Counted at 39 degrees of yaw, live landmarks falling outside the mask: 16 of
+# 32 eye points, 6 of 12 brow points, 5 of 10 iris points, 6 of 11 nose points,
+# 4 of 8 cheek points. Half of each — the far half. Not a rim: a face.
+_PROFILE_POSITIONS = _positions(
+    _LEFT_BROW, _RIGHT_BROW, _LEFT_EYE, _RIGHT_EYE, _NOSE, _OUTER_LIPS, _CHEEKS
+)
 
 # The inner lip's upper arc, corner to corner. The mouth interior is placed
 # from these and not from the whole ring, because **the upper teeth hang from
@@ -2921,13 +2926,20 @@ def _destination_mask(points: np.ndarray, width: int, height: int) -> np.ndarray
 
     outline = np.zeros((height, width), dtype=np.uint8)
     cv2.fillPoly(outline, [_trim_forehead(points).astype(np.int32)], 255)
-    cv2.fillConvexPoly(outline, cv2.convexHull(points[_PROFILE_POSITIONS].astype(np.int32)), 255)
 
     face_width = max(float(points[:, 0].max() - points[:, 0].min()), 1.0)
     shrink = max(1, int(face_width * _MASK_SHRINK))
     feather = max(3, int(face_width * _MASK_FEATHER) | 1)
 
     trimmed = cv2.erode(outline, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (shrink, shrink)))
+
+    # The features go on **after** the erosion, at full strength. The erosion
+    # exists to pull the outer boundary inside the real face so the blend
+    # happens over skin on both sides; these are not a boundary, they are the
+    # middle of the face, and eroding them would leave a rim of somebody's real
+    # eye showing. Only the feather crosses them.
+    cv2.fillConvexPoly(trimmed, cv2.convexHull(points[_PROFILE_POSITIONS].astype(np.int32)), 255)
+
     softened = cv2.GaussianBlur(trimmed, (feather, feather), 0)
     mask: np.ndarray = (softened.astype(np.float32) / 255.0)[:, :, None]
     return mask

@@ -1294,31 +1294,64 @@ never replaced.
 Rendered with the mask outlined, the gap is unmistakable — the whole nose and
 mouth sit outside the green line.
 
+### Measured rather than eyeballed, after the first attempt failed
+
+The first fix added the nose and the lips, and the owner tested it: *"still
+there, almost the same. When I turn left, slowly my left eye and part of my face
+appear; turning further, the nose too."*
+
+So it was counted instead. Every landmark is a point on the user's real face, so
+any of them outside the mask is a piece of that face on screen. At 39° of yaw,
+before any of this:
+
+| group | outside the mask | weakest coverage |
+|---|---|---|
+| eyes | **16 of 32** | 0.00 |
+| brows | **6 of 12** | 0.00 |
+| irises | **5 of 10** | 0.00 |
+| nose | 6 of 11 | 0.02 |
+| cheeks | 4 of 8 | 0.12 |
+| lips | 7 of 32 | 0.02 |
+
+Half of each group, and always the same half: **the far side of the face is
+outside the mask entirely**. Not a rim — a face. The owner's "part of my face"
+was one whole side of it, and their eye at zero coverage.
+
 ### Fixed
 
-The hull of the nose and the outer lips is added to the mask. Their hull rather
-than their outline, and only theirs: a blob over the middle of the face cannot
-bridge to an ear or to the background, which is the whole reason the outline
-rule exists.
+The convex hull of the brows, eyes, nose, lips and cheeks is added to the mask.
+Their hull rather than their outline, and only theirs: a blob over the middle of
+the face cannot bridge to an ear or to the background, which is the whole reason
+the outline rule exists.
 
-Measured over the recorded clip:
+It goes on **after** the erosion, at full strength. The erosion pulls the outer
+boundary inside the real face so the blend happens over skin on both sides;
+these are not a boundary but the middle of the face, and eroding them would
+leave a rim of a real eye showing. Only the feather crosses them.
+
+| group | outside before | after |
+|---|---|---|
+| eyes | 16 of 32, at 0.00 | **0 of 32, weakest 1.00** |
+| irises | 5 of 10, at 0.00 | **0 of 10, weakest 1.00** |
+| brows | 6 of 12, at 0.00 | 2 of 12, weakest 0.38 |
+| nose | 6 of 11, at 0.02 | 1 of 11, weakest 0.41 |
+| cheeks | 4 of 8, at 0.12 | 1 of 8, weakest 0.34 |
 
 | frame | yaw | mask area before | after | |
 |---|---|---|---|---|
-| 960 | −0.7° | 92331 | 92331 | **0.0%** |
-| 1442 | −2.1° | 92881 | 92881 | **0.0%** |
-| 1533 | −1.9° | 102480 | 102480 | **0.0%** |
-| 1846 | +39.3° | 65236 | 72094 | **+10.5%** |
+| 300 | +0.4° | 93357 | 93462 | **+0.1%** |
+| 960 | −0.7° | 92331 | 92440 | **+0.1%** |
+| 1442 | −2.1° | 92881 | 92983 | **+0.1%** |
+| 1533 | −1.9° | 102480 | 102598 | **+0.1%** |
+| 1846 | +39.3° | 65236 | 75921 | **+16.4%** |
 
-Frontal it changes nothing at all — the nose and lips are wholly inside the oval
-— and at a turn it covers a tenth more of the face, which is precisely the part
-that was the user's own.
+Frontal it is the same mask to a tenth of a percent. At a turn it covers a sixth
+more of the face, and what it covers is an eye.
 
-**Not fully closed by this.** The mask is still eroded by 4% of face width so
-the blend happens over skin on both sides, so a thin rim of the real silhouette
-remains at any angle. That rim is the edge of a cheek rather than a nose, and it
-is what the erosion is for; if the owner still sees themselves at the edge, the
-next step is to erode less at high yaw rather than to abandon the erosion.
+**What remains.** The points still outside are the outermost ones — the end of a
+brow, a mouth corner — and they sit at 0.34-0.41 rather than at zero, which is
+the feather rather than a hole. The oval's own points are outside by
+construction: the oval *is* the boundary, and it is eroded on purpose.
 
 ### And the mouth interior is anchored to the upper lip now
 

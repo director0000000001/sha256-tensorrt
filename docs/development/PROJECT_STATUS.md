@@ -212,13 +212,21 @@ photographs, and `source_mouth_o` is active on 84% of the recording.
 
 *"When I turn my head, the face is lost and my own face appears, half of it."*
 
-At 39° of yaw **their real nose, lips and chin were on screen**. The mask is the
-face oval filled as a polygon, and a face oval is a ring of anatomical points
-around the head — turned far enough, the nose and lips stand *outside* that ring
-in the picture, so they were never replaced. The hull of the nose and outer lips
-is added to the mask now: frontal it changes nothing (0.0% on three frames),
-at 39° it covers 10.5% more of the face, which is exactly the part that was
-theirs. Backlog 23.
+The mask is the face oval filled as a polygon, and a face oval is a ring of
+anatomical points around the head — turned far enough, the far side of it folds
+in behind the features, and everything in front is never replaced.
+
+The first attempt added the nose and lips and the owner tested it: *"still
+there, almost the same — my left eye appears, then the nose."* So it was counted
+instead of eyeballed. At 39° of yaw, **16 of 32 eye landmarks, 5 of 10 iris
+landmarks and 6 of 12 brow landmarks were outside the mask at zero coverage** —
+half of each group, always the far half. Their whole far side was their own
+face, eye included.
+
+The hull of the brows, eyes, nose, lips and cheeks is added now, after the
+erosion rather than before it, and the eyes and irises come out fully covered
+(0 outside, weakest 1.00). Frontal the mask is the same to a tenth of a percent;
+at 39° it covers 16.4% more. Backlog 23.
 
 The same test gave a second one — *"when the teeth show, the lips are lost"* —
 and it was the interior being fitted to the whole lip ring, so the teeth scaled
