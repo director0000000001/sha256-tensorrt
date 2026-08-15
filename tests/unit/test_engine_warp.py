@@ -576,23 +576,35 @@ class TestSourceSelection:
         assert weights["source_eyes_closed"] > 0.9
         assert weights.get("source_squint", 0.0) < 0.05
 
-    def test_a_narrowed_eye_still_squints(self):
-        """The other half: closure yields the axis only while it is happening.
+    def test_ordinary_lid_movement_asks_for_no_eye_photograph(self):
+        """The one that had survived five rounds of looking at single frames.
 
-        Driven by the lids, not by ``eyeSquint``, which reads *highest* on a
-        shut eye — 0.89 held closed against 0.07 held wide open, measured. It
-        is a second closure signal wearing a different expression's name.
+        A glance aside narrows the lids by up to 47% of their opening with no
+        blink involved. Measured over the owner's whole recording, an eye
+        photograph was active on **41% of frames** while they were only talking
+        — a quarter of a squint worn through most of a conversation. No frame of
+        that looks broken, which is why every still render passed.
         """
-        weights = weights_from_rest(expressive_tracking(blink=(0.30, 0.30)))
+        for narrowing in (0.15, 0.30, 0.45):
+            weights = weights_from_rest(expressive_tracking(blink=(narrowing, narrowing)))
 
-        assert weights["source_squint"] > 0.5
-        assert weights.get("source_eyes_closed", 0.0) == 0.0
+            assert not [
+                role
+                for role, weight in weights.items()
+                if role.startswith(("source_eyes", "source_squint")) and weight > 0.01
+            ], f"a lid {narrowing:.0%} narrowed asked for {sorted(weights)}"
 
-    def test_the_two_hand_over_rather_than_switch(self):
-        """Between a squint and a blink there is no line, so there is no step."""
-        narrowed = weights_from_rest(expressive_tracking(blink=(0.45, 0.45)))
+    def test_the_squint_photograph_is_not_used_at_all(self):
+        """A partial closure cannot be told from ordinary lid movement.
 
-        assert 0.0 < narrowed["source_eyes_closed"] < narrowed["source_squint"]
+        Ordinary life reaches 0.47 of the eye's opening and a blink reaches
+        0.65, so a squint band either fires constantly or never. What would
+        separate it is the *lower* lid, which a squint raises and a blink does
+        not — available in the mesh, and not written yet.
+        """
+        for narrowing in (0.2, 0.4, 0.6, 0.9):
+            weights = weights_from_rest(expressive_tracking(blink=(narrowing, narrowing)))
+            assert "source_squint" not in weights
 
     def test_a_wide_eye_asks_for_the_wide_photograph(self):
         """``eyeWide`` never rises above 0.13 on eyes visibly at their widest,

@@ -188,13 +188,18 @@ _SMILE_REFERENCE = 0.54
 # for a held closure**; the lids read 0.65 for both, because the lids are shut
 # either way. That is the whole reason this signal moved to geometry.
 #
-# The fourth row sets the floor. A gaze to the side genuinely narrows the lid
-# opening, and reaches 0.47 on a segment with no blink in it at all, so the band
-# has to start above where an open eye wanders and still reach full inside a
-# real closure. There is no setting that separates them perfectly; this one
-# leaves a hard glance at about a quarter of the closed-eye photograph and a
-# blink at all of it.
-_CLOSE_START, _CLOSE_FULL = 0.30, 0.65
+# The fourth row sets the floor, and it is higher than it looks. A gaze to the
+# side genuinely narrows the lids, and reaches 0.47 on a segment with no blink
+# in it at all. Starting below that put a closed-eye photograph on the avatar
+# through ordinary talking — measured over the whole recording, the eye
+# photographs were active on 41% of frames, on a face that was doing nothing but
+# speak. No single frame of that looks broken, which is exactly why it survived
+# five rounds of looking at single frames.
+#
+# So the band starts above where ordinary life reaches and still closes fully
+# inside a real blink. There is very little room between the two, and that is a
+# fact about the signal rather than a choice.
+_CLOSE_START, _CLOSE_FULL = 0.48, 0.66
 
 # The same lid opening, read the other two ways. Measured on the clip generated
 # to hold each expression in turn, as a fraction of the eye's own resting
@@ -205,10 +210,9 @@ _CLOSE_START, _CLOSE_FULL = 0.30, 0.65
 #     eyes held shut         -0.63 to -0.71
 #
 # Wide starts above where a resting eye wanders and reaches full inside a real
-# one. Narrowing shares the closure signal, since a squint is a closure that
-# stopped early, and gives way as a real closure takes over.
+# one. There is no squint band: see `_source_weights` for why a partial closure
+# cannot be told from ordinary lid movement, and what would tell it.
 _WIDE_START, _WIDE_FULL = 0.20, 0.45
-_SQUINT_START, _SQUINT_FULL = 0.15, 0.40
 
 # The camera is **never** passed through once an avatar has been placed on a
 # face. Tracking drops out constantly, and every dropout used to show the user's
@@ -451,8 +455,15 @@ _FOREHEAD_REACH = 0.85
 #
 # Only the lowest quarter is moved, and by half again, so the extension tapers
 # into the jawline instead of stepping away from it.
+#
+# **Reverted to no extension, 2026-08-15, on the owner's judgement.** They ran
+# it and said the old behaviour — their own jaw showing below the avatar's — was
+# better. That is worth recording rather than arguing with: an avatar chin
+# stretched over a neck it does not belong to is a wrong shape, and a wrong
+# shape reads worse than an honest edge. The mechanism stays here because it is
+# correct for a face whose jaw the avatar's own actually fits.
 _JAW_REACH = 0.25
-_JAW_REACH_SCALE = 1.5
+_JAW_REACH_SCALE = 1.0
 
 # Low-frequency relighting: the correction field is computed at 1/8 scale and
 # blurred there. Lighting varies slowly across a face by definition, so the
@@ -1870,10 +1881,28 @@ def _source_weights(
         # of a different expression, which is why it was taking half of every
         # blink.
         #
-        # Closure still takes precedence over narrowing — they are the same
-        # movement at different depths, and only one photograph can be right.
         weights["source_eyes_wide"] = band(opened, _WIDE_START, _WIDE_FULL)
-        weights["source_squint"] = band(shut, _SQUINT_START, _SQUINT_FULL) * (1.0 - closed)
+
+        # **The squint photograph is deliberately not used**, and this is the
+        # second family to be dropped after the four gaze photographs.
+        #
+        # A squint is a partial closure, and partial closure is what an eye does
+        # all day: glancing aside, speaking, small head movements. Measured over
+        # the owner's whole recording, a squint band anywhere below a blink was
+        # active on **41% of frames** — the avatar wore a quarter of a squint
+        # through most of a conversation, on a face that was only talking. That
+        # is invisible in any single frame and wrong in all of them, which is
+        # how it survived every previous round of looking at stills.
+        #
+        # There is no threshold that separates it. Ordinary lid movement reaches
+        # 0.47 of the eye's opening and a blink reaches 0.65, so a squint band
+        # either fires constantly or never fires at all.
+        #
+        # What would separate it is a different measurement: a squint raises the
+        # **lower** lid and tightens the cheek, where a blink lowers the upper
+        # one. Both lids are in the mesh, so that is available — it is simply not
+        # written yet, and a photograph used wrongly half the time is worse than
+        # a photograph not used.
         weights["source_frown"] = expression("mouthFrownLeft", "mouthFrownRight")
         weights["source_mouth_pressed"] = expression("mouthPressLeft", "mouthPressRight")
 
