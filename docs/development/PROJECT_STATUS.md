@@ -51,6 +51,47 @@ before and after every change. Several times today the owner was told a defect
 was found and still saw the same thing. A measure they can watch is worth more
 than another assurance.
 
+### Next session, in this order
+
+1. **The turn sources are torn in half.** `recordings/turn-sources-broken.png`
+   shows what the engine actually holds: a vertical seam down the face, a
+   doubled eye and brow, the mouth smeared sideways. Every ladder rung looks
+   like this, and at any yaw past a few degrees one of them is applied at full
+   weight. It is the owner's "a slight turn nearly loses the face", their "two
+   photographs on top of each other", and their "only good at five to ten
+   degrees" — all three, one cause.
+
+   **Why:** a 35°-turned face is mesh-warped onto the *frontal* base layout.
+   That is not a correction at that angle, it is a fold. The fix is the one
+   item 11 already made for expression photographs — place turned frames by
+   similarity transform so they keep their own geometry, and let the ladder
+   carry its landmarks into `blend_points` the way the regions do, so the live
+   warp runs from a turned mesh to a turned face and is nearly an identity.
+
+2. **A repeatable quality measure**, before anything else changes. One clip,
+   fixed frames, one number, so "better" stops being a matter of opinion.
+
+3. **The brows over-fire.** The owner: raising them reads as *"crazily
+   overjoyed"*. Same family as the squint — measure how often the brow
+   photographs are active across the recording before touching a threshold.
+
+4. **Which photographs are used at all.** The owner's observation, and it is
+   sharp: the library holds 50+ images and perhaps five ever appear. Count the
+   frames each role is active over the whole recording. `source_eyes_wide`
+   managed 29 of 1847; the four gaze photographs and the squint are switched
+   off entirely. That table says where the material is being wasted.
+
+5. **Re-run every clip through the fixed extractor.** Three of its filters were
+   wrong until today — the resting baseline, the blur floor, and the
+   interference penalty — so the speaking clip that yielded 2 roles and the
+   first 4K clip should both be reprocessed.
+
+6. **20 fps.** Stages measured: animate 20.0 ms, tracking 6.9, virtual camera
+   1.8, render 0.3 — about 29 ms, or 34 fps. The owner sees 20. The missing
+   ~21 ms is in what has never been measured: the virtual camera *with a
+   consumer attached*, and the Qt preview, which converts a 720p frame in Python
+   and therefore takes the GIL from the pipeline thread.
+
 ---
 
 ## Day 8
