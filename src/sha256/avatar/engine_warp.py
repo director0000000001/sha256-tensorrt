@@ -795,10 +795,10 @@ class _LoadedAvatar:
         "correction",
         "descriptor",
         "full_gap",
+        "gaps",
         "image",
+        "interior_role",
         "ladder",
-        "mouth_carry",
-        "mouth_mask",
         "neutral",
         "points",
         "regions",
@@ -818,8 +818,21 @@ class _LoadedAvatar:
         full_gap: float = _LIP_GAP_FULL,
         source_points: dict[str, np.ndarray] | None = None,
         ladder: tuple[tuple[float, str | None], ...] = (),
+        gaps: dict[str, float] | None = None,
     ) -> None:
         self.full_gap = full_gap
+
+        # How far apart each photograph's own lips are. It is what says which
+        # photographs have an *interior* — teeth, a tongue — to give, and a
+        # measurement rather than a list: the owner's set separates cleanly at
+        # a fifth of the way open, with three photographs above it and four
+        # below.
+        self.gaps = gaps if gaps is not None else {}
+
+        # Which photograph the mouth interior is being taken from this frame,
+        # or ``None`` for "no photograph has one". Never an average of several —
+        # see :func:`_paint_mouth_interior`.
+        self.interior_role: str | None = None
 
         # The turn ladder: photographs of this face at measured angles, sorted
         # by yaw, with ``None`` marking the base portrait's own rung at zero.
@@ -837,22 +850,18 @@ class _LoadedAvatar:
         self.source_points = source_points if source_points is not None else {}
 
         # The mesh describing the current blend. Recomputed with it, so the two
-        # are always a description of the same face.
+        # are always a description of the same face. Everything that has to know
+        # where the blend's features actually are — the live warp, the mouth
+        # interior — reads it rather than the portrait's own landmarks.
         self.blend_points = points
 
-        # How to carry something in the base portrait's frame onto the head the
-        # blend is currently wearing. ``None`` while the head is the base's own,
-        # which is most frames and costs nothing. See :func:`_blend_sources`.
-        self.mouth_carry: np.ndarray | None = None
-
-        # Which pixels of the photograph are *inside* its mouth, and what colour
-        # that cavity is. Both are needed when the user opens wider than the
-        # photograph did — see _paint_mouth_interior.
-        self.mouth_mask, self.cavity = _mouth_interior(image, points)
+        # What colour the back of this mouth is, for the parts of an opening no
+        # photograph reaches — see _paint_mouth_interior.
+        self.cavity = _cavity_colour(image, points)
 
         # Where each group of photographs is allowed to act, with their pixels
         # already cropped to it.
-        self.regions = _build_regions(image, points, sources)
+        self.regions = _build_regions(image, points, sources, self.source_points)
 
         # The most recent blend and the weights that produced it.
         self.cached_weights: dict[str, int] = {}
@@ -953,7 +962,7 @@ class WarpAvatarEngine:
         full_gap = gaps.get(_OPENING_REFERENCE_ROLE, _LIP_GAP_FULL)
 
         self._loaded[descriptor.id] = _LoadedAvatar(
-            descriptor, image, points, triangles, sources, full_gap, source_points, ladder
+            descriptor, image, points, triangles, sources, full_gap, source_points, ladder, gaps
         )
         _LOG.info(
             "Loaded avatar %s: %dx%d portrait, %d mesh points, %d triangles, "
@@ -1421,12 +1430,12 @@ def _warp_onto(
     return output
 
 
-def _mouth_interior(image: np.ndarray, points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """The photograph's own mouth opening: which pixels, and their mean colour.
+def _cavity_colour(image: np.ndarray, points: np.ndarray) -> np.ndarray:
+    """The colour of the back of this mouth, from the portrait's own opening.
 
-    The colour stands in for cavity depth when the user opens wider than the
-    photograph did, which is most of the time — no still photograph is taken
-    mid-yawn.
+    It stands in for cavity depth where no photograph reaches — the corners of
+    a wide opening, and every frame of an avatar whose photographs all have
+    their lips together.
     """
     import cv2
 
@@ -1435,7 +1444,7 @@ def _mouth_interior(image: np.ndarray, points: np.ndarray) -> tuple[np.ndarray, 
 
     inside = mask > 0
     if not bool(inside.any()):
-        return mask, np.zeros(3, dtype=np.float32)
+        return np.zeros(3, dtype=np.float32)
 
     # The darker half of the opening: teeth are the bright part and would make
     # a poor stand-in for the back of a throat.
@@ -1443,7 +1452,7 @@ def _mouth_interior(image: np.ndarray, points: np.ndarray) -> tuple[np.ndarray, 
     luminance = pixels.mean(axis=1)
     darker = pixels[luminance <= float(np.median(luminance))]
     cavity: np.ndarray = darker.mean(axis=0) if len(darker) else pixels.mean(axis=0)
-    return mask, cavity
+    return cavity
 
 
 def _paint_mouth_interior(
@@ -1456,21 +1465,47 @@ def _paint_mouth_interior(
     by a single similarity transform fitted to the lip landmarks, so the teeth
     arrive at the right size and stay one object.
 
-    **Only the photograph's own mouth interior is copied.** Placing the whole
-    image and trusting the fit put the photograph's *lips* inside the live
-    opening whenever the user opened wider than the photograph did — a second,
-    smaller mouth inside the first, which is what the owner saw. Anything the
-    photograph cannot cover is filled with the cavity colour, so opening wider
-    reveals more darkness. That is also what it does in life: the teeth stay the
-    size they are.
+    **Only the blend's own mouth interior is copied.** Placing the whole image
+    and trusting the fit put the photograph's *lips* inside the live opening
+    whenever the user opened wider than the photograph did — a second, smaller
+    mouth inside the first, which is what the owner saw. Anything no photograph
+    covers is filled with the cavity colour instead.
+
+    **Which pixels those are is asked of the mesh, not of the portrait**, and
+    getting that wrong is what emptied the mouth. The interior used to be a mask
+    cut from the *base portrait* at load, and the base portrait has its lips
+    together — a sliver a few pixels tall. So however wide the blend's mouth
+    was, only that sliver was ever copied and the rest of the opening stayed
+    flat cavity colour: no teeth on a smile, and neither teeth nor tongue on a
+    wide open mouth, which is exactly what the owner reported seeing.
+
+    **And it comes from one photograph rather than from the blend**, which is
+    the difference between teeth and a ghost of them. The lips may cross-fade;
+    what is behind them may not, because the photographs disagree about it — at
+    the owner's widest smile the mouth was 43% a photograph with teeth and 57%
+    three with their lips together, and 43% of a tooth is a translucent one.
+    `_blend_sources` names the photograph, the most-parted one active this
+    frame, and this places it whole. Its own inner lips are both the fit and the
+    limit of what is copied, so the teeth arrive opaque and no lip ever does.
+
+    With no such photograph in play the blend itself is used, which for a face
+    with its lips together is a sliver and leaves the opening as cavity — the
+    same answer as before, by the same route.
     """
     import cv2
 
-    # From the blended mesh, for the same reason the warp uses it: when an
-    # open-mouth photograph is mixed in, the inner lips of the picture are open,
-    # and fitting from the base's closed ones would place the interior wrongly.
+    # The photograph the interior is coming from, and the mesh that describes
+    # it: its own, so the fit maps its opening onto the live one. Falling back
+    # to the blend keeps a lipsful of cavity for an avatar that has no parted
+    # photograph at all.
+    source = avatar.sources.get(avatar.interior_role or "")
+    if source is None:
+        source, source_points = image, avatar.blend_points
+    else:
+        source_points = avatar.source_points.get(avatar.interior_role or "", avatar.blend_points)
+
     matrix: Any = cv2.estimateAffinePartial2D(
-        avatar.blend_points[_INNER_LIP_SLICE], target[_INNER_LIP_SLICE], method=cv2.LMEDS
+        source_points[_INNER_LIP_SLICE], target[_INNER_LIP_SLICE], method=cv2.LMEDS
     )[0]
     if matrix is None:
         return
@@ -1502,23 +1537,22 @@ def _paint_mouth_interior(
     region[opening > 0] = avatar.cavity.astype(np.uint8)
 
     placed = cv2.warpAffine(
-        image,
+        source,
         shifted,
         (box_w, box_h),
         flags=cv2.INTER_LINEAR,
         borderMode=cv2.BORDER_REPLICATE,
     )
-    # The mask says which pixels of the *base portrait* are inside its mouth,
-    # so when the blend is wearing a turned head it has to make that journey
-    # first. Composed rather than warped twice: one transform, one resampling.
-    covered = cv2.warpAffine(
-        avatar.mouth_mask,
-        shifted if avatar.mouth_carry is None else _compose(shifted, avatar.mouth_carry),
-        (box_w, box_h),
-        flags=cv2.INTER_NEAREST,
-        borderMode=cv2.BORDER_CONSTANT,
-        borderValue=0,
+    # Where that photograph has an interior to give: its own inner lips, moved
+    # by the same fit. Drawn as a polygon rather than warped as a mask — it is
+    # the same answer without a second resampling, and it follows the picture
+    # wherever the picture has gone, a turned head included.
+    interior = cv2.transform(source_points[_INNER_LIP_SLICE].reshape(-1, 1, 2), shifted).reshape(
+        -1, 2
     )
+    covered = np.zeros((box_h, box_w), dtype=np.uint8)
+    cv2.fillPoly(covered, [interior.astype(np.int32)], 255)
+
     cv2.copyTo(placed, cv2.bitwise_and(opening, covered), region)
 
 
@@ -2077,18 +2111,31 @@ def _shrinks(matrix: np.ndarray) -> bool:
 
 
 def _build_regions(
-    image: np.ndarray, points: np.ndarray, sources: dict[str, np.ndarray]
+    image: np.ndarray,
+    points: np.ndarray,
+    sources: dict[str, np.ndarray],
+    source_points: dict[str, np.ndarray] | None = None,
 ) -> tuple[_Region, ...]:
     """Precompute each region's box, feathered mask, and cropped photographs.
 
     Regions whose photographs the avatar does not have are not built at all, so
     an avatar with only a base portrait costs nothing here.
+
+    **Each region is sized to hold every photograph that acts on it**, not just
+    the base portrait's own landmarks. The base's lips are together, so a mouth
+    box cut to them stops a little below the closed lower lip — and an
+    open-mouth photograph reaches far past that. Everything below the cut was
+    left as base portrait, which is a chin, and the mouth interior then copied
+    that chin into the live opening: **stubble inside the mouth**, under the
+    tongue. The same argument applies upward for a raised brow and outward for
+    a widened eye.
     """
     import cv2
 
     height, width = image.shape[:2]
     face_width = max(float(points[:, 0].max() - points[:, 0].min()), 1.0)
     feather = max(3, int(face_width * _REGION_FEATHER) | 1)
+    source_points = source_points or {}
 
     built: list[_Region] = []
     for name, positions in (
@@ -2102,10 +2149,16 @@ def _build_regions(
 
         margin = int(face_width * _REGION_MARGIN[name])
         group = points[positions]
-        x0 = max(int(group[:, 0].min()) - margin, 0)
-        y0 = max(int(group[:, 1].min()) - margin, 0)
-        x1 = min(int(group[:, 0].max()) + margin, width)
-        y1 = min(int(group[:, 1].max()) + margin, height)
+        extras = [source_points[role][positions] for role in present if role in source_points]
+
+        # The box holds the base's landmarks with their margin *and* every
+        # photograph's own landmarks, so nothing a photograph describes is cut
+        # off at the crop.
+        corners = np.concatenate([group - margin, group + margin, *extras])
+        x0 = max(int(corners[:, 0].min()), 0)
+        y0 = max(int(corners[:, 1].min()), 0)
+        x1 = min(int(corners[:, 0].max()), width)
+        y1 = min(int(corners[:, 1].max()), height)
         if x1 - x0 < 4 or y1 - y0 < 4:
             continue
 
@@ -2113,12 +2166,24 @@ def _build_regions(
         # the region's landmarks grown by the margin, then blurred. Blurring
         # inside the box means the edge fades to zero at the box border, so the
         # composite can never produce a seam at the rectangle itself.
-        local = (group[:, :2] - (x0, y0)).astype(np.int32)
         filled = np.zeros((y1 - y0, x1 - x0), dtype=np.uint8)
-        cv2.fillConvexPoly(filled, cv2.convexHull(local), 255)
+        cv2.fillConvexPoly(filled, cv2.convexHull((group[:, :2] - (x0, y0)).astype(np.int32)), 255)
         grown = cv2.dilate(
             filled, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (margin | 1, margin | 1))
         )
+
+        # Each photograph's own hull is added *without* the margin, and this is
+        # the difference between an open mouth and a doubled lip. A photograph
+        # may act wherever the mesh follows it — inside its own landmarks — and
+        # no further: the chin below an open mouth belongs to the face outline,
+        # which no region moves, so painting the photograph's chin there lands
+        # it 30 px from where the mesh says the chin is. The margin exists to
+        # blur the join around the *base's* features and has no business
+        # extending an opening the mesh has never seen.
+        for extra in extras:
+            cv2.fillConvexPoly(
+                grown, cv2.convexHull((extra[:, :2] - (x0, y0)).astype(np.int32)), 255
+            )
         mask = cv2.GaussianBlur(grown, (feather, feather), 0).astype(np.float32) / 255.0
 
         built.append(
@@ -2284,14 +2349,6 @@ def _carry_region(
     return placed, carried[:, :, None], (dx0, dy0, dx1, dy1)
 
 
-def _compose(outer: np.ndarray, inner: np.ndarray) -> np.ndarray:
-    """The 2x3 transform that applies ``inner`` and then ``outer``."""
-    composed = np.empty((2, 3), dtype=np.float64)
-    composed[:, :2] = outer[:, :2] @ inner[:, :2]
-    composed[:, 2] = outer[:, :2] @ inner[:, 2] + outer[:, 2]
-    return composed
-
-
 def _ladder_weights(ladder: tuple[tuple[float, str | None], ...], yaw: float) -> dict[str, float]:
     """The two rungs that bracket this angle, weighted by how near each is.
 
@@ -2354,17 +2411,17 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
     frame at load, so an expression is a picture of a face looking straight
     ahead. A whole-head photograph is not: it brings its own angle, and once it
     is mixed in, the face underneath is no longer where the base's was. So the
-    mesh moves with it, and anything still cut from the frontal layout — a
-    mouth photograph, the mouth mask — is carried onto the moved head before it
-    is used. Skip that and a mouth photograph lands where the frontal mouth
-    *was*, which at 36 degrees is 70 px beside the one on screen.
+    mesh moves with it, and a region still cut from the frontal layout is
+    carried onto the moved head before it is composed. Skip that and a mouth
+    photograph lands where the frontal mouth *was*, which at 36 degrees is
+    70 px beside the one on screen.
 
     Nothing above happens on a still head, which is most frames: the carry is
     only computed when a whole-head photograph is actually mixed in.
     """
     if not avatar.sources:
         avatar.blend_points = avatar.points
-        avatar.mouth_carry = None
+        avatar.interior_role = None
         return avatar.image
 
     weights = {
@@ -2388,8 +2445,27 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
 
     if not weights:
         avatar.blend_points = avatar.points
-        avatar.mouth_carry = None
+        avatar.interior_role = None
         return avatar.image
+
+    # **The mouth interior comes from one photograph, never from an average.**
+    # The lips may cross-fade — an opening is a continuum and the photographs
+    # either side of it agree about where the mouth is. What is *behind* them
+    # does not: at the owner's widest smile the mouth was 43% a photograph with
+    # teeth in it and 57% three photographs with their lips together, so the
+    # teeth arrived at 43% opacity, showing the inside of a closed mouth
+    # through them. That is the owner's "no teeth when smiling", and it is the
+    # same defect as the four gaze photographs — an average of pictures that
+    # disagree is a picture of neither.
+    #
+    # So the interior is taken whole, from whichever photograph with its lips
+    # genuinely parted has the most weight this frame. The blend still decides
+    # the lips; this decides only what is seen through them.
+    avatar.interior_role = max(
+        (role for role in weights if avatar.gaps.get(role, 0.0) >= _LIP_GAP_OPEN),
+        key=lambda role: weights[role],
+        default=None,
+    )
 
     # Expressions move far more slowly than frames arrive, so the same blend is
     # usually still correct. Rebuilding it every frame was 2.2 ms of pure
@@ -2435,7 +2511,6 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
     height, width = avatar.image.shape[:2]
     travel = float(np.abs(mesh - avatar.points).max()) if whole_head else 0.0
     carrying = travel > _CARRY_MINIMUM_PX
-    avatar.mouth_carry = _carry_matrix(avatar.points, mesh, _MOUTH_POSITIONS) if carrying else None
 
     for region in avatar.regions:
         local = {role: weights[role] for role in region.sources if role in weights}
@@ -2452,11 +2527,7 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
         mixed = _photo_mix(region.sources, shares)
         mask = region.mask
         if carrying:
-            carry = (
-                avatar.mouth_carry
-                if region.name == "mouth"
-                else _carry_matrix(avatar.points, mesh, region.positions)
-            )
+            carry = _carry_matrix(avatar.points, mesh, region.positions)
             if carry is not None:
                 carried = _carry_region(mixed, mask, carry, box, width, height)
                 if carried is None:
@@ -2464,11 +2535,10 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
                 mixed, mask, box = carried
 
         # Feathered so the region's own boundary never shows, and scaled by how
-        # much of it this frame asked for. Float only over the region's few
-        # thousand pixels, not the whole face.
-        # Contiguous on purpose: the arithmetic below runs several times faster
-        # over a copy than over a slice of a wider image, and the copy is one
-        # region's worth of pixels.
+        # much of it this frame asked for. Float over the region's few thousand
+        # pixels, not the whole face, and over a contiguous copy: the same
+        # arithmetic runs several times faster than it does over a slice of a
+        # wider image.
         x0, y0, x1, y1 = box
         underneath = np.ascontiguousarray(blended[y0:y1, x0:x1])
         alpha = mask * share

@@ -1124,3 +1124,84 @@ angle the photograph was shot at rather than by a guessed full-scale number.
 measurement, and clip 5 in `AVATAR_VIDEO_PROMPTS.txt` is a tilt clip. This is
 the second axis item 17 said would be a real change rather than a parameter —
 and it is now the cheapest quality win left in the photograph set.
+
+---
+
+## 21. The mouth was an empty hole — FIXED 2026-08-15
+
+**The owner, having looked at the renders:** *"when smiling the teeth do not
+show. And when the mouth opens, no tongue and no teeth either."*
+
+They were describing a flat maroon void where the inside of a mouth should be,
+and there were **three separate causes** behind it, each hiding the next.
+
+### One: the interior was cut from the wrong photograph
+
+`_paint_mouth_interior` fills the live opening with cavity colour and then
+copies back whatever the source picture has inside its own lips. Which pixels
+those are was a mask cut **from the base portrait at load** — and the base
+portrait's lips are together, a sliver four pixels tall on a 455 px face. So
+however wide the blend's mouth was, only that sliver was ever copied back and
+the rest stayed flat colour.
+
+It is asked of the **blended mesh** now, which is the thing that actually
+describes the blend, and drawn as a polygon rather than warped as a mask — the
+same answer without a second resampling. The precomputed mask is gone.
+
+### Two: the mouth region was sized to a closed mouth
+
+With the interior copying again, a wide open mouth showed **stubble under the
+tongue**. Each region's box and mask were cut from the *base's* landmarks, and
+the base's lower lip sits 79 px above the open-mouth photograph's. Everything
+below the cut was still base portrait — a chin — and the interior copy dutifully
+carried that chin into the opening.
+
+Regions are now sized to hold every photograph that acts on them. The mask is
+the base's hull grown by the usual margin, **plus each photograph's own hull
+with no margin at all**, and that second half is not a detail: a photograph may
+act where the mesh follows it and no further. Adding the margin to a
+photograph's hull as well pushed the mouth's mask 124 px down the chin, where
+the face outline lives and no region moves it — which rendered as a second lower
+lip below the first.
+
+### Three: the teeth were an average of photographs that disagree
+
+That left teeth, but translucent ones, with a closed mouth showing through. At
+the owner's widest smile the mouth region was:
+
+| photograph | weight | its own lip gap |
+|---|---|---|
+| `source_smile` | 0.60 | 0.075 — **teeth** |
+| `source_smile_closed` | 0.40 | 0.015 |
+| `source_mouth_pressed` | 0.28 | 0.007 |
+| `source_mouth_o` | 0.05 | 0.010 |
+| `source_mouth_wide` | 0.05 | 0.083 |
+
+Normalised, 43% of the mouth was a photograph with teeth in it and 57% was
+photographs with their lips together. 43% of a tooth is a translucent tooth.
+This is the fourth appearance of the same defect — the gaze photographs, the
+squint, the averaged turns, and now the mouth: **an average of pictures that
+disagree is a picture of neither.**
+
+The lips may cross-fade; an opening is a continuum and the photographs either
+side of it agree about where the mouth is. What is *behind* them may not. So
+the interior is now taken whole, from whichever photograph with its lips
+genuinely parted carries the most weight in the frame, placed by a fit of its
+own lips onto the live ones. Its own inner lips are both the fit and the limit
+of what is copied, so teeth arrive opaque and no lip ever does.
+
+Which photographs have an interior is measured at load rather than listed. The
+owner's set separates cleanly at a fifth of the way open — `source_mouth_open`
+0.199, `source_mouth_wide` 0.083, `source_smile` 0.075, then a gap down to
+`source_smile_closed` 0.015 and everything else below it.
+
+**Rendered:** a smile with a full row of opaque teeth, and an open mouth with
+teeth, tongue and lower teeth. What is left is a dark crescent at the bottom of
+a very wide opening, where the photograph's own mouth does not reach — which is
+the intended behaviour: opening wider than any photograph shows more darkness.
+
+**Still open in the same family:** the lips themselves are still an average of
+five photographs, and `source_mouth_o` is active on 84% of the recording. A
+mouth shape is not an axis the way yaw is, but a rounded-lip photograph present
+in five frames out of six of ordinary speech is the tilt photographs' problem
+wearing another face.

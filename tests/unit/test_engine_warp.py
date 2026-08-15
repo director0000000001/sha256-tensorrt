@@ -988,7 +988,6 @@ class TestPosePhotographsKeepTheirGeometry:
         _blend_sources(avatar, expressive_tracking(gap=0.0, yaw=0.0))
 
         assert avatar.blend_points is avatar.points
-        assert avatar.mouth_carry is None
 
     def test_an_expression_lands_on_the_turned_head_not_the_frontal_one(self, engine, tmp_path):
         """The defect this fix would otherwise have introduced.
@@ -1212,6 +1211,110 @@ class TestMouthInterior:
         distance = np.abs(result.data.astype(np.int16) - avatar.cavity.astype(np.int16))
         assert int((distance.sum(axis=2) < 30).sum()) > 0, "the opening was never filled"
 
+    def test_the_blends_own_teeth_reach_the_live_opening(self, engine, tmp_path):
+        """The owner's report: a smile with no teeth, and an open mouth with none.
+
+        The interior was a mask cut from the *base portrait*, and the base
+        portrait's lips are together — a sliver a few pixels tall. So however
+        wide the blend's mouth was, only that sliver was ever copied and the
+        rest of the opening stayed flat cavity colour. It is asked of the
+        blended mesh now, which is the thing that actually describes the blend.
+        """
+        from sha256.avatar.engine_warp import _INNER_LIP_SLICE, _paint_mouth_interior
+
+        engine.load_avatar(make_descriptor(tmp_path))
+        avatar = engine._loaded["avatar_test"]
+        avatar.cavity = np.array([7.0, 11.0, 13.0], dtype=np.float32)
+        count = avatar.points[_INNER_LIP_SLICE].shape[0]
+
+        # A blend whose mouth is open, with something unmistakable inside it.
+        teeth = (240, 250, 255)
+        blend = np.full_like(avatar.image, 90)
+        avatar.blend_points = avatar.points.copy()
+        avatar.blend_points[_INNER_LIP_SLICE] = _ring(count, (128, 170), (30, 18))
+        cv2.fillPoly(blend, [avatar.blend_points[_INNER_LIP_SLICE].astype(np.int32)], teeth)
+
+        # The user, opening a little wider than the photograph did.
+        target = avatar.points.copy()
+        target[_INNER_LIP_SLICE] = _ring(count, (128, 170), (34, 22))
+        canvas = np.zeros((256, 256, 3), dtype=np.uint8)
+        _paint_mouth_interior(avatar, canvas, blend, target)
+
+        opening = np.zeros(canvas.shape[:2], dtype=np.uint8)
+        cv2.fillPoly(opening, [target[_INNER_LIP_SLICE].astype(np.int32)], 255)
+        inside = canvas[opening > 0].astype(np.int16)
+        assert inside.size > 0, "the fixture drew no opening"
+
+        near_teeth = (np.abs(inside - np.array(teeth, dtype=np.int16)).sum(axis=1) < 60).mean()
+        assert near_teeth > 0.5, f"only {near_teeth:.0%} of the opening came from the blend"
+
+    def test_the_interior_is_taken_from_one_photograph_not_an_average(self, engine, tmp_path):
+        """43% of a tooth is a translucent one.
+
+        At the owner's widest smile the mouth was 43% a photograph with teeth
+        in it and 57% three photographs with their lips together, and what
+        arrived was teeth with a closed mouth showing through them. The lips
+        may cross-fade; what is behind them may not.
+        """
+        engine.load_avatar(make_descriptor(tmp_path))
+        avatar = engine._loaded["avatar_test"]
+        for role in ("source_smile", "source_smile_closed", "source_mouth_open"):
+            avatar.sources[role] = np.full_like(avatar.image, 128)
+        # Measured at load in the real thing. The owner's own set separates
+        # exactly here: three photographs parted, four with the lips together.
+        avatar.gaps = {
+            "source_smile": 0.075,
+            "source_smile_closed": 0.015,
+            "source_mouth_open": 0.199,
+        }
+
+        _blend_sources(avatar, expressive_tracking(gap=0.062, smile=1.0))
+        assert avatar.interior_role == "source_smile"
+
+        _blend_sources(avatar, expressive_tracking(gap=0.095, jaw=0.9))
+        assert avatar.interior_role == "source_mouth_open"
+
+    def test_a_mouth_with_its_lips_together_offers_no_interior(self, engine, tmp_path):
+        """Which is what leaves a wide opening as cavity, rather than as lips."""
+        engine.load_avatar(make_descriptor(tmp_path))
+        avatar = engine._loaded["avatar_test"]
+        avatar.sources["source_smile_closed"] = np.full_like(avatar.image, 128)
+        avatar.gaps = {"source_smile_closed": 0.015}
+
+        _blend_sources(avatar, expressive_tracking(gap=0.001, smile=1.0))
+
+        assert avatar.interior_role is None
+
+    def test_a_closed_blend_still_shows_cavity_rather_than_lips(self, engine, tmp_path):
+        """The other half of it, and the reason the mask exists at all.
+
+        With no open-mouth photograph mixed in, the blend's lips are together
+        and there is no interior to give. Opening wider then has to reveal
+        darkness, not a stretched picture of a closed mouth.
+        """
+        from sha256.avatar.engine_warp import _INNER_LIP_SLICE, _paint_mouth_interior
+
+        engine.load_avatar(make_descriptor(tmp_path))
+        avatar = engine._loaded["avatar_test"]
+        avatar.cavity = np.array([7.0, 11.0, 13.0], dtype=np.float32)
+        count = avatar.points[_INNER_LIP_SLICE].shape[0]
+
+        blend = np.full_like(avatar.image, 200)
+        avatar.blend_points = avatar.points.copy()
+        avatar.blend_points[_INNER_LIP_SLICE] = _ring(count, (128, 170), (30, 0.5))
+
+        target = avatar.points.copy()
+        target[_INNER_LIP_SLICE] = _ring(count, (128, 170), (34, 22))
+        canvas = np.zeros((256, 256, 3), dtype=np.uint8)
+        _paint_mouth_interior(avatar, canvas, blend, target)
+
+        opening = np.zeros(canvas.shape[:2], dtype=np.uint8)
+        cv2.fillPoly(opening, [target[_INNER_LIP_SLICE].astype(np.int32)], 255)
+        inside = canvas[opening > 0].astype(np.int16)
+
+        cavity = np.abs(inside - avatar.cavity.astype(np.int16)).sum(axis=1) < 30
+        assert cavity.mean() > 0.8, f"only {cavity.mean():.0%} of the opening was cavity"
+
     def test_the_photographs_own_opening_sets_what_fully_open_means(self):
         """A wider photograph should extend the range, not need a constant changed."""
         narrow = _source_weights(expressive_tracking(gap=0.05, jaw=0.5), full_gap=0.05)
@@ -1382,6 +1485,19 @@ class TestExpandedSourceSet:
 
         assert avatar.sources == {}
         assert _blend_sources(avatar, expressive_tracking(jaw=0.9)) is avatar.image
+
+
+def _ring(count: int, centre: tuple[float, float], radii: tuple[float, float]) -> np.ndarray:
+    """``count`` points around an ellipse, in contour order.
+
+    Contour order because the lips are filled as a polygon, not tested as a
+    point cloud — scattered points would describe a star.
+    """
+    angles = np.linspace(0.0, 2.0 * np.pi, count, endpoint=False)
+    return np.stack(
+        (centre[0] + radii[0] * np.cos(angles), centre[1] + radii[1] * np.sin(angles)),
+        axis=1,
+    ).astype(np.float32)
 
 
 def _pitched(pitch: float) -> FaceTrackingResult:

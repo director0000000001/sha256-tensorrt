@@ -154,6 +154,32 @@ gain above, and item 7 is how they come back.
 rung, before and after) and `recordings/turn-before-after.png` (the same eight
 moments rendered from the same clip).
 
+## Then the owner looked, and the mouth was empty
+
+Their words: *"when smiling the teeth do not show. And when the mouth opens, no
+tongue and no teeth either."* Three causes, each hiding the next — backlog 21:
+
+1. **The interior was cut from the base portrait**, whose lips are together, so
+   only a four-pixel sliver was ever copied into the opening and the rest was
+   flat cavity colour. It comes from the blended mesh now.
+2. **The mouth region was sized to a closed mouth**, so an open-mouth
+   photograph was clipped 79 px above its own lower lip and the chin below the
+   cut was copied into the mouth — stubble under the tongue. Regions are sized
+   to hold every photograph that acts on them, and a photograph may act only
+   where the mesh follows it: its own hull, without the margin. With the margin
+   it reached 124 px down the chin and rendered a second lower lip.
+3. **The teeth were an average of photographs that disagree.** At the widest
+   smile the mouth was 43% a photograph with teeth and 57% three with their
+   lips together, so the teeth arrived 43% opaque with a closed mouth showing
+   through. The interior is now taken *whole* from the most-parted photograph
+   active, while the lips still cross-fade. Fourth appearance of one defect,
+   after the gaze photographs, the squint and the averaged turns.
+
+**Still open, and named by the same evidence:** the lips are still an average
+of five photographs, `source_mouth_o` is active on 84% of the recording, and at
+39° of yaw the near eye is visibly wrong — the iris is dragged rather than
+placed, which is item 13's limit.
+
 ---
 
 ## Day 8
