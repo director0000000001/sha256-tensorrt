@@ -577,11 +577,32 @@ class TestSourceSelection:
         assert weights.get("source_squint", 0.0) < 0.05
 
     def test_a_narrowed_eye_still_squints(self):
-        """The other half: closure yields the axis only while it is happening."""
-        weights = weights_from_rest(expressive_tracking(eyeSquintLeft=0.6, eyeSquintRight=0.6))
+        """The other half: closure yields the axis only while it is happening.
+
+        Driven by the lids, not by ``eyeSquint``, which reads *highest* on a
+        shut eye — 0.89 held closed against 0.07 held wide open, measured. It
+        is a second closure signal wearing a different expression's name.
+        """
+        weights = weights_from_rest(expressive_tracking(blink=(0.30, 0.30)))
 
         assert weights["source_squint"] > 0.5
         assert weights.get("source_eyes_closed", 0.0) == 0.0
+
+    def test_the_two_hand_over_rather_than_switch(self):
+        """Between a squint and a blink there is no line, so there is no step."""
+        narrowed = weights_from_rest(expressive_tracking(blink=(0.45, 0.45)))
+
+        assert 0.0 < narrowed["source_eyes_closed"] < narrowed["source_squint"]
+
+    def test_a_wide_eye_asks_for_the_wide_photograph(self):
+        """``eyeWide`` never rises above 0.13 on eyes visibly at their widest,
+        so the wide photograph scored 0.23 against a 0.45 floor and was never
+        once selected from three clips generated to contain it."""
+        weights = weights_from_rest(expressive_tracking(blink=(-0.5, -0.5)))
+
+        assert weights["source_eyes_wide"] > 0.8
+        assert weights.get("source_eyes_closed", 0.0) == 0.0
+        assert weights.get("source_squint", 0.0) == 0.0
 
     def test_a_wink_does_not(self):
         """The photo closes both eyes; driving it from one would close the other."""
@@ -1177,7 +1198,6 @@ class TestExpandedSourceSet:
         ("left_role", "right_role", "left_shape", "right_shape"),
         [
             ("source_brows_up", "source_brows_down", "browInnerUp", "browDownLeft"),
-            ("source_eyes_wide", "source_squint", "eyeWideLeft", "eyeSquintLeft"),
         ],
     )
     def test_opposing_photographs_are_never_both_used(

@@ -66,34 +66,52 @@ BASE_ROLE = "source_portrait"
 # blend it in whenever the expression appeared.
 MIN_ROLE_SCORE = 0.45
 
+# How much a frame is penalised for the *other* expressions it is also doing.
+#
+# Every source is confined to its own region, but a region reaches past its own
+# landmarks — the eye region has to carry the lid and the socket shadow, so it
+# takes in the lower brow as well. A photograph that is doing two things at once
+# brings the second one with it.
+#
+# Seen: the clearest "eyes closed" frame in the eye clip was the one from the
+# *frown*, because a hard scowl squeezes the lids further shut than resting them
+# does. The avatar then blinked with a glare. Half weight is enough to prefer a
+# calm frame without rejecting the genuine peak of an expression, which always
+# carries a little of its neighbours.
+_INTERFERENCE = 0.5
+
 # Sharpness is the variance of the Laplacian over the face. It has no absolute
 # meaning across cameras, so the threshold is relative: a frame must reach this
 # fraction of the sharpest frame **at a similar head angle**.
 MIN_SHARPNESS_FRACTION = 0.55
 
-# How far either side, in degrees of yaw, to look for the frame this one is
-# judged against.
+# How many frames either side to look for the frame this one is judged against.
 #
-# Against the sharpest frame in the *whole* clip, a turn clip rejects itself
-# entirely. Measured on the owner's head-turn clip, median Laplacian variance
-# over the face:
+# **Laplacian variance over a face is not a focus measure**, and this is the
+# third time that has cost a clip. It measures how much high-contrast detail the
+# crop happens to contain, which depends on what the face is doing:
 #
-#     |yaw| 0-8 degrees    179      <- held, still, and what the floor was set by
-#     |yaw| 8-20 degrees    10
-#     |yaw| 20-35 degrees    9
-#     |yaw| 35-90 degrees   19
+#   * a turned face shows a smooth cheek where a frontal one shows two eyes, two
+#     brows and a hairline — measured, median 179 at 0-8 degrees of yaw against
+#     9 at 20-35, on frames sharp enough to count beard hairs;
+#   * an open mouth adds teeth and a dark cavity, and a wide eye adds sclera, so
+#     a neutral face scores a fraction of an expressive one in the same clip;
+#   * and the codec starves a moving shot of bits wherever the movement is.
 #
-# An eighteen-fold drop, and none of it is focus: those frames are sharp enough
-# to count individual beard hairs, confirmed by looking at them. Some of it is
-# that a turned face presents a smooth cheek where a frontal one presents two
-# eyes, two brows and a hairline; the rest is the video codec, which spends bits
-# on a static shot and starves a moving one. Either way it tracks the head
-# angle, so every frame the clip was made for scored a tenth of the floor and
-# all 135 of them were thrown away.
+# Judged against the sharpest frame in the whole clip, each of those becomes a
+# reason to throw away exactly the frames the clip was generated for: 135 of 192
+# on the turn clip, 163 of 192 on the eye clip.
 #
-# Comparing a frame with frames at its own angle asks the question that was
-# meant: is this soft *for a shot like this one*.
-SHARPNESS_YAW_WINDOW = 7.0
+# **Motion blur is a phenomenon in time**, so it is measured in time. A frame is
+# blurred if it is much softer than the frames around it — a held expression
+# sits in a plateau where every neighbour scores alike and all of them pass,
+# while the frames during a movement dip below their own neighbours and go.
+# Nothing in that depends on what the face happens to be doing.
+#
+# Eight frames either side is a third of a second at 24 fps: longer than any
+# blurred transition, shorter than the two-second holds the clips are built
+# around.
+SHARPNESS_WINDOW_FRAMES = 8
 
 # How far a structural proportion may move from the base portrait before the
 # frame is treated as a different face, at zero yaw, and how much more is
@@ -232,15 +250,18 @@ def yaw_of(candidate: Candidate) -> float:
 
 
 def sharpness_floor(candidates: list[Candidate], candidate: Candidate) -> float:
-    """The best sharpness achieved at roughly this head angle.
+    """The best sharpness achieved within a third of a second of this frame.
 
-    See ``SHARPNESS_YAW_WINDOW``: measured against the whole clip's best, a clip
-    of a head turning rejects every frame of the turn, because the frames it is
-    compared with are the still frontal ones at the start.
+    See ``SHARPNESS_WINDOW_FRAMES``: Laplacian variance over a face measures how
+    much detail the face is showing, not how sharp it is, so the only fair
+    comparison is with frames of the same face doing nearly the same thing —
+    which, at 24 fps, is the frames next to it.
     """
-    here = yaw_of(candidate)
+    here = candidate.index
     nearby = [
-        other.sharpness for other in candidates if abs(yaw_of(other) - here) <= SHARPNESS_YAW_WINDOW
+        other.sharpness
+        for other in candidates
+        if abs(other.index - here) <= SHARPNESS_WINDOW_FRAMES
     ]
     return max(nearby) if nearby else candidate.sharpness
 
@@ -372,23 +393,35 @@ def best_per_role(
     is how this person sits.
     """
     chosen: dict[str, tuple[Candidate, float]] = {}
+    ranked: dict[str, float] = {}
 
     for candidate in candidates:
-        for role, score in _source_weights(candidate.tracking, neutral=neutral.copy()).items():
+        weights = _source_weights(candidate.tracking, neutral=neutral.copy())
+        for role, score in weights.items():
             if score < MIN_ROLE_SCORE:
                 continue
+
+            # **The clearest example of a role is the frame that is most that
+            # role and least anything else.** Taking the highest score alone
+            # picked, for "eyes closed", the frame from the frown: a hard scowl
+            # squeezes the lids further shut than resting them does, so it won
+            # on closure while carrying furrowed brows into the eye region — the
+            # avatar blinked with a glare.
+            interference = sum(other for name, other in weights.items() if name != role)
+            rank = score - _INTERFERENCE * interference
+
             current = chosen.get(role)
             if current is None:
-                chosen[role] = (candidate, score)
-                continue
+                better = True
+            elif abs(rank - ranked[role]) <= 0.02:
+                # Two frames a fifth of a second apart show the same thing, and
+                # there is no reason to take the softer one.
+                better = candidate.sharpness > current[0].sharpness
+            else:
+                better = rank > ranked[role]
 
-            held, held_score = current
-            better_score = score > held_score + 0.05
-            similar_but_sharper = (
-                abs(score - held_score) <= 0.05 and candidate.sharpness > held.sharpness
-            )
-            if better_score or similar_but_sharper:
-                chosen[role] = (candidate, score)
+            if better:
+                chosen[role], ranked[role] = (candidate, score), rank
 
     return chosen
 

@@ -133,17 +133,22 @@ class TestRestingFace:
 
 
 class TestSharpnessFloor:
-    """A turn clip judged against its own still frames throws itself away.
+    """Blur is measured in time, because blur is a thing that happens in time.
 
-    Laplacian variance over the face falls about eighteenfold across a turn on
-    a clip where nothing goes out of focus: a turned face presents a smooth
-    cheek where a frontal one presents two eyes, two brows and a hairline, and
-    the codec starves a moving shot. So the floor has to come from frames at a
-    similar angle.
+    Laplacian variance over a face measures how much detail the face is
+    *showing*, not how sharp it is. It falls eighteenfold across a turn where
+    nothing goes out of focus, and a neutral face scores a fraction of an
+    open-mouthed one in the same clip — teeth, and a dark cavity. Judged against
+    the sharpest frame in the whole clip, each of those becomes a reason to
+    discard the frames the clip was generated for: 135 of 192 on the turn clip,
+    163 of 192 on the eye clip.
+
+    The frames next to a frame show almost the same face doing almost the same
+    thing, so they are the only fair thing to compare it with.
     """
 
     @staticmethod
-    def candidate(index: int, yaw: float, sharpness: float) -> extractor.Candidate:
+    def candidate(index: int, sharpness: float, yaw: float = 0.0) -> extractor.Candidate:
         return extractor.Candidate(
             index=index,
             image=np.zeros((4, 4, 3), dtype=np.uint8),
@@ -153,31 +158,50 @@ class TestSharpnessFloor:
             identity_drift=0.0,
         )
 
-    def test_a_turned_frame_is_judged_against_turned_frames(self):
-        still = [self.candidate(i, 0.0, 200.0) for i in range(5)]
-        turned = [self.candidate(5 + i, -35.0 - i, 20.0) for i in range(5)]
+    def test_a_frame_is_judged_against_its_neighbours_in_time(self):
+        frames = [self.candidate(i, 200.0) for i in range(5)]
+        frames += [self.candidate(5 + i, 20.0) for i in range(40)]
 
-        floor = extractor.sharpness_floor(still + turned, turned[0])
+        # Far from the sharp opening, the floor comes from the soft plateau.
+        assert extractor.sharpness_floor(frames, frames[30]) == pytest.approx(20.0)
+        # Right beside it, the sharp frames are still the reference.
+        assert extractor.sharpness_floor(frames, frames[6]) == pytest.approx(200.0)
 
-        assert floor == pytest.approx(20.0)
+    def test_a_held_expression_survives_whatever_it_scores(self):
+        """Two seconds of neutral beside two of an open mouth.
 
-    def test_a_still_frame_is_still_judged_against_still_frames(self):
-        still = [self.candidate(i, 0.0, 200.0) for i in range(5)]
-        turned = [self.candidate(5 + i, -35.0 - i, 20.0) for i in range(5)]
-
-        floor = extractor.sharpness_floor(still + turned, still[0])
-
-        assert floor == pytest.approx(200.0)
-
-    def test_the_whole_of_a_turn_survives(self):
-        """The end-to-end shape of the failure: 135 of 192 frames discarded."""
-        still = [self.candidate(i, 0.0, 200.0) for i in range(5)]
-        turned = [self.candidate(5 + i, -20.0 - i * 3, 20.0) for i in range(10)]
+        The open mouth scores ten times what the neutral face does and neither
+        is out of focus. Both are what the clip is for.
+        """
+        frames = [self.candidate(i, 20.0) for i in range(48)]
+        frames += [self.candidate(48 + i, 200.0) for i in range(48)]
         rejected: dict[str, int] = {"no face": 0}
 
-        kept = extractor.usable(still + turned, min_face=380.0, rejected=rejected)
+        kept = extractor.usable(frames, min_face=380.0, rejected=rejected)
 
-        assert len(kept) == 15
+        # Only the neutral frames within one window of the step are judged
+        # against it; the rest of the plateau is compared with itself.
+        assert len(kept) >= 88
+        assert kept[0].index == 0
+
+    def test_one_blurred_frame_inside_a_plateau_goes(self):
+        held = [self.candidate(i, 200.0) for i in range(20)]
+        held[10] = self.candidate(10, 20.0)
+        rejected: dict[str, int] = {"no face": 0}
+
+        kept = extractor.usable(held, min_face=380.0, rejected=rejected)
+
+        assert [c.index for c in kept] == [i for i in range(20) if i != 10]
+        assert rejected["motion blurred"] == 1
+
+    def test_the_whole_of_a_slow_turn_survives(self):
+        """The turn clip: detail ramps down with the angle, nothing is blurred."""
+        ramp = [self.candidate(i, 200.0 - i * 4.0, yaw=-float(i)) for i in range(40)]
+        rejected: dict[str, int] = {"no face": 0}
+
+        kept = extractor.usable(ramp, min_face=380.0, rejected=rejected)
+
+        assert len(kept) == 40
         assert rejected.get("motion blurred", 0) == 0
 
     def test_a_far_turn_is_not_mistaken_for_a_different_face(self):
@@ -219,9 +243,10 @@ class TestSharpnessFloor:
         assert extractor.usable([stranger], min_face=380.0, rejected=rejected) == []
         assert rejected["identity drifted"] == 1
 
-    def test_a_genuinely_soft_frame_at_the_same_angle_still_goes(self):
-        sharp = [self.candidate(i, -30.0, 200.0) for i in range(5)]
-        soft = self.candidate(9, -30.0, 20.0)
+    def test_a_genuinely_soft_frame_beside_sharp_ones_still_goes(self):
+        """The filter still has to do its job, or it is not a filter."""
+        sharp = [self.candidate(i, 200.0) for i in range(5)]
+        soft = self.candidate(5, 20.0)
         rejected: dict[str, int] = {"no face": 0}
 
         kept = extractor.usable([*sharp, soft], min_face=380.0, rejected=rejected)

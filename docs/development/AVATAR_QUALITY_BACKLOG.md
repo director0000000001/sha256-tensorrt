@@ -964,3 +964,52 @@ angle, which is item 13's limit rather than this one.
 axis carrying exactly two photographs, and clip 5 in `AVATAR_VIDEO_PROMPTS.txt`
 is a tilt clip. The ladder is one-dimensional today; a second axis is a real
 change, not a parameter.
+
+---
+
+## 18. Three of MediaPipe's blendshapes do not measure what they are named — FIXED 2026-08-15
+
+The owner generated a clip that holds each eye expression in turn, which makes
+this measurable rather than arguable. Held over that clip:
+
+| what the face is doing | lid opening | `eyeWide` | `eyeSquint` |
+|---|---|---|---|
+| resting | +0.00 | 0.00 | **0.51** |
+| eyes held wide open | **+0.53** | 0.13 | 0.07 |
+| eyes held shut | **−0.66** | 0.00 | **0.89** |
+
+`eyeWide` never rises above **0.13** on eyes visibly at their widest, so the
+wide-eye photograph scored 0.23 against a 0.45 floor and **was never once
+selected from three clips generated to contain it**. `eyeSquint` reads *highest*
+on a shut eye: it is a second, worse closure signal wearing another
+expression's name, which is why it had been taking half of every blink.
+
+The lid opening separates all three states cleanly. So the whole eye family —
+wide, narrowed, shut — now comes off one geometric measurement, the same way the
+teeth have come off the lip gap since day 6 and for the same reason.
+
+**Two things this cost, both found by rendering and worth remembering.**
+
+*A ratio of a height to a width carries the frame's aspect ratio.* Live that
+cancels, because every frame is the same shape. The extraction tool measures a
+2160×3840 clip against a 1024×1024 portrait, where the same eye reads 0.56 of
+what it should, so every frame of every clip scored as a hard blink. Two
+vertical distances have no such factor.
+
+*A slow mean of the eye opening is dragged down by every blink and every
+glance*, until it sits below the eye's actual resting opening — and then a face
+doing nothing reads as wide. Rendered: a resting avatar staring with the whites
+showing. It follows an opening eye slowly and a closing one ten times slower
+still, so what it estimates is "how open this eye is when it is open".
+
+## 19. The clearest example of a role is not the highest-scoring frame — FIXED 2026-08-15
+
+The extractor took the frame that scored highest for each role. For "eyes
+closed" that was the frame from the **frown**: a hard scowl squeezes the lids
+further shut than resting them does. Every region reaches a little past its own
+landmarks — the eye region has to carry the lid and the socket shadow, so it
+takes in the lower brow — and the avatar therefore blinked with a glare.
+
+Frames are now ranked by their score for the role *minus half of everything else
+they are also doing*. The chosen closed-eye frame moved from the frown to the
+three-second closure the clip was built around.

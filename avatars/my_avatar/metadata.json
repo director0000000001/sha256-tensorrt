@@ -2,8 +2,8 @@
   "manifest_version": 1,
   "id": "my_avatar",
   "name": "My Avatar",
-  "version": "1.3.0",
-  "description": "The owner's avatar. Expression photographs by role, plus a turn ladder: 31 frames from one head-turn clip, each carrying the yaw it was measured at, from which the engine selects the nearest rather than averaging two angles that are neither. The named far-turn roles are gone, replaced by the ladder that covers their angles and every angle between.",
+  "version": "1.4.0",
+  "description": "The owner's avatar. Sources come from four generated video clips rather than from separately generated stills: a 30-rung turn ladder carrying the yaw each frame was measured at, and expression photographs chosen by the same selector the renderer uses. Face width 940-1030 px against the base portrait 455.",
   "tags": [
     "owner"
   ],
@@ -25,12 +25,12 @@
       "optional": true
     },
     {
-      "path": "portrait_mouth_open.png",
+      "path": "clip_mouth_open.png",
       "role": "source_mouth_open",
       "optional": true
     },
     {
-      "path": "portrait_mouth_o.jpg",
+      "path": "clip_mouth_o.png",
       "role": "source_mouth_o",
       "optional": true
     },
@@ -50,22 +50,22 @@
       "optional": true
     },
     {
-      "path": "portrait_eyes_closed.png",
+      "path": "clip_eyes_closed.png",
       "role": "source_eyes_closed",
       "optional": true
     },
     {
-      "path": "portrait_eyes_wide.jpg",
+      "path": "clip_eyes_wide.png",
       "role": "source_eyes_wide",
       "optional": true
     },
     {
-      "path": "portrait_squint.jpg",
+      "path": "clip_squint.png",
       "role": "source_squint",
       "optional": true
     },
     {
-      "path": "portrait_brows_up.png",
+      "path": "clip_brows_up.png",
       "role": "source_brows_up",
       "optional": true
     },
@@ -95,12 +95,12 @@
       "optional": true
     },
     {
-      "path": "portrait_tilt_up.jpg",
+      "path": "clip_tilt_up.png",
       "role": "source_tilt_up",
       "optional": true
     },
     {
-      "path": "portrait_tilt_down.jpg",
+      "path": "clip_tilt_down.png",
       "role": "source_tilt_down",
       "optional": true
     },
