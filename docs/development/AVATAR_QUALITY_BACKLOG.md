@@ -1267,3 +1267,68 @@ cannot put back detail that was never photographed. Two things instead —
 geometry at a turn is correct and measured — 22.4 px of warp residual down to
 7.3 — and the picture will stay soft at every angle until the clip is
 regenerated.
+
+---
+
+## 23. At a turn the mask left the user's own nose and mouth on screen — FIXED 2026-08-15
+
+**The owner, testing the application:** *"when I turn my head, the face is lost
+and my own face appears, half of it."*
+
+They were describing the one failure this product cannot have, and they were
+describing it accurately: at 39 degrees of yaw, **their real nose, their real
+lips and their real chin were on screen**, beside an avatar's cheek.
+
+### Why
+
+The composite mask is the face oval, filled as a polygon — deliberately not the
+convex hull, because a hull bridges the gaps beside the chin and in front of the
+ears and fills them with whatever was behind the head in the portrait.
+
+But the face oval is a ring of *anatomical* points around the head, and a head
+is only convex from the front. Turned far enough, the nose and the lips stand
+**outside** that ring in the picture: the ring has swung round behind them. The
+mask therefore stopped short of the profile, and everything in front of it was
+never replaced.
+
+Rendered with the mask outlined, the gap is unmistakable — the whole nose and
+mouth sit outside the green line.
+
+### Fixed
+
+The hull of the nose and the outer lips is added to the mask. Their hull rather
+than their outline, and only theirs: a blob over the middle of the face cannot
+bridge to an ear or to the background, which is the whole reason the outline
+rule exists.
+
+Measured over the recorded clip:
+
+| frame | yaw | mask area before | after | |
+|---|---|---|---|---|
+| 960 | −0.7° | 92331 | 92331 | **0.0%** |
+| 1442 | −2.1° | 92881 | 92881 | **0.0%** |
+| 1533 | −1.9° | 102480 | 102480 | **0.0%** |
+| 1846 | +39.3° | 65236 | 72094 | **+10.5%** |
+
+Frontal it changes nothing at all — the nose and lips are wholly inside the oval
+— and at a turn it covers a tenth more of the face, which is precisely the part
+that was the user's own.
+
+**Not fully closed by this.** The mask is still eroded by 4% of face width so
+the blend happens over skin on both sides, so a thin rim of the real silhouette
+remains at any angle. That rim is the edge of a cheek rather than a nose, and it
+is what the erosion is for; if the owner still sees themselves at the edge, the
+next step is to erode less at high yaw rather than to abandon the erosion.
+
+### And the mouth interior is anchored to the upper lip now
+
+Same test, second complaint: *"when the teeth show, the lips are lost."* The
+interior was fitted to the whole inner-lip ring, so the photograph's teeth were
+scaled to whatever the live opening happened to be — open wider and the teeth
+grow with it, and the thin shadow above them grows into a band the size of a
+lip, sitting exactly where the upper lip should be.
+
+The upper teeth hang from the skull and the jaw drops away from them, so the fit
+is now on the inner lip's **upper arc** alone. The teeth arrive at the size the
+mouth's width implies, stay under the lip they belong to, and opening wider
+reveals darkness below them — which is what opening a jaw does.

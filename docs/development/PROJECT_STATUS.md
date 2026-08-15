@@ -208,6 +208,28 @@ blurred ladder is caught before an avatar is built from it.
 **Also still open, from the same look:** the lips are an average of five
 photographs, and `source_mouth_o` is active on 84% of the recording.
 
+## Then the owner ran it, and found the one failure this cannot have
+
+*"When I turn my head, the face is lost and my own face appears, half of it."*
+
+At 39° of yaw **their real nose, lips and chin were on screen**. The mask is the
+face oval filled as a polygon, and a face oval is a ring of anatomical points
+around the head — turned far enough, the nose and lips stand *outside* that ring
+in the picture, so they were never replaced. The hull of the nose and outer lips
+is added to the mask now: frontal it changes nothing (0.0% on three frames),
+at 39° it covers 10.5% more of the face, which is exactly the part that was
+theirs. Backlog 23.
+
+The same test gave a second one — *"when the teeth show, the lips are lost"* —
+and it was the interior being fitted to the whole lip ring, so the teeth scaled
+with the live opening and the shadow above them grew into a lip-sized band. The
+fit is on the upper lip arc now: teeth hang from the skull, the jaw drops away.
+
+**Reported and not yet reproduced:** teeth doubling now and then, and the
+avatar taking a second to recover after a big turn — needs a recording that
+turns both ways, which `driving.mkv` does not (it holds |yaw| > 5° on 2.3% of
+frames and never turns left at all).
+
 ---
 
 ## Day 8

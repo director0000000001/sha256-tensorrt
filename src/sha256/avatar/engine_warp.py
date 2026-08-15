@@ -530,6 +530,26 @@ _INNER_LIP_SLICE = slice(
     + len(_INNER_LIPS),
 )
 
+# The features that stand outside the face oval once the head turns, and so
+# have to be added to the mask by hand or they are never replaced. See
+# :func:`_destination_mask` — this is the difference between an avatar and the
+# user's own nose on screen.
+_PROFILE_POSITIONS = _positions(_NOSE, _OUTER_LIPS)
+
+# The inner lip's upper arc, corner to corner. The mouth interior is placed
+# from these and not from the whole ring, because **the upper teeth hang from
+# the skull and the jaw drops away from them**. Fitted to the whole ring, the
+# photograph's interior is scaled to whatever the live opening happens to be:
+# open wider and the teeth grow with it, and the thin shadow above them grows
+# into a band the size of a lip. That is the owner's "when the teeth show, the
+# lips are lost" — the band was sitting where their upper lip should be.
+#
+# Anchored to the upper lip instead, the teeth arrive at the size the mouth's
+# width implies and stay under the lip they belong to, and opening wider
+# reveals darkness *below* them, which is what opening a jaw does.
+_UPPER_INNER_LIPS = (308, 415, 310, 311, 312, 13, 82, 81, 80, 191, 78)
+_UPPER_LIP_POSITIONS = _positions(_UPPER_INNER_LIPS)
+
 _MASK_SHRINK = 0.04
 _MASK_FEATHER = 0.07
 
@@ -1530,8 +1550,10 @@ def _paint_mouth_interior(
     else:
         source_points = avatar.source_points.get(avatar.interior_role or "", avatar.blend_points)
 
+    # Fitted on the upper lip alone — see ``_UPPER_INNER_LIPS``. The teeth hang
+    # from it; the jaw drops away from it.
     matrix: Any = cv2.estimateAffinePartial2D(
-        source_points[_INNER_LIP_SLICE], target[_INNER_LIP_SLICE], method=cv2.LMEDS
+        source_points[_UPPER_LIP_POSITIONS], target[_UPPER_LIP_POSITIONS], method=cv2.LMEDS
     )[0]
     if matrix is None:
         return
@@ -2879,11 +2901,27 @@ def _destination_mask(points: np.ndarray, width: int, height: int) -> np.ndarray
 
     It is then eroded rather than dilated, so the replaced area stops just
     inside the real face and the blend happens over skin on both sides.
+
+    **The nose and the mouth are added to it, and that is not a refinement —
+    without them the user's own face is on screen.** The face oval is a ring of
+    anatomical points around the head, and a head is only convex from the
+    front. Turned 40 degrees, the nose and the lips stand *outside* that ring in
+    the picture: the ring has swung round to the far side of them. So the mask
+    stopped short of the profile, and the nose, the lips and the chin in front
+    of it were never replaced — the owner, testing: *"when I turn my head, my
+    own face appears, half of it."* They were looking at their real nose and
+    mouth beside an avatar's cheek.
+
+    Their hull rather than their outline, and only theirs: a blob over the
+    middle of the face cannot bridge to an ear or to the background, which is
+    what the outline rule exists to prevent. Frontal it is wholly inside the
+    oval and changes nothing at all.
     """
     import cv2
 
     outline = np.zeros((height, width), dtype=np.uint8)
     cv2.fillPoly(outline, [_trim_forehead(points).astype(np.int32)], 255)
+    cv2.fillConvexPoly(outline, cv2.convexHull(points[_PROFILE_POSITIONS].astype(np.int32)), 255)
 
     face_width = max(float(points[:, 0].max() - points[:, 0].min()), 1.0)
     shrink = max(1, int(face_width * _MASK_SHRINK))

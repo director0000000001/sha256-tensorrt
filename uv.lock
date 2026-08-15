@@ -809,7 +809,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mediapipe", marker = "extra == 'tracking'", specifier = ">=0.10.14" },
+    { name = "mediapipe", marker = "extra == 'tracking'", specifier = ">=1.0,<2" },
     { name = "numpy", specifier = ">=1.26,<3" },
     { name = "onnxruntime-gpu", marker = "extra == 'onnx'", specifier = ">=1.20" },
     { name = "platformdirs", specifier = ">=4.2,<5" },
