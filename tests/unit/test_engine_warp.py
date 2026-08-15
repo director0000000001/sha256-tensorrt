@@ -826,6 +826,70 @@ class TestEyeGeometry:
         assert not [role for role in weights if role.startswith("source_look_")]
 
 
+class TestTurnLadder:
+    """A photograph at every angle, and the nearest one chosen rather than mixed.
+
+    The engine held two turned photographs and averaged them against the
+    frontal one, so every angle in between was a blend of two angles that were
+    not it, and past the outermost photograph it extrapolated from a shot that
+    did not go that far. A clip supplies a frame every three degrees; the right
+    answer then is to pick.
+    """
+
+    # Rung zero is the base portrait, which is the accumulator every other
+    # source is mixed into, so it is named `None` and never appears in the
+    # weights: the share it should have is the share left over.
+    LADDER = ((-30.0, "turn@a"), (-10.0, "turn@b"), (0.0, None), (10.0, "turn@c"))
+
+    def test_straight_ahead_uses_the_portrait_and_nothing_else(self):
+        from sha256.avatar.engine_warp import _ladder_weights
+
+        assert _ladder_weights(self.LADDER, 0.0) == {}
+
+    def test_between_two_rungs_it_mixes_only_those_two(self):
+        from sha256.avatar.engine_warp import _ladder_weights
+
+        weights = _ladder_weights(self.LADDER, -25.0)
+
+        assert set(weights) == {"turn@a", "turn@b"}
+        assert weights["turn@a"] == pytest.approx(0.75)
+        assert weights["turn@b"] == pytest.approx(0.25)
+
+    def test_on_a_rung_it_is_that_rung(self):
+        from sha256.avatar.engine_warp import _ladder_weights
+
+        weights = _ladder_weights(self.LADDER, -10.0)
+
+        assert weights["turn@b"] == pytest.approx(1.0)
+        assert weights.get("turn@a", 0.0) == pytest.approx(0.0)
+
+    def test_past_the_end_it_clamps_rather_than_extrapolating(self):
+        """A photograph cannot show more cheek than was pointed at the camera."""
+        from sha256.avatar.engine_warp import _ladder_weights
+
+        assert _ladder_weights(self.LADDER, -80.0) == {"turn@a": 1.0}
+        assert _ladder_weights(self.LADDER, 80.0) == {"turn@c": 1.0}
+
+    def test_a_lone_portrait_is_not_a_ladder(self):
+        from sha256.avatar.engine_warp import _ladder_weights
+
+        assert _ladder_weights(((0.0, None),), 20.0) == {}
+
+    def test_near_the_portrait_the_portrait_keeps_most_of_it(self):
+        """The rungs either side of zero must not push the portrait out.
+
+        The share the portrait keeps is whatever the rungs do not take, so a
+        rung that reached full weight at a small angle would replace the
+        avatar's own photograph with a video frame on a face that is barely
+        turned.
+        """
+        from sha256.avatar.engine_warp import _ladder_weights
+
+        weights = _ladder_weights(self.LADDER, 2.0)
+
+        assert sum(weights.values()) == pytest.approx(0.2)
+
+
 class TestRelighting:
     """The avatar must take the room's light and none of the user's face.
 

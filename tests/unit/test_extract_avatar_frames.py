@@ -180,6 +180,45 @@ class TestSharpnessFloor:
         assert len(kept) == 15
         assert rejected.get("motion blurred", 0) == 0
 
+    def test_a_far_turn_is_not_mistaken_for_a_different_face(self):
+        """Rotation moves the identity ratios on its own.
+
+        They are ratios of distances across the face, and a turned face is a
+        projection: horizontal spans foreshorten, and not together, because the
+        nose stands out of the plane the cheeks lie in. Against a flat tolerance
+        that discarded 41 frames of one clip, and the frames it discarded were
+        the far turns the clip was generated for.
+        """
+        turned = extractor.Candidate(
+            index=0,
+            image=np.zeros((4, 4, 3), dtype=np.uint8),
+            tracking=tracking(yaw=-45.0),
+            face_width=900.0,
+            sharpness=100.0,
+            identity_drift=0.169,
+        )
+        rejected: dict[str, int] = {"no face": 0}
+
+        kept = extractor.usable([turned], min_face=380.0, rejected=rejected)
+
+        assert kept == [turned]
+        assert rejected.get("identity drifted", 0) == 0
+
+    def test_a_frontal_frame_of_someone_else_still_goes(self):
+        """The allowance grows with the angle; at zero it is unchanged."""
+        stranger = extractor.Candidate(
+            index=0,
+            image=np.zeros((4, 4, 3), dtype=np.uint8),
+            tracking=tracking(yaw=0.0),
+            face_width=900.0,
+            sharpness=100.0,
+            identity_drift=0.169,
+        )
+        rejected: dict[str, int] = {"no face": 0}
+
+        assert extractor.usable([stranger], min_face=380.0, rejected=rejected) == []
+        assert rejected["identity drifted"] == 1
+
     def test_a_genuinely_soft_frame_at_the_same_angle_still_goes(self):
         sharp = [self.candidate(i, -30.0, 200.0) for i in range(5)]
         soft = self.candidate(9, -30.0, 20.0)
@@ -189,3 +228,45 @@ class TestSharpnessFloor:
 
         assert soft not in kept
         assert rejected["motion blurred"] == 1
+
+
+class TestTurnLadder:
+    """One frame per band of angle, and the sharpest one in each."""
+
+    @staticmethod
+    def candidate(index: int, yaw: float, sharpness: float) -> extractor.Candidate:
+        return extractor.Candidate(
+            index=index,
+            image=np.zeros((4, 4, 3), dtype=np.uint8),
+            tracking=tracking(yaw=yaw),
+            face_width=900.0,
+            sharpness=sharpness,
+            identity_drift=0.0,
+        )
+
+    def test_one_rung_per_band(self):
+        candidates = [self.candidate(i, -30.0 + i, 100.0) for i in range(31)]
+
+        rungs = extractor.turn_ladder(candidates, step=3.0)
+
+        assert len(rungs) == 11
+
+    def test_the_sharpest_frame_in_the_band_wins(self):
+        candidates = [
+            self.candidate(0, 10.0, 50.0),
+            self.candidate(1, 10.2, 200.0),
+            self.candidate(2, 10.4, 90.0),
+        ]
+
+        rungs = extractor.turn_ladder(candidates, step=3.0)
+
+        assert [c.index for c in rungs] == [1]
+
+    def test_rungs_come_out_in_order_of_angle(self):
+        """The engine bisects them, so out of order is silently wrong."""
+        candidates = [self.candidate(i, yaw, 100.0) for i, yaw in enumerate([20.0, -30.0, 0.0])]
+
+        rungs = extractor.turn_ladder(candidates, step=3.0)
+
+        angles = [extractor.yaw_of(c) for c in rungs]
+        assert angles == sorted(angles)

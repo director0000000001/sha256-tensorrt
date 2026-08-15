@@ -9,14 +9,28 @@ record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
 ## Day 8
 
-**Done today:** the wedge above a blinking eye (backlog 15), which had been
-diagnosed and left. The eyelid ring was only half the cause; the other half is
-that MediaPipe reports the whole iris circle including the part hidden behind
-the lid, so the mesh described a thirty-pixel iris inside a thirteen-pixel eye
-and the triangles between them were inside-out. Rendered before and after on
-the owner's recorded clip: gone, and gone from the brows-raised frame too,
-where the same mechanism showed as a hard dark M. It costs 1.18 ms of mean
-frame time out of roughly 2.5 ms of headroom.
+**Done today**, in order:
+
+1. **The wedge above a blinking eye** (backlog 15). The eyelid ring was only
+   half the cause; the other half is that MediaPipe reports the whole iris
+   circle including the part hidden behind the lid, so the mesh described a
+   thirty-pixel iris inside a thirteen-pixel eye and the triangles between them
+   were inside-out. Costs 1.18 ms of mean frame time.
+2. **The extractor was throwing away the clips it was built for.** A head-turn
+   clip reported 0 of 22 roles while every frame it needed sat in the file: no
+   resting face to measure against, and a blur floor taken from the still
+   frontal frames. Now 7 of 22 from that clip, and the ladder below.
+3. **The eyes never actually closed** (the owner's standing complaint). A squint
+   took half of every blink, and a *held* closure read 0.14 on `eyeBlink` — so
+   two seconds of shut eyes rendered as a squint. Closure is measured on the
+   eyelids now, which only became possible once the lid ring existed.
+4. **A turn is chosen rather than averaged** (backlog 17). Thirty photographs
+   at measured angles from −47° to +56°, one per three degrees; the engine takes
+   the two that bracket the head and clamps past the ends. Seven times the turn
+   coverage for 0.30 ms.
+
+**Still open and visible:** the far eye at large yaw, which is item 13's limit
+(an iris dragged through the mesh rather than translated as a rigid disc).
 
 ### Waiting on the owner. Nothing below starts without these.
 
@@ -24,7 +38,7 @@ frame time out of roughly 2.5 ms of headroom.
 |---|---|---|
 | 1 | **Choose a video generator.** Sora is gone — the app shut down 2026-04-26 and the API goes on 2026-09-24. | See the checklist below. Candidates still live: Runway, Kling, Luma, Pika, Veo, Hailuo. |
 | 2 | ~~The scope decision~~ — **made 2026-08-15, see below.** | Settled. |
-| 3 | Regenerate the two **far-turn** photographs at ~40°. | The current pair measures 17–20° and is swapped relative to its filenames. |
+| 3 | ~~Regenerate the two far-turn photographs at ~40°~~ — **done 2026-08-15.** | The owner generated a head-turn clip; 30 frames from −47° to +56° replaced the pair entirely. See backlog 17. |
 | 4 | An avatar whose **hair** resembles the owner's. | The mask stops at the hairline, so the hair on screen is always theirs. Matching it is free; replacing it needs segmentation the frame budget cannot afford. |
 
 ### The scope decision — made 2026-08-15

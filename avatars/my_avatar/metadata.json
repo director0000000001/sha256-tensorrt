@@ -2,8 +2,8 @@
   "manifest_version": 1,
   "id": "my_avatar",
   "name": "My Avatar",
-  "version": "1.2.0",
-  "description": "The owner's avatar. Twenty-two sources of one identity, selected and blended per frame from tracked blendshapes and head pose. The two far-turn roles were absent while the only photographs for them measured 17-20 degrees; they now come from a head-turn video clip at +35.0 and -31.7 degrees, chosen and named by the same selector the renderer uses, so they cannot be swapped the way the hand-named pair was.",
+  "version": "1.3.0",
+  "description": "The owner's avatar. Expression photographs by role, plus a turn ladder: 31 frames from one head-turn clip, each carrying the yaw it was measured at, from which the engine selects the nearest rather than averaging two angles that are neither. The named far-turn roles are gone, replaced by the ladder that covers their angles and every angle between.",
   "tags": [
     "owner"
   ],
@@ -95,26 +95,6 @@
       "optional": true
     },
     {
-      "path": "portrait_turn_left.png",
-      "role": "source_turn_left",
-      "optional": true
-    },
-    {
-      "path": "portrait_turn_right.png",
-      "role": "source_turn_right",
-      "optional": true
-    },
-    {
-      "path": "portrait_turn_left_far.png",
-      "role": "source_turn_left_far",
-      "optional": true
-    },
-    {
-      "path": "portrait_turn_right_far.png",
-      "role": "source_turn_right_far",
-      "optional": true
-    },
-    {
       "path": "portrait_tilt_up.jpg",
       "role": "source_tilt_up",
       "optional": true
@@ -123,6 +103,192 @@
       "path": "portrait_tilt_down.jpg",
       "role": "source_tilt_down",
       "optional": true
+    },
+    {
+      "path": "turn_m64_8.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": -64.8
+    },
+    {
+      "path": "turn_m47_1.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": -47.1
+    },
+    {
+      "path": "turn_m45_0.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": -45.0
+    },
+    {
+      "path": "turn_m41_6.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": -41.6
+    },
+    {
+      "path": "turn_m39_0.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": -39.0
+    },
+    {
+      "path": "turn_m35_6.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": -35.6
+    },
+    {
+      "path": "turn_m32_2.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": -32.2
+    },
+    {
+      "path": "turn_m28_8.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": -28.8
+    },
+    {
+      "path": "turn_m27_4.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": -27.4
+    },
+    {
+      "path": "turn_m25_4.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": -25.4
+    },
+    {
+      "path": "turn_m22_2.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": -22.2
+    },
+    {
+      "path": "turn_m19_2.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": -19.2
+    },
+    {
+      "path": "turn_m16_0.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": -16.0
+    },
+    {
+      "path": "turn_m13_0.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": -13.0
+    },
+    {
+      "path": "turn_m01_6.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": -1.6
+    },
+    {
+      "path": "turn_m01_4.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": -1.4
+    },
+    {
+      "path": "turn_p06_2.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": 6.2
+    },
+    {
+      "path": "turn_p08_8.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": 8.8
+    },
+    {
+      "path": "turn_p10_5.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": 10.5
+    },
+    {
+      "path": "turn_p14_8.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": 14.8
+    },
+    {
+      "path": "turn_p16_9.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": 16.9
+    },
+    {
+      "path": "turn_p21_7.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": 21.7
+    },
+    {
+      "path": "turn_p24_0.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": 24.0
+    },
+    {
+      "path": "turn_p26_2.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": 26.2
+    },
+    {
+      "path": "turn_p29_3.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": 29.3
+    },
+    {
+      "path": "turn_p33_0.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": 33.0
+    },
+    {
+      "path": "turn_p36_6.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": 36.6
+    },
+    {
+      "path": "turn_p38_9.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": 38.9
+    },
+    {
+      "path": "turn_p41_0.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": 41.0
+    },
+    {
+      "path": "turn_p55_1.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": 55.1
+    },
+    {
+      "path": "turn_p55_8.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": 55.8
     }
   ],
   "engine": {

@@ -899,3 +899,68 @@ than the engine.
 **What that means for the next attempt:** do not chase this with another
 Laplacian number. Render the two source sets, driven by a frame belonging to
 neither, and look at them side by side at the size a call actually shows.
+
+---
+
+## 17. A turn was averaged when it should have been chosen — FIXED 2026-08-15
+
+**The owner's instruction, and they were right.** *"Every 0.1 second it should
+screenshot each moment and we save the photographs that way. I think that would
+be better."*
+
+It is better, and it could not be done while the engine **blended** its sources.
+Item 9 measured what happens when it is: going from 6 photographs to 20 took
+animation from 13.8 ms to 22.1 ms and sharpness from 62 to 17, because every
+active source repaints the whole face. So a hundred turned frames would have
+made the picture worse, which is why the answer for months was "not yet".
+
+**A turn is not a role, it is an axis.** There is one open mouth and one smile;
+there is no such thing as *the* turn. The engine held four turned photographs —
+near and far, each side — and averaged them against the frontal one, so every
+angle between them was a blend of two angles that were neither, and past the
+outermost photograph it was extrapolating from a shot that did not go that far.
+That is item 5, and no number of photographs fixes it while they are averaged.
+
+**Fixed by selecting instead of blending.** An asset may now carry the yaw it
+was measured at. Those form a *ladder*, sorted by angle, with the base portrait
+as the rung at zero. Per frame the engine takes the two rungs that bracket the
+head's angle and weights them by distance — and past the outermost rung it
+clamps rather than extrapolating, because a photograph cannot show more of the
+cheek than was pointed at the camera.
+
+Two properties fall out of it, and the second is the reason this unlocks the
+owner's idea:
+
+1. **A rest is still byte-identical to the portrait.** The base portrait is a
+   rung, and it is the accumulator everything else mixes into, so at zero the
+   bracket collapses onto it and nothing is mixed at all.
+2. **More photographs are now free.** Only ever one or two are active, whatever
+   the library holds. Thirty rungs cost what four roles did.
+
+**The ladder, from the owner's head-turn clip:** 30 frames from −47° to +56°,
+one per three degrees of yaw, each 945–982 px across the face against the base
+portrait's 455. Three degrees because that is finer than the alignment error the
+mesh warp leaves behind — below it the ladder would be measuring its own noise.
+
+**Measured**, RTX 5070 Ti, i7-14700KF, 1817 frames of the recorded clip:
+
+| | four turn roles | thirty-rung ladder |
+|---|---|---|
+| turn photographs | 4 | **30** |
+| animate mean | 20.42 ms | **20.72 ms** |
+| animate p95 | 22.51 ms | **22.78 ms** |
+| avatar load | 2.6 s | 7.4 s |
+| sources in memory | 42 MB | 95 MB |
+
+Three-tenths of a millisecond for seven times the coverage. Load time and memory
+are where a dense set is actually paid for, and both are one-off.
+
+Rendered at +39.8° of yaw — the extreme in the clip, and past anything the
+engine could previously hold together: a properly turned head with correct cheek
+shading, a real jawline, a plausible nose. The far eye is still poor at that
+angle, which is item 13's limit rather than this one.
+
+**What this makes worth doing:** the same treatment for pitch. Tilt is the other
+axis carrying exactly two photographs, and clip 5 in `AVATAR_VIDEO_PROMPTS.txt`
+is a tilt clip. The ladder is one-dimensional today; a second axis is a real
+change, not a parameter.

@@ -98,6 +98,17 @@ class AssetRef(BaseModel):
         default=False,
         description="When true, a missing asset degrades the avatar instead of failing it.",
     )
+    yaw: float | None = Field(
+        default=None,
+        ge=-90.0,
+        le=90.0,
+        description=(
+            "Head yaw in degrees this asset was measured at, if it is one of a "
+            "series covering an angle. Assets that carry it are chosen by "
+            "nearest angle rather than by role, which is what lets a library "
+            "hold many turns instead of two."
+        ),
+    )
 
     @field_validator("path")
     @classmethod

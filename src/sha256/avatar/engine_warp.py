@@ -32,6 +32,7 @@ Design notes
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -95,6 +96,20 @@ _VARIANT_ROLES: tuple[str, ...] = (
     "source_tilt_up",
     "source_tilt_down",
 )
+
+# The four roles a turn ladder replaces. An avatar with a ladder has a
+# photograph at every angle, so choosing the nearest is exact where averaging
+# these four was an approximation — and mixing both would undo the choosing.
+_TURN_ROLES: tuple[str, ...] = (
+    "source_turn_left",
+    "source_turn_right",
+    "source_turn_left_far",
+    "source_turn_right_far",
+)
+
+# How ladder sources are keyed in the source dictionary. A prefix rather than a
+# role, because there is no fixed number of them and they are chosen by angle.
+_LADDER_PREFIX = "turn@"
 
 # The role whose own mouth opening defines "fully open". Measured from the
 # photograph at load rather than hard-coded, so supplying a wider one simply
@@ -608,6 +623,18 @@ class _Neutral:
         self._ceilings[name] = ceiling
         return max((ceiling - value) / max(ceiling, 1e-6), 0.0)
 
+    def pose_offset(self, name: str, value: float) -> float:
+        """``value`` against the resting angle, **without learning from it**.
+
+        For a second reader of the same signal in the same frame. Calling
+        :meth:`relative_pose` twice would advance the running mean twice, which
+        is an invisible doubling of how fast the neutral chases the head — the
+        kind of mistake that shows up weeks later as "it drifts when I hold a
+        turn" and takes a day to find.
+        """
+        rest = self._pose.get(name)
+        return 0.0 if rest is None else value - rest
+
     def relative_pose(self, name: str, value: float) -> float:
         """``value`` as an offset from the resting head angle. Signed."""
         rest = self._pose.get(name)
@@ -687,6 +714,7 @@ class _LoadedAvatar:
         "descriptor",
         "full_gap",
         "image",
+        "ladder",
         "mouth_mask",
         "neutral",
         "points",
@@ -706,8 +734,14 @@ class _LoadedAvatar:
         sources: dict[str, np.ndarray],
         full_gap: float = _LIP_GAP_FULL,
         source_points: dict[str, np.ndarray] | None = None,
+        ladder: tuple[tuple[float, str | None], ...] = (),
     ) -> None:
         self.full_gap = full_gap
+
+        # The turn ladder: photographs of this face at measured angles, sorted
+        # by yaw, with ``None`` marking the base portrait's own rung at zero.
+        # Empty for an avatar that has only the named turn roles.
+        self.ladder = ladder
         self.descriptor = descriptor
         self.image = image
         self.points = points
@@ -826,22 +860,27 @@ class WarpAvatarEngine:
         # triangulation computed from that is wrong for every frame after.
         _contain_irises(points)
         triangles = _triangulate(points, image.shape[1], image.shape[0])
-        sources, source_points, gaps = self._align_variants(descriptor, image, points, triangles)
+        sources, source_points, gaps, ladder = self._align_variants(
+            descriptor, image, points, triangles
+        )
         full_gap = gaps.get(_OPENING_REFERENCE_ROLE, _LIP_GAP_FULL)
 
         self._loaded[descriptor.id] = _LoadedAvatar(
-            descriptor, image, points, triangles, sources, full_gap, source_points
+            descriptor, image, points, triangles, sources, full_gap, source_points, ladder
         )
         _LOG.info(
             "Loaded avatar %s: %dx%d portrait, %d mesh points, %d triangles, "
-            "%d extra source(s): %s",
+            "%d extra source(s), %d turn rung(s) from %+.0f to %+.0f degrees: %s",
             descriptor.id,
             image.shape[1],
             image.shape[0],
             len(points),
             len(triangles),
             len(sources),
-            ", ".join(sorted(sources)) or "none",
+            len(ladder),
+            ladder[0][0] if ladder else 0.0,
+            ladder[-1][0] if ladder else 0.0,
+            ", ".join(sorted(r for r in sources if not r.startswith(_LADDER_PREFIX))) or "none",
         )
 
     def _align_variants(
@@ -850,7 +889,12 @@ class WarpAvatarEngine:
         base_image: np.ndarray,
         base_points: np.ndarray,
         triangles: np.ndarray,
-    ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, float]]:
+    ) -> tuple[
+        dict[str, np.ndarray],
+        dict[str, np.ndarray],
+        dict[str, float],
+        tuple[tuple[float, str | None], ...],
+    ]:
         """Bring every extra photograph onto the base portrait's frame.
 
         **Two different alignments, because two different things are being
@@ -918,7 +962,61 @@ class WarpAvatarEngine:
             aligned[role] = warp_mesh(image, points, base_points, triangles, width, height)
             aligned_points[role] = base_points
 
-        return aligned, aligned_points, gaps
+        ladder = self._align_ladder(
+            descriptor, base_points, triangles, width, height, aligned, aligned_points
+        )
+        return aligned, aligned_points, gaps, ladder
+
+    def _align_ladder(
+        self,
+        descriptor: AvatarDescriptor,
+        base_points: np.ndarray,
+        triangles: np.ndarray,
+        width: int,
+        height: int,
+        aligned: dict[str, np.ndarray],
+        aligned_points: dict[str, np.ndarray],
+    ) -> tuple[tuple[float, str | None], ...]:
+        """Every asset that carries a measured yaw, as rungs sorted by angle.
+
+        A turn is the one thing the engine had to *guess* at. It held two turned
+        photographs and averaged them against the frontal one, so every angle
+        between them was a blend of two angles that were not it — and past the
+        outermost photograph it was extrapolating from a shot that did not go
+        that far. A clip gives one frame at every angle instead, and then the
+        right answer is to *pick* rather than to mix.
+
+        Placed by the mesh, like the named turn roles and for the same reason:
+        the live face supplies the geometry, and the photograph is wanted for
+        its shading and for the cheek a frontal shot cannot show.
+
+        The base portrait joins the ladder as the rung at zero, marked ``None``.
+        That is what keeps a face looking straight ahead byte-identical to its
+        own photograph: at zero the bracket collapses onto the portrait, and the
+        weight the portrait would have had is exactly the weight it keeps by not
+        being mixed with anything.
+        """
+        rungs: list[tuple[float, str | None]] = [(0.0, None)]
+
+        for index, asset in enumerate(descriptor.manifest.assets):
+            if asset.yaw is None:
+                continue
+
+            key = f"{_LADDER_PREFIX}{index}"
+            path = descriptor.asset_path(asset)
+            try:
+                image = self._read_image(path)
+                points = self._landmarks_of(image, f"{descriptor.id}:{key}")
+            except AvatarLoadError as exc:
+                _LOG.warning("Avatar %s: skipping %s — %s", descriptor.id, asset.path, exc)
+                continue
+
+            image, points = _reduce_to(image, points, base_points)
+            aligned[key] = warp_mesh(image, points, base_points, triangles, width, height)
+            aligned_points[key] = base_points
+            rungs.append((float(asset.yaw), key))
+
+        return tuple(sorted(rungs))
 
     def unload_avatar(self, avatar_id: str) -> None:
         self._loaded.pop(avatar_id, None)
@@ -1878,6 +1976,48 @@ def _weighted_sum(
     return out
 
 
+def _ladder_weights(ladder: tuple[tuple[float, str | None], ...], yaw: float) -> dict[str, float]:
+    """The two rungs that bracket this angle, weighted by how near each is.
+
+    **Selection, not blending**, which is the whole point of a dense set. Two
+    photographs averaged give an angle that is neither of them, and the further
+    apart they are the less the average resembles a face; a rung every three
+    degrees means the two being mixed are three degrees apart, and a mix of two
+    angles three degrees apart is indistinguishable from either.
+
+    Past the outermost rung it clamps rather than extrapolating. A photograph
+    cannot show more of the cheek than was pointed at the camera, and stretching
+    the furthest one further was the old behaviour and is visible as smearing.
+
+    The base portrait's rung returns nothing: it is the accumulator that
+    everything else is mixed *into*, so the weight it should have is exactly the
+    weight left over, and naming it here would apply it twice.
+    """
+    if len(ladder) < 2:
+        return {}
+
+    if yaw <= ladder[0][0]:
+        first = ladder[0][1]
+        return {first: 1.0} if first is not None else {}
+    if yaw >= ladder[-1][0]:
+        last = ladder[-1][1]
+        return {last: 1.0} if last is not None else {}
+
+    upper = bisect_left(ladder, (yaw,))
+    below, above = ladder[upper - 1], ladder[upper]
+    span = above[0] - below[0]
+    share = (yaw - below[0]) / span if span > 1e-6 else 0.0
+
+    # A rung at zero weight is dropped rather than carried: it would cost a
+    # cache key and break "a resting face uses no sources at all", which is the
+    # property that makes a still avatar byte-identical to its own photograph.
+    weights: dict[str, float] = {}
+    for rung, weight in ((below, 1.0 - share), (above, share)):
+        if rung[1] is not None and weight > 1e-6:
+            weights[rung[1]] = weight
+    return weights
+
+
 def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.ndarray:
     """The source photograph for this frame: the base, plus whatever applies.
 
@@ -1906,6 +2046,20 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
         for role, weight in _source_weights(tracking, avatar.full_gap, avatar.neutral).items()
         if role in avatar.sources
     }
+
+    if avatar.ladder:
+        # The ladder owns yaw entirely. Leaving the named turn roles in as well
+        # would mix a chosen angle with an averaged one and undo the choosing.
+        for role in _TURN_ROLES:
+            weights.pop(role, None)
+        pose = tracking.head_pose
+        if pose is not None:
+            # Read, not learn: `_source_weights` has already advanced the
+            # resting angle for this frame.
+            weights.update(
+                _ladder_weights(avatar.ladder, avatar.neutral.pose_offset("yaw", pose.yaw))
+            )
+
     if not weights:
         avatar.blend_points = avatar.points
         return avatar.image

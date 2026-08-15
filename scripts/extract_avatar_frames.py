@@ -21,15 +21,24 @@ frame unusable no matter what expression it caught:
 *   **identity drift** — measured against the base portrait, in case the
     generator lost the person partway through.
 
+**A turn clip is different, and ``--ladder`` is for it.** One best frame per
+role is the right answer for an expression: there is one open mouth. A turn is
+not a role, it is an axis, and the engine used to be handed two points on it and
+left to average everything in between. ``--ladder`` writes the sharpest frame in
+each band of yaw, each carrying the angle it was measured at, so the engine can
+select the nearest instead of averaging two that are neither.
+
 Usage::
 
     python scripts/extract_avatar_frames.py clip.mp4 --out extracted/
     python scripts/extract_avatar_frames.py clip.mp4 --out extracted/ --min-face 420
+    python scripts/extract_avatar_frames.py turns.mp4 --out extracted/ --ladder
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -87,8 +96,22 @@ MIN_SHARPNESS_FRACTION = 0.55
 SHARPNESS_YAW_WINDOW = 7.0
 
 # How far a structural proportion may move from the base portrait before the
-# frame is treated as a different face. Matches the photo checker.
+# frame is treated as a different face, at zero yaw, and how much more is
+# allowed per degree of turn. See :func:`identity_tolerance`.
 IDENTITY_TOLERANCE = 0.08
+IDENTITY_TOLERANCE_PER_DEGREE = 0.003
+
+# The turn ladder: one frame per this many degrees of yaw.
+#
+# The engine used to be given two turned photographs and a frontal one, and it
+# *blended* them, so every angle in between was an average of two angles that
+# were not it. Given a frame at each angle it can select the nearest instead,
+# which is exact where blending was approximate — and only then does a dense set
+# help rather than hurt.
+#
+# Three degrees because that is finer than the alignment error the mesh warp
+# leaves behind, so a finer ladder would be measuring its own noise.
+LADDER_STEP_DEGREES = 3.0
 
 # How much room to leave around the face when writing a frame out, as a fraction
 # of face width. The engine crops to the face itself when it loads a source, so
@@ -222,6 +245,33 @@ def sharpness_floor(candidates: list[Candidate], candidate: Candidate) -> float:
     return max(nearby) if nearby else candidate.sharpness
 
 
+def identity_tolerance(yaw: float) -> float:
+    """How far the proportions may move at this head angle.
+
+    They are ratios of distances across the face, and a turned face is a
+    *projection*: horizontal spans foreshorten, and they do not foreshorten
+    together, because the nose stands out of the plane the cheeks lie in. So
+    rotation moves these numbers on its own, with no change of identity at all.
+
+    Measured on the owner's head-turn clip, drift against the base portrait:
+
+        yaw   1 degree   0.014
+        yaw  13 degrees  0.039
+        yaw  27 degrees  0.022
+        yaw  39 degrees  0.094
+        yaw  45 degrees  0.169
+
+    Against a flat 0.08 that discarded 41 frames of one 192-frame clip, and the
+    frames it discarded were the far turns — the ones the clip was generated
+    for. The allowance grows with the angle, which keeps the check meaningful
+    where it can discriminate and stops it deleting the far end of every turn.
+
+    It is weaker at 45 degrees than at zero, and that is honest: at that angle
+    nothing here can tell a different face from the same one in profile.
+    """
+    return IDENTITY_TOLERANCE + IDENTITY_TOLERANCE_PER_DEGREE * abs(yaw)
+
+
 def usable(
     candidates: list[Candidate], min_face: float, rejected: dict[str, int]
 ) -> list[Candidate]:
@@ -236,11 +286,28 @@ def usable(
             rejected["face too small"] = rejected.get("face too small", 0) + 1
         elif candidate.sharpness < floor:
             rejected["motion blurred"] = rejected.get("motion blurred", 0) + 1
-        elif candidate.identity_drift > IDENTITY_TOLERANCE:
+        elif candidate.identity_drift > identity_tolerance(yaw_of(candidate)):
             rejected["identity drifted"] = rejected.get("identity drifted", 0) + 1
         else:
             kept.append(candidate)
     return kept
+
+
+def turn_ladder(candidates: list[Candidate], step: float) -> list[Candidate]:
+    """The sharpest frame in each band of yaw, ordered by angle.
+
+    Not "every frame": frames a fifth of a second apart at the same angle are
+    the same photograph twice, and each one the engine loads costs a face
+    detection at load and memory for its lifetime. One per band keeps the
+    coverage and drops the duplicates.
+    """
+    best: dict[int, Candidate] = {}
+    for candidate in candidates:
+        band = round(yaw_of(candidate) / step)
+        held = best.get(band)
+        if held is None or candidate.sharpness > held.sharpness:
+            best[band] = candidate
+    return [best[band] for band in sorted(best)]
 
 
 def crop_around_face(candidate: Candidate) -> np.ndarray:
@@ -326,6 +393,30 @@ def best_per_role(
     return chosen
 
 
+def write_ladder(kept: list[Candidate], args: argparse.Namespace) -> None:
+    """Write one frame per band of yaw, and the manifest entries for them."""
+    import cv2
+
+    rungs = turn_ladder(kept, args.ladder_step)
+    print(f"\nturn ladder: {len(rungs)} rung(s), one per {args.ladder_step:g} degrees")
+    print(f"{'file':<30}{'yaw':>8}{'frame':>7}{'face px':>9}")
+
+    entries: list[dict[str, object]] = []
+    for candidate in rungs:
+        yaw = yaw_of(candidate)
+        name = f"turn_{'m' if yaw < 0 else 'p'}{abs(yaw):04.1f}".replace(".", "_") + ".png"
+        cv2.imwrite(str(args.out / name), crop_around_face(candidate))
+        entries.append(
+            {"path": name, "role": "source_turn", "optional": True, "yaw": round(yaw, 1)}
+        )
+        print(f"{name:<30}{yaw:>8.1f}{candidate.index:>7}{candidate.face_width:>9.0f}")
+
+    manifest = args.out / "ladder_assets.json"
+    manifest.write_text(json.dumps(entries, indent=2), encoding="utf-8")
+    print(f"\nManifest entries: {manifest}")
+    print("Paste them into the avatar's metadata.json 'assets' list.")
+
+
 def main(argv: list[str] | None = None) -> int:
     import cv2
 
@@ -343,6 +434,22 @@ def main(argv: list[str] | None = None) -> int:
         type=float,
         default=380.0,
         help="Reject frames whose face is narrower than this, in pixels.",
+    )
+    parser.add_argument(
+        "--ladder",
+        action="store_true",
+        help=(
+            "Also write a turn ladder: the sharpest frame in each band of yaw, "
+            "with the manifest entries to paste in. For a head-turn clip this "
+            "is the point of the clip — the engine selects the nearest angle "
+            "instead of averaging two that are not it."
+        ),
+    )
+    parser.add_argument(
+        "--ladder-step",
+        type=float,
+        default=LADDER_STEP_DEGREES,
+        help="Degrees of yaw per ladder rung.",
     )
     args = parser.parse_args(argv)
 
@@ -434,6 +541,9 @@ def main(argv: list[str] | None = None) -> int:
     if missing:
         print("Not covered — another clip, or the existing photographs, must supply:")
         print("  " + ", ".join(r.replace("source_", "") for r in missing))
+
+    if args.ladder:
+        write_ladder(kept, args)
 
     print(f"\nWritten to {args.out}")
     print("Check them before use:")
