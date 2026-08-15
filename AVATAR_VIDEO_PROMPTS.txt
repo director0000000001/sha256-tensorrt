@@ -298,19 +298,43 @@ position is held for about a second.
 
 
 ================================================================================
-READY TO PASTE — the three clips still missing, in the order they are worth
+READY TO PASTE — in the order they are worth, revised 2026-08-16
 ================================================================================
 
-  Copy one block between the lines, attach portrait.png, send. Order matters:
-  the eye clip first, because the eyes are the standing complaint and the
-  library holds three eye photographs against a face that spends a call
-  blinking.
+  ORDER, and it changed after the owner tested the application:
+
+    1. CLIP 4 — HEAD TURNS, REGENERATED.  Not on this list before, because the
+       clip existed. It is unusable: measured on the near eye, which keeps its
+       lashes at any angle, its turned frames carry 1.5-2% of the detail of the
+       one frame in it where the head was still. The whole ladder is a smear,
+       and no geometry work can put back detail that was never photographed.
+       Its block is under "CLIP 4 — READY TO PASTE" above, and it now asks for a
+       STEPPED turn rather than a sweep.
+    2. CLIP 3 — BROWS AND EYES.  The eyes are the standing complaint.
+    3. CLIP 6 — MOUTH SHAPES.
+    4. CLIP 5 — HEAD TILTS.  **Do not generate this one yet.** The tilt
+       photographs were dropped from the engine on 2026-08-15 — they were
+       active on 99.2% of frames at a median weight of 0.38 and their geometry
+       is a tenth of a face away from the portrait's. What would make pitch
+       usable is a ladder like clip 4's, and the ladder is one-dimensional: it
+       brackets on yaw and nothing else. A second axis is a real change, not a
+       parameter. Until it is built, this clip would sit unused.
 
   Every one of them holds each position for about two seconds. That is not
-  padding. A frame taken mid-movement is motion blurred and the extractor
-  discards it — 135 of 192 on the turn clip — so the held moments are the only
-  ones that become photographs. A clip that moves continuously for eight seconds
-  yields almost nothing; a clip that stops eight times yields eight sources.
+  padding. A frame taken mid-movement is motion blurred and useless, so the held
+  moments are the only ones that become photographs. A clip that moves
+  continuously for eight seconds yields almost nothing; a clip that stops eight
+  times yields eight sources.
+
+  AFTER GENERATING EACH ONE:
+
+      uv run python scripts/extract_avatar_frames.py <clip> --out extracted/
+      uv run python scripts/extract_avatar_frames.py turns.mp4 --out extracted/ --ladder
+
+  The ladder run now prints each rung's near-eye detail as a percentage of the
+  sharpest rung, and says so plainly when they are blurred. Check that line
+  before building an avatar from the frames: if it warns, the clip moved too
+  continuously and it is cheaper to generate it again than to ship it.
 
 --------------------------------------------------------------------------------
 CLIP 3 — BROWS AND EYES   (generate this one first)
