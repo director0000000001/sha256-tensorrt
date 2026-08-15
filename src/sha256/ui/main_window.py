@@ -443,6 +443,19 @@ class MainWindow(QMainWindow):
             return
 
         self._fps_label.setText(f"{self._runner.fps:.1f} fps" if running else "")
+
+        # Say when the face is not being found. On a loss the avatar is held
+        # exactly where it was — the camera is never passed through, whatever
+        # happens — and a frozen face over a moving background reads as the
+        # avatar having vanished. It has not; the tracker simply cannot see
+        # enough of a face turned that far. Saying so turns a defect into a
+        # limit the user can work with.
+        snapshot = self._runner.latest() if running else None
+        tracking = snapshot.tracking if snapshot is not None else None
+        if running and tracking is not None and not tracking.face_detected:
+            self._status_line.setText("Face not found — holding the avatar")
+        else:
+            self._status_line.setText("")
         self._status_line.setText("")
 
         if not self._publish_check.isEnabled():

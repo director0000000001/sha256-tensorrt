@@ -27,9 +27,34 @@ mirror = true
 #   python scripts/fetch_face_landmarker.py
 # Without it, starting the pipeline fails with a message naming that script.
 backend = "mediapipe"
+# Three different questions, and only the first one is about *finding* a face.
+#
+# The owner turned their head far enough that the tracker lost them, and the
+# engine then froze the avatar rather than ever showing the real face — the
+# right rule, and it reads as the face vanishing. Measured on a clip that sweeps
+# smoothly past profile, 192 frames:
+#
+#     detection  presence  tracking   tracked   worst frame-to-frame jump
+#           0.5       0.5       0.5     158/192            5.5% of face width
+#           0.5       0.2       0.2     162/192            5.5%
+#           0.5       0.1       0.1   **165/192**          8.0%
+#           0.3       0.1       0.1     166/192            6.6%
+#
+# Presence and tracking govern *holding* a face already found, so those come
+# down. Detection stays at 0.5 because it governs acquisition, and a permissive
+# detector is the one that would claim a face on an empty chair.
+#
+# Verified not to be buying frames with rubbish: on the owner's own recording
+# all 1847 frames track at every setting with identical jitter (p50 0.27%, p99
+# 5.7%), and plain grey, random noise and a blurred empty scene produce zero
+# detections at every setting, including 0.1.
+#
+# It moves the wall, it does not remove it. Past roughly 65 degrees there is not
+# enough face pointed at the camera to track, and a live 720p face is smaller
+# than the one measured here, so the live limit is lower.
 min_detection_confidence = 0.5
-min_presence_confidence = 0.5
-min_tracking_confidence = 0.5
+min_presence_confidence = 0.1
+min_tracking_confidence = 0.1
 num_faces = 1
 
 # 'auto' resolves to CPU on Windows: the published MediaPipe wheel is built
