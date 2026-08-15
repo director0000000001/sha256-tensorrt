@@ -292,8 +292,24 @@ CLIP 4A and 4B — ONE DIRECTION EACH  (use these if a two-sided take comes back
   arguing with: a ladder does not care how many files it came from, so ask for
   one direction per clip and merge them.
 
-  Generate BOTH. Each is the block below with one word changed, and that word is
-  the whole point of the clip, so it is spelled out twice.
+  **DIRECTION IS SAID TWICE, TWO DIFFERENT WAYS.** "Their left" and "the left of
+  the frame" are opposite things, and which one a generator obeys is not
+  knowable in advance — the first clip came back turning the owner's own right,
+  which on screen is the face pointing at the *left* edge. So each prompt gives
+  both readings of the same movement, and they agree. If the model follows
+  either one it produces the same clip.
+
+  **EIGHT SECONDS, AND THE MOVEMENT DOES NOT COME BACK.** The owner's generator
+  caps at eight, and a return to centre would spend half of that re-photographing
+  angles already covered. So each clip goes one way only and stops at the
+  profile. About eight stops per side, which is a rung every five or six
+  degrees — coarser than the three the ladder would like, and worth it, because
+  every one of them is sharp and the thirty it replaces are smears.
+
+  **The holds are the clip.** Only a motionless frame becomes a photograph, so
+  the instruction is written as "stop" rather than "slow": a slow continuous
+  sweep is exactly what failed the first time. The stated total — the head still
+  for more than half the eight seconds — is there to be checked by watching it.
 
   Merging afterwards, once both are extracted:
 
@@ -307,47 +323,53 @@ CLIP 4A and 4B — ONE DIRECTION EACH  (use these if a two-sided take comes back
       angle exactly like a sharp one.
 
 --------------------------------------------------------------------------------
-CLIP 4A — STEPPED TURN, TO THEIR LEFT ONLY
+CLIP 4A — STEPPED TURN, FACE TOWARD THE RIGHT EDGE OF THE FRAME
+          (the person's own LEFT — the side the first clip did NOT cover)
 --------------------------------------------------------------------------------
 The person in the attached photograph keeps a neutral expression with the mouth
-closed and the eyes open, and turns their head to their own left in a series of
-small separate steps, while their shoulders and body stay square to the camera
-and completely still. They begin facing the camera and hold completely still for
-two seconds. They then turn their head a small step to their left and hold
-completely still for one second, then another small step to their left and hold
-completely still for one second, and so on step by step, always to their left,
-holding still after every step, until the head is almost in profile. Each turn
-between the holds is quick and each hold is completely motionless. They then
-return to face the camera the same way, in small steps to their right with a
-still hold after each one, and hold facing the camera for two seconds. They
-never turn past the camera to the other side. Throughout, the head stays
-perfectly upright with no tilt up, down or sideways, the chin stays level, and
-the eyes stay on the camera lens so that the head turns but the gaze does not.
-The expression never changes. The head is completely motionless during every
-hold — no drift, no settling, no continuous movement at any point.
+closed and the eyes open, and turns their head to their own left, so that in the
+picture their face comes to point toward the right-hand edge of the frame. They
+do it in a series of about eight small separate steps, while their shoulders and
+body stay square to the camera and completely still. They begin facing the
+camera and hold completely still for one second. They then turn their head one
+small step and stop, and hold completely still; then another small step and
+stop, and hold completely still; and so on, always turning the same way, coming
+to a complete stop after every single step, until after about eight steps the
+head is almost in profile, where they hold completely still until the end. The
+head never turns back toward the camera and never turns to the other side. Each
+movement between the stops is gentle and unhurried, and each stop is a full
+stop: in total the head is stationary for more than half of the eight seconds.
+Throughout, the head stays perfectly upright with no tilt up, down or sideways,
+the chin stays level, and the eyes stay on the camera lens so that the head
+turns but the gaze does not. The expression never changes. During every hold the
+head is completely motionless — no drift, no settling, no continuous movement at
+any point.
 
 [+ shared block]
 --------------------------------------------------------------------------------
 
 --------------------------------------------------------------------------------
-CLIP 4B — STEPPED TURN, TO THEIR RIGHT ONLY
+CLIP 4B — STEPPED TURN, FACE TOWARD THE LEFT EDGE OF THE FRAME
+          (the person's own RIGHT — the side the first clip already covered)
 --------------------------------------------------------------------------------
 The person in the attached photograph keeps a neutral expression with the mouth
-closed and the eyes open, and turns their head to their own right in a series of
-small separate steps, while their shoulders and body stay square to the camera
-and completely still. They begin facing the camera and hold completely still for
-two seconds. They then turn their head a small step to their right and hold
-completely still for one second, then another small step to their right and hold
-completely still for one second, and so on step by step, always to their right,
-holding still after every step, until the head is almost in profile. Each turn
-between the holds is quick and each hold is completely motionless. They then
-return to face the camera the same way, in small steps to their left with a
-still hold after each one, and hold facing the camera for two seconds. They
-never turn past the camera to the other side. Throughout, the head stays
-perfectly upright with no tilt up, down or sideways, the chin stays level, and
-the eyes stay on the camera lens so that the head turns but the gaze does not.
-The expression never changes. The head is completely motionless during every
-hold — no drift, no settling, no continuous movement at any point.
+closed and the eyes open, and turns their head to their own right, so that in
+the picture their face comes to point toward the left-hand edge of the frame.
+They do it in a series of about eight small separate steps, while their
+shoulders and body stay square to the camera and completely still. They begin
+facing the camera and hold completely still for one second. They then turn their
+head one small step and stop, and hold completely still; then another small step
+and stop, and hold completely still; and so on, always turning the same way,
+coming to a complete stop after every single step, until after about eight steps
+the head is almost in profile, where they hold completely still until the end.
+The head never turns back toward the camera and never turns to the other side.
+Each movement between the stops is gentle and unhurried, and each stop is a full
+stop: in total the head is stationary for more than half of the eight seconds.
+Throughout, the head stays perfectly upright with no tilt up, down or sideways,
+the chin stays level, and the eyes stay on the camera lens so that the head
+turns but the gaze does not. The expression never changes. During every hold the
+head is completely motionless — no drift, no settling, no continuous movement at
+any point.
 
 [+ shared block]
 --------------------------------------------------------------------------------
