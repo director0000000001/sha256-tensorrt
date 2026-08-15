@@ -51,6 +51,38 @@ before and after every change. Several times today the owner was told a defect
 was found and still saw the same thing. A measure they can watch is worth more
 than another assurance.
 
+### Where tomorrow starts
+
+**Waiting on the owner, and it blocks the largest open item:** two head-turn
+clips, one per direction, from the rewritten prompts in `AVATAR_VIDEO_PROMPTS.txt`
+(CLIP 4A and 4B). Every turned photograph in the library is motion blurred —
+1.5-2% of the near-eye detail of the one frame where the head was still — and no
+engine change can put back detail that was never photographed. Their generator
+turned only one way when asked for both and caps at eight seconds, so the
+prompts now go one direction each, state the direction twice in two different
+ways, and ask for stops rather than a slow sweep.
+
+When the clips arrive: extract each with `--ladder`, read the per-rung sharpness
+line the extractor now prints, **delete every old `turn_*.png` from
+`metadata.json` before pasting the new entries**, and re-measure.
+
+**Next in code, in order:**
+
+1. Item 2 below — the quality measure, as a committed tool rather than a scratch
+   script. Everything since has been reported through it.
+2. The lips: still an average of five photographs, `source_mouth_o` active on
+   84% of the recording. The mouth is the last family that averages rather than
+   chooses.
+3. Two defects the owner reported that cannot be reproduced here — teeth
+   doubling now and then, and a delay before the avatar recovers from a big turn.
+   Both need a driving clip that turns both ways; `driving.mkv` holds |yaw| > 5°
+   on 2.3% of its frames and never turns left at all.
+
+**Day 8, in commits:** the turn geometry (`5d8c750`), the mouth interior
+(`d3bdc3b`), the region fade and the blur diagnosis (`df18e8f`), the mask
+(`7ad64ca`, `8d21309`), the eyes at a turn (`7eb2192`), and the clip plan
+(`f8aed15`, `2588982`, `a0cc3ed`). 430 tests, ruff and mypy clean.
+
 ### The list, in order — item 1 done
 
 1. ~~**The turn sources are torn in half.**~~ **Fixed** later on day 8; see
