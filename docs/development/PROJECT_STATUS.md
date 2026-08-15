@@ -3,7 +3,53 @@
 **Living document.** Update it at the end of each working day. For the frozen
 record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
-**Last updated:** 2026-08-15 · **Day 8 of a 14-day plan**
+**Last updated:** 2026-08-15 · **Day 8 — and the plan changed today**
+
+---
+
+## The plan is now one month, and the target is quality
+
+**Decided by the owner, 2026-08-15, after running the application themselves.**
+Their words: the eyes are wrong far more often than they are right, a slight
+turn nearly loses the face, and the quality only holds within five to ten
+degrees of straight ahead. They also observed, correctly, that day 1 to day 2
+improved a great deal and day 3 barely moved.
+
+That observation is the reason for the change. The first two days removed
+outright defects; what is left is the method's ceiling. Every expression axis
+examined since has turned out not to survive being blended: the four gaze
+photographs were dropped, the squint photograph was dropped, and two of
+MediaPipe's eye blendshapes were found to measure something other than their
+names. That is a pattern, not a run of bad luck.
+
+**So: four weeks, and a neural refiner is the plan's centre.** Not a face
+swapper — the licence-clean, entirely-ours version: a small network trained on
+the owner's own generated clips to correct what the warp gets wrong. Its input
+is an already-posed, already-correct face needing artefacts removed, which is a
+far smaller problem than synthesising one, and B001 measured that shape at
+**1.83 ms fp32 / 1.33 ms fp16** — it fits.
+
+| Week | |
+|---|---|
+| **1** | The broken turn sources, the brows, and 20 fps. A repeatable quality measure. The training-pair generator. |
+| **2** | First refiner. First honest comparison. |
+| **3** | Iterate: architecture, data, temporal stability. |
+| **4** | Integrate, optimise, `.exe` and the kill switch, deliver. |
+
+**`.exe` at the end, by the owner's choice** — everything gets its proper time
+and nothing is rushed.
+
+**The odds, given plainly rather than promised:** roughly one in five that this
+reaches "high level"; roughly two in three that it ends up markedly better than
+today; about one in four that the network does not earn its place and the
+improved warp is what ships. The largest risk is the gap between studio clips
+and a real room, and it is smallest here because the network never sees the
+camera — only the avatar, which is already normalised.
+
+**A commitment made with it:** a fixed clip, fixed frames, one number, reported
+before and after every change. Several times today the owner was told a defect
+was found and still saw the same thing. A measure they can watch is worth more
+than another assurance.
 
 ---
 
