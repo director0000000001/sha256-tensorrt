@@ -124,8 +124,7 @@ _TURN_FULL_DEGREES = 20.0
 # Yaw at which the far turn photographs, if supplied, take over completely.
 _TURN_FAR_DEGREES = 38.0
 
-# Pitch at which the tilt photographs fully apply.
-_TILT_FULL_DEGREES = 18.0
+# The tilt photographs are deliberately not used. See _source_weights.
 
 # Blendshape reading at which a photograph of that expression fully applies.
 # One number for all of them: these are all "how much of this expression is
@@ -596,6 +595,12 @@ _WEIGHT_QUANTUM = 0.02
 # resize would be.
 _REDUCE_THRESHOLD = 1.25
 
+# How far the head must have moved before a region is carried onto it, in
+# pixels of landmark travel. Carrying costs a resampling of the region, and a
+# resampling softens it; under a pixel that is a bad trade, and with a rung
+# every three degrees it would otherwise be paid on nearly every frame.
+_CARRY_MINIMUM_PX = 1.0
+
 
 class _Neutral:
     """The user's resting face, learned while they sit in front of the camera.
@@ -775,9 +780,11 @@ class _Region:
 class _LoadedAvatar:
     """Everything precomputed for one avatar, held for the life of the load.
 
-    ``sources`` maps a role to a photograph already warped onto ``points`` — the
-    base portrait's landmark layout — so every source shares one geometry and
-    blending them is an average rather than a registration problem.
+    ``sources`` maps a role to a photograph placed on the base portrait's frame
+    — same position, same scale, same rotation — and ``source_points`` holds
+    where each one's own landmarks landed. The two together are what every
+    frame is composed from: the pixels of a photograph, and a mesh that
+    describes those pixels rather than the base's.
     """
 
     __slots__ = (
@@ -790,6 +797,7 @@ class _LoadedAvatar:
         "full_gap",
         "image",
         "ladder",
+        "mouth_carry",
         "mouth_mask",
         "neutral",
         "points",
@@ -823,15 +831,19 @@ class _LoadedAvatar:
         self.triangles = triangles
         self.sources = sources
 
-        # Where each source's own landmarks ended up once it was placed. For an
-        # expression photograph these differ from the base's — that difference
-        # *is* the open mouth — and for a pose photograph they are the base's,
-        # because a turn is warped onto the base mesh on purpose.
+        # Where each source's own landmarks ended up once it was placed. They
+        # differ from the base's, and the difference *is* what the photograph
+        # was taken for: the open mouth, the shut eyelid, the turned head.
         self.source_points = source_points if source_points is not None else {}
 
         # The mesh describing the current blend. Recomputed with it, so the two
         # are always a description of the same face.
         self.blend_points = points
+
+        # How to carry something in the base portrait's frame onto the head the
+        # blend is currently wearing. ``None`` while the head is the base's own,
+        # which is most frames and costs nothing. See :func:`_blend_sources`.
+        self.mouth_carry: np.ndarray | None = None
 
         # Which pixels of the photograph are *inside* its mouth, and what colour
         # that cavity is. Both are needed when the user opens wider than the
@@ -972,28 +984,41 @@ class WarpAvatarEngine:
     ]:
         """Bring every extra photograph onto the base portrait's frame.
 
-        **Two different alignments, because two different things are being
-        borrowed**, and using one for both is what made the teeth and the
-        eyelids fail:
+        **Every photograph is placed by a similarity transform** — rotate,
+        uniform scale, translate — fitted on the face outline and the nose
+        bridge. Nothing is reshaped: an open mouth stays open, a closed eyelid
+        stays closed, and a turned head stays turned. Each one's landmarks are
+        returned alongside, moved by the same transform, so the mesh that drives
+        it later describes the picture that is actually there.
 
-        *   **Expression photographs are placed by a similarity transform** —
-            rotate, scale, translate — fitted on the landmarks an expression
-            does not move. Their own geometry survives, so an open mouth stays
-            open and a closed eyelid stays closed. Their landmarks are returned
-            alongside, moved by the same transform, so the mesh that drives them
-            later describes the picture that is actually there.
+        Mesh-warping onto the base's layout is what this replaced, and it failed
+        twice for one reason — it forces a photograph into geometry that is not
+        its own:
 
-        *   **Pose photographs are warped onto the base's mesh**, as before. For
-            a turn, the geometry is exactly what should *not* be borrowed: the
-            live face supplies the angle, and the photograph is wanted only for
-            the shading and the parts of the cheek a frontal shot cannot show.
+        *   **Expressions**, fixed first. The base has a closed mouth and open
+            eyes, so the open-mouth photograph was crushed shut and left a
+            sliver of teeth for the live warp to stretch, and the closed-eye
+            photograph had its eyelid pulled across an open socket, which
+            rendered as vertical streaks.
 
-        The previous version mesh-warped everything, which forced every source
-        into the base's geometry — the base has a closed mouth and open eyes. So
-        the open-mouth photograph was crushed shut, leaving a sliver of teeth
-        that the live warp then stretched, and the closed-eye photograph had its
-        eyelid pulled across an open eye socket, which rendered as vertical
-        streaks. Both were plainly visible and neither was subtle.
+        *   **Poses**, fixed here, and the same defect at four times the size.
+            The base is looking straight ahead, so a 35-degree face folded onto
+            it: a vertical seam down the cheek, the far eye and brow drawn
+            twice, the mouth smeared sideways. Measured on the owner's ladder,
+            a 35-degree rung's landmarks sit 61 px from the frontal layout on
+            average and 156 px at the worst of them, against a 455 px face —
+            that distance *is* the fold. It is the owner's "a slight turn nearly
+            loses the face", their "two photographs on top of each other", and
+            their "only good at five to ten degrees", which were one defect all
+            along.
+
+        The argument for warping a pose was that the live face supplies the
+        angle, so the photograph is wanted only for its shading. That is true of
+        the *result* and false of the method: the live warp maps this
+        photograph's mesh onto the live face, and it can only do that if the
+        mesh describes the photograph. Give it a turned mesh for a turned
+        picture and the warp becomes nearly an identity — which is exactly what
+        should happen when the avatar is already at the angle being asked for.
 
         Done once, here, because it is the expensive half: each variant needs a
         face detection. A variant that cannot be read, or has no face in it, is
@@ -1023,17 +1048,16 @@ class WarpAvatarEngine:
             # base's scale, and both do it by point-sampling.
             image, points = _reduce_to(image, points, base_points)
 
-            if role in _ROLE_REGION:
-                placed = _place_by_similarity(image, points, base_points, width, height)
-                if placed is not None:
-                    aligned[role], aligned_points[role] = placed
-                    continue
-                _LOG.warning(
-                    "Avatar %s: %s could not be placed by similarity, using the mesh",
-                    descriptor.id,
-                    role,
-                )
+            placed = _place_by_similarity(image, points, base_points, width, height)
+            if placed is not None:
+                aligned[role], aligned_points[role] = placed
+                continue
 
+            _LOG.warning(
+                "Avatar %s: %s could not be placed by similarity, using the mesh",
+                descriptor.id,
+                role,
+            )
             aligned[role] = warp_mesh(image, points, base_points, triangles, width, height)
             aligned_points[role] = base_points
 
@@ -1061,9 +1085,11 @@ class WarpAvatarEngine:
         that far. A clip gives one frame at every angle instead, and then the
         right answer is to *pick* rather than to mix.
 
-        Placed by the mesh, like the named turn roles and for the same reason:
-        the live face supplies the geometry, and the photograph is wanted for
-        its shading and for the cheek a frontal shot cannot show.
+        Placed by similarity, like every other photograph and for the reason set
+        out in :meth:`_align_variants`: a rung keeps the geometry of the angle it
+        was shot at, and carries its landmarks with it so the mesh describes the
+        picture. Folding it onto the frontal layout instead is what tore every
+        rung in half.
 
         The base portrait joins the ladder as the rung at zero, marked ``None``.
         That is what keeps a face looking straight ahead byte-identical to its
@@ -1087,8 +1113,17 @@ class WarpAvatarEngine:
                 continue
 
             image, points = _reduce_to(image, points, base_points)
-            aligned[key] = warp_mesh(image, points, base_points, triangles, width, height)
-            aligned_points[key] = base_points
+            placed = _place_by_similarity(image, points, base_points, width, height)
+            if placed is None:
+                _LOG.warning(
+                    "Avatar %s: %s could not be placed by similarity, using the mesh",
+                    descriptor.id,
+                    asset.path,
+                )
+                aligned[key] = warp_mesh(image, points, base_points, triangles, width, height)
+                aligned_points[key] = base_points
+            else:
+                aligned[key], aligned_points[key] = placed
             rungs.append((float(asset.yaw), key))
 
         return tuple(sorted(rungs))
@@ -1473,9 +1508,12 @@ def _paint_mouth_interior(
         flags=cv2.INTER_LINEAR,
         borderMode=cv2.BORDER_REPLICATE,
     )
+    # The mask says which pixels of the *base portrait* are inside its mouth,
+    # so when the blend is wearing a turned head it has to make that journey
+    # first. Composed rather than warped twice: one transform, one resampling.
     covered = cv2.warpAffine(
         avatar.mouth_mask,
-        shifted,
+        shifted if avatar.mouth_carry is None else _compose(shifted, avatar.mouth_carry),
         (box_w, box_h),
         flags=cv2.INTER_NEAREST,
         borderMode=cv2.BORDER_CONSTANT,
@@ -1927,10 +1965,9 @@ def _source_weights(
     if pose is not None:
         # Relative to how this person sits, not to the camera's idea of straight
         # ahead. A camera above a monitor reads a permanent downward tilt, and
-        # driving the tilt photographs from that put a permanent tilt in the
+        # driving a pose photograph from that put a permanent tilt in the
         # avatar's face while the user was looking straight at them.
         yaw = neutral.relative_pose("yaw", pose.yaw)
-        pitch = neutral.relative_pose("pitch", pose.pitch)
 
         turn = yaw / _TURN_FULL_DEGREES
         weights["source_turn_left"] = turn
@@ -1940,9 +1977,34 @@ def _source_weights(
         weights["source_turn_left_far"] = far
         weights["source_turn_right_far"] = -far
 
-        tilt = pitch / _TILT_FULL_DEGREES
-        weights["source_tilt_up"] = tilt
-        weights["source_tilt_down"] = -tilt
+        # **The tilt photographs are deliberately not used**, and this is the
+        # third family to be dropped after the four gaze photographs and the
+        # squint. The reason is the same each time: a photograph that is wrong
+        # more often than it is right costs more than it gives.
+        #
+        # Measured over the owner's whole recording, a tilt photograph was
+        # active on **99.2% of frames** at a median weight of **0.38** — nearly
+        # 40% of every frame of an ordinary conversation was a different
+        # photograph mixed over the portrait. That was survivable only while
+        # every source was folded onto the frontal layout, where it read as
+        # shading. Now that a pose photograph brings its own geometry, the mesh
+        # follows it, and the mesh it follows is wrong: the landmarks of
+        # `clip_tilt_down.png` sit **47.5 px** from the base's on a 455 px face,
+        # which is a tenth of a face, for a photograph only about six degrees
+        # further down than the portrait. It is not a pitch axis — it is
+        # another frame of the same person, differing in more than pitch.
+        #
+        # The cost, on the recorded clip: the avatar's mesh sits 4.2 px further
+        # from the tracked face with the tilts in than with them out (11.0 px
+        # against 6.8), on 99% of frames. Rendered, they are a face pulled
+        # downward with hollows under the eyes, and everything is softer,
+        # because cross-fading two pictures that do not agree is a blur.
+        #
+        # What would make a pitch photograph usable is what already made the
+        # turns usable: a *measured* angle on the asset and a ladder of them
+        # from a nod clip, so the weight is chosen by the angle it was shot at
+        # rather than by a guessed full-scale number. `extract_avatar_frames.py`
+        # already records yaw per frame; pitch is the same measurement.
 
     chosen = {
         role: min(max(value, 0.0), _MAX_VARIANT_WEIGHT)
@@ -2098,6 +2160,138 @@ def _weighted_sum(
     return out
 
 
+def _shares(weights: dict[str, float]) -> tuple[dict[str, float], float]:
+    """The weights as *proportions of each other*, and how much they take in all.
+
+    Splitting the one number the caller has into two is what lets a mix of
+    photographs be built once and then placed somewhere the base is not — the
+    proportions describe the picture, and the total says how much of it the
+    base keeps. Weights asking for more than the whole face are normalised
+    down, as they always were.
+    """
+    total = sum(weights.values())
+    if total <= 0.0:
+        return {}, 0.0
+    return {role: weight / total for role, weight in weights.items()}, min(total, 1.0)
+
+
+def _photo_mix(sources: dict[str, np.ndarray], shares: dict[str, float]) -> np.ndarray:
+    """The photographs mixed among themselves, in the proportions given.
+
+    The base is deliberately not part of it: this is the picture the sources
+    describe on their own, so it can be carried onto a head that has moved
+    before anything underneath is mixed with it.
+    """
+    import cv2
+
+    (first, share), *rest = shares.items()
+    out: np.ndarray = cv2.addWeighted(sources[first], share, sources[first], 0.0, 0.0)
+    for role, weight in rest:
+        out = cv2.addWeighted(out, 1.0, sources[role], weight, 0.0)
+    return out
+
+
+def _point_mix(
+    avatar: _LoadedAvatar, shares: dict[str, float], where: list[int] | slice
+) -> np.ndarray:
+    """The same mix, applied to landmarks instead of pixels.
+
+    Each photograph brings the geometry it was taken with, in the same
+    proportions as its pixels, so the mesh and the picture stay descriptions of
+    one face. A source with no recorded landmarks contributes the base's, which
+    is how "this photograph changes nothing about where things are" is
+    expressed.
+    """
+    (first, share), *rest = shares.items()
+    mixed: np.ndarray = avatar.source_points.get(first, avatar.points)[where] * share
+    for role, weight in rest:
+        mixed = mixed + avatar.source_points.get(role, avatar.points)[where] * weight
+    return mixed
+
+
+def _carry_matrix(base: np.ndarray, head: np.ndarray, where: list[int]) -> np.ndarray | None:
+    """How to move a part of the base portrait onto the head the blend is wearing.
+
+    Rotation, uniform scale and translation, fitted on that part's own
+    landmarks. It exists because two different things are now true at once: the
+    whole-head photographs bring their own angle, and the expression
+    photographs are still cut from a face looking straight ahead. A mouth
+    photograph pasted where the *frontal* mouth was would sit 35 px off the
+    turned one at 17 degrees and 70 px off at 36 — a second mouth beside the
+    first, which is the very defect a turned ladder was meant to remove.
+
+    A similarity cannot express foreshortening, and does not need to: what it
+    has to get right is *where and how big*, and the live warp supplies the
+    rest.
+    """
+    import cv2
+
+    matrix: Any = cv2.estimateAffinePartial2D(base[where], head[where], method=cv2.LMEDS)[0]
+    if matrix is None:
+        return None
+    carried: np.ndarray = matrix
+    return carried
+
+
+def _carry_region(
+    pixels: np.ndarray,
+    mask: np.ndarray,
+    matrix: np.ndarray,
+    box: tuple[int, int, int, int],
+    width: int,
+    height: int,
+) -> tuple[np.ndarray, np.ndarray, tuple[int, int, int, int]] | None:
+    """Move a region's pixels and its feathered mask by ``matrix``.
+
+    Both together, because the mask is the region's edge and an edge left
+    behind would show as a patch of frontal face at the old position. The
+    destination box is the source box's corners transformed and clipped, so the
+    work stays proportional to the region rather than to the frame.
+
+    ``None`` when the region lands outside the picture entirely.
+    """
+    import cv2
+
+    x0, y0, x1, y1 = box
+    corners = np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], dtype=np.float32)
+    moved = cv2.transform(corners.reshape(-1, 1, 2), matrix).reshape(-1, 2)
+
+    dx0 = max(int(np.floor(moved[:, 0].min())), 0)
+    dy0 = max(int(np.floor(moved[:, 1].min())), 0)
+    dx1 = min(int(np.ceil(moved[:, 0].max())) + 1, width)
+    dy1 = min(int(np.ceil(moved[:, 1].max())) + 1, height)
+    if dx1 - dx0 < 2 or dy1 - dy0 < 2:
+        return None
+
+    # The same transform, expressed from the source box's own coordinates into
+    # the destination box's.
+    shifted = matrix.astype(np.float64).copy()
+    shifted[:, 2] = matrix[:, :2] @ np.array([x0, y0], dtype=np.float64) + matrix[:, 2] - (dx0, dy0)
+
+    size = (dx1 - dx0, dy1 - dy0)
+    flags = cv2.INTER_AREA if _shrinks(matrix) else cv2.INTER_LINEAR
+    placed = cv2.warpAffine(pixels, shifted, size, flags=flags, borderMode=cv2.BORDER_REPLICATE)
+    # Zero outside, so the region contributes nothing where it no longer covers
+    # anything — the mask is what stops a hard edge appearing at the box.
+    carried = cv2.warpAffine(
+        mask[:, :, 0],
+        shifted,
+        size,
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=0,
+    )
+    return placed, carried[:, :, None], (dx0, dy0, dx1, dy1)
+
+
+def _compose(outer: np.ndarray, inner: np.ndarray) -> np.ndarray:
+    """The 2x3 transform that applies ``inner`` and then ``outer``."""
+    composed = np.empty((2, 3), dtype=np.float64)
+    composed[:, :2] = outer[:, :2] @ inner[:, :2]
+    composed[:, 2] = outer[:, :2] @ inner[:, 2] + outer[:, 2]
+    return composed
+
+
 def _ladder_weights(ladder: tuple[tuple[float, str | None], ...], yaw: float) -> dict[str, float]:
     """The two rungs that bracket this angle, weighted by how near each is.
 
@@ -2155,12 +2349,22 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
     pixel. Composing by region means a smile and a glance no longer interfere,
     which is also the property that makes a larger photograph set worth having.
 
-    The variants were aligned to the base portrait's geometry at load, so within
-    a region this is still a straight weighted sum of pixels — no registration,
-    and no per-frame decision about which pixels are "the mouth".
+    **Two frames of reference meet here**, and keeping them straight is most of
+    what this function does. Every photograph was placed on the base portrait's
+    frame at load, so an expression is a picture of a face looking straight
+    ahead. A whole-head photograph is not: it brings its own angle, and once it
+    is mixed in, the face underneath is no longer where the base's was. So the
+    mesh moves with it, and anything still cut from the frontal layout — a
+    mouth photograph, the mouth mask — is carried onto the moved head before it
+    is used. Skip that and a mouth photograph lands where the frontal mouth
+    *was*, which at 36 degrees is 70 px beside the one on screen.
+
+    Nothing above happens on a still head, which is most frames: the carry is
+    only computed when a whole-head photograph is actually mixed in.
     """
     if not avatar.sources:
         avatar.blend_points = avatar.points
+        avatar.mouth_carry = None
         return avatar.image
 
     weights = {
@@ -2184,6 +2388,7 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
 
     if not weights:
         avatar.blend_points = avatar.points
+        avatar.mouth_carry = None
         return avatar.image
 
     # Expressions move far more slowly than frames arrive, so the same blend is
@@ -2196,9 +2401,18 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
 
     # Whole-head photographs first, across the whole image. Everything after
     # composes on top of the result, so a turned head still gets its mouth.
+    #
+    # The mesh moves with them. A rung is a photograph of this face at 35
+    # degrees, and it is only usable if the mesh also says 35 degrees: the live
+    # warp reads this mesh as "where these pixels are", and given the frontal
+    # one it would fold a turned face flat before the frame was even composed.
     whole_head = {role: weight for role, weight in weights.items() if role not in _ROLE_REGION}
+    mesh = avatar.points.copy()
     if whole_head:
         blended = _weighted_sum(avatar.image, avatar.sources, whole_head)
+        shares, share = _shares(whole_head)
+        mesh *= 1.0 - share
+        mesh += _point_mix(avatar, shares, slice(None)) * share
     else:
         # Reused rather than reallocated. This is a couple of megabytes on every
         # frame that has an expression but no head turn, which is most of them.
@@ -2207,37 +2421,67 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
         np.copyto(avatar.scratch, avatar.image)
         blended = avatar.scratch
 
-    # The mesh that describes the picture being built. It starts as the base
-    # portrait's and moves with the photographs mixed in — an open-mouth
-    # photograph is only useful if the mesh also says the mouth is open, and one
-    # still describing closed lips would crush it shut on the very next step.
-    mesh = avatar.points.copy()
+    # Whether anything below has to be carried onto a head that has moved. Only
+    # a whole-head photograph moves it, so an expression on a still head takes
+    # none of this and costs exactly what it did before.
+    #
+    # A carry is a resampling and a resampling softens, so it has to earn its
+    # place: below a pixel of travel it would trade sharpness on every frame
+    # for an accuracy nobody can see. The ladder makes that case common rather
+    # than rare — a head is almost never at exactly its resting angle, so the
+    # nearest rung is nearly always mixed in at some small weight.
+    import cv2
+
+    height, width = avatar.image.shape[:2]
+    travel = float(np.abs(mesh - avatar.points).max()) if whole_head else 0.0
+    carrying = travel > _CARRY_MINIMUM_PX
+    avatar.mouth_carry = _carry_matrix(avatar.points, mesh, _MOUTH_POSITIONS) if carrying else None
 
     for region in avatar.regions:
         local = {role: weights[role] for role in region.sources if role in weights}
         if not local:
             continue
 
-        x0, y0, x1, y1 = region.box
+        carry = None
+        shares, share = _shares(local)
+        box = region.box
+        # The photographs mixed among themselves first, then moved onto the
+        # head, and only then mixed with what is underneath. In that order the
+        # thing being carried is a picture of a mouth rather than a mouth
+        # already averaged with the cheek it is about to leave.
+        mixed = _photo_mix(region.sources, shares)
+        mask = region.mask
+        if carrying:
+            carry = (
+                avatar.mouth_carry
+                if region.name == "mouth"
+                else _carry_matrix(avatar.points, mesh, region.positions)
+            )
+            if carry is not None:
+                carried = _carry_region(mixed, mask, carry, box, width, height)
+                if carried is None:
+                    continue
+                mixed, mask, box = carried
+
+        # Feathered so the region's own boundary never shows, and scaled by how
+        # much of it this frame asked for. Float only over the region's few
+        # thousand pixels, not the whole face.
+        # Contiguous on purpose: the arithmetic below runs several times faster
+        # over a copy than over a slice of a wider image, and the copy is one
+        # region's worth of pixels.
+        x0, y0, x1, y1 = box
         underneath = np.ascontiguousarray(blended[y0:y1, x0:x1])
-        mixed = _weighted_sum(underneath, region.sources, local)
+        alpha = mask * share
+        blended[y0:y1, x0:x1] = (underneath * (1.0 - alpha) + mixed * alpha).astype(np.uint8)
 
-        # Feathered so the region's own boundary never shows. Float only over
-        # the region's few thousand pixels, not the whole face.
-        composed = mixed * region.mask + underneath * (1.0 - region.mask)
-        blended[y0:y1, x0:x1] = composed.astype(np.uint8)
-
-        # The same weights, applied to the landmarks, so the mesh and the pixels
-        # stay descriptions of one face.
-        share = sum(local.values())
-        scale = min(1.0 / share, 1.0) if share > 1.0 else 1.0
-        moved = avatar.points[region.positions] * (1.0 - min(share, 1.0))
-        for role, weight in local.items():
-            # A source with no recorded landmarks contributes no geometry, which
-            # is exactly what the base's own landmarks express.
-            own = avatar.source_points.get(role, avatar.points)
-            moved = moved + own[region.positions] * (weight * scale)
-        mesh[region.positions] = moved
+        # The same mix, applied to the landmarks, so the mesh and the pixels stay
+        # descriptions of one face — carried by the same transform as the pixels
+        # were, and blended against the head's own landmarks in the same
+        # proportion, so nothing jumps as a photograph fades in.
+        moved = _point_mix(avatar, shares, region.positions)
+        if carry is not None:
+            moved = cv2.transform(moved.reshape(-1, 1, 2), carry).reshape(-1, 2)
+        mesh[region.positions] = mesh[region.positions] * (1.0 - share) + moved * share
 
     # The lids have just moved and the irises have not — they belong to no
     # region, because a gaze is geometry rather than a photograph. So the mesh

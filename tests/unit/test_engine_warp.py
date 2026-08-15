@@ -923,6 +923,109 @@ class TestTurnLadder:
         assert sum(weights.values()) == pytest.approx(0.2)
 
 
+class TestPosePhotographsKeepTheirGeometry:
+    """A turned photograph brings its angle with it, and the mesh follows.
+
+    The rungs used to be mesh-warped onto the frontal portrait's layout, which
+    at 35 degrees is not a correction but a fold: a seam down the face, the far
+    eye and brow drawn twice, the mouth smeared sideways. What each rung holds
+    now is the picture as it was shot, and its own landmarks alongside — so the
+    live warp runs from a turned mesh onto a turned face and barely deforms
+    anything.
+
+    A translation stands in for a turn here. It is the part of a turn these
+    tests can assert exactly, and the thing being tested is the bookkeeping:
+    that pixels and landmarks make the same journey.
+    """
+
+    SHIFT = 40.0
+
+    def _turned(self, avatar, shift: float, fill: int = 120):
+        """Give the avatar one rung: the same face, ``shift`` px to the right."""
+        avatar.sources["turn@a"] = np.full_like(avatar.image, fill)
+        sideways = np.array([shift, 0.0], dtype=np.float32)
+        avatar.source_points["turn@a"] = avatar.points + sideways
+        avatar.ladder = ((0.0, None), (30.0, "turn@a"))
+
+    def _weight(self, avatar, tracking) -> float:
+        from sha256.avatar.engine_warp import _ladder_weights
+
+        # Read-only: `_blend_sources` has already advanced the resting angle.
+        yaw = avatar.neutral.pose_offset("yaw", tracking.head_pose.yaw)
+        return _ladder_weights(avatar.ladder, yaw).get("turn@a", 0.0)
+
+    def _turn_from_rest(self, avatar, tracking):
+        """Blend ``tracking`` after the engine has been shown a face at rest.
+
+        A single frame in isolation *is* the resting angle — the neutral takes
+        its first reading as straight ahead, which is what stops a camera above
+        a monitor from putting a permanent tilt in the avatar — so a test that
+        wants a turn to register has to establish rest first.
+        """
+        _blend_sources(avatar, expressive_tracking(gap=0.0, yaw=0.0))
+        return _blend_sources(avatar, tracking)
+
+    def test_the_mesh_moves_with_the_photograph(self, engine, tmp_path):
+        engine.load_avatar(make_descriptor(tmp_path))
+        avatar = engine._loaded["avatar_test"]
+        self._turned(avatar, self.SHIFT)
+
+        tracking = expressive_tracking(gap=0.0, yaw=30.0)
+        self._turn_from_rest(avatar, tracking)
+
+        weight = self._weight(avatar, tracking)
+        assert weight > 0.5, "the fixture should put the rung in play"
+        moved = avatar.blend_points - avatar.points
+        assert float(moved[:, 0].mean()) == pytest.approx(self.SHIFT * weight, abs=0.5)
+        assert float(np.abs(moved[:, 1]).max()) < 0.5
+
+    def test_a_still_head_leaves_the_mesh_where_the_portrait_has_it(self, engine, tmp_path):
+        """The property that makes a resting avatar identical to its own photograph."""
+        engine.load_avatar(make_descriptor(tmp_path))
+        avatar = engine._loaded["avatar_test"]
+        self._turned(avatar, self.SHIFT)
+
+        _blend_sources(avatar, expressive_tracking(gap=0.0, yaw=0.0))
+
+        assert avatar.blend_points is avatar.points
+        assert avatar.mouth_carry is None
+
+    def test_an_expression_lands_on_the_turned_head_not_the_frontal_one(self, engine, tmp_path):
+        """The defect this fix would otherwise have introduced.
+
+        Expression photographs are cut from a face looking straight ahead. Pasted
+        at the frontal mouth's coordinates over a head that has turned, they land
+        beside the mouth on screen — 70 px beside it at 36 degrees on the owner's
+        avatar, which is the "two photographs on top of each other" all over
+        again. So a region is carried onto the head before it is composed.
+        """
+        engine.load_avatar(make_descriptor(tmp_path))
+        avatar = engine._loaded["avatar_test"]
+        self._turned(avatar, self.SHIFT)
+        avatar.sources["source_mouth_open"] = np.full_like(avatar.image, 255)
+        avatar.regions = _build_regions(avatar.image, avatar.points, avatar.sources)
+
+        tracking = expressive_tracking(gap=0.09, jaw=0.6, yaw=30.0)
+        blended = self._turn_from_rest(avatar, tracking)
+
+        # Where the mouth photograph landed: it is the only white thing in a
+        # picture of grey, so the centre of the excess brightness is its centre.
+        # Weighted rather than thresholded, because it arrives through a
+        # feathered mask at the weight the jaw asked for and so never reaches
+        # 255 anywhere.
+        excess = np.clip(blended.mean(axis=2).astype(np.float64) - 130.0, 0.0, None)
+        assert excess.sum() > 0.0, "the mouth photograph did not appear at all"
+        columns = excess.sum(axis=0)
+        centre = float((columns * np.arange(columns.size)).sum() / columns.sum())
+
+        mouth = next(region for region in avatar.regions if region.name == "mouth")
+        x0, _, x1, _ = mouth.box
+        frontal = (x0 + x1) / 2.0
+        expected = frontal + self.SHIFT * self._weight(avatar, tracking)
+        assert centre == pytest.approx(expected, abs=4.0)
+        assert abs(centre - frontal) > 8.0, "it stayed at the frontal mouth"
+
+
 class TestRelighting:
     """The avatar must take the room's light and none of the user's face.
 
@@ -1252,14 +1355,19 @@ class TestExpandedSourceSet:
         assert far["source_turn_left_far"] > near.get("source_turn_left_far", 0.0)
         assert "source_turn_right_far" not in far
 
-    def test_tilting_up_and_down_are_not_swapped(self):
-        up = weights_from_rest(expressive_tracking(gap=0.0, yaw=0.0))
-        up_pose = weights_from_rest(_pitched(18.0))
-        down_pose = weights_from_rest(_pitched(-18.0))
+    def test_a_tilted_head_asks_for_no_photograph_at_all(self):
+        """The third family dropped, after the gaze photographs and the squint.
 
-        assert "source_tilt_up" not in up
-        assert up_pose["source_tilt_up"] > 0.9
-        assert down_pose["source_tilt_down"] > 0.9
+        A tilt photograph was active on 99.2% of the owner's recording at a
+        median weight of 0.38, and its landmarks sit a tenth of a face away
+        from the portrait's — so once a pose photograph began carrying its own
+        geometry, it moved the mesh 4.2 px further from the tracked face on
+        nearly every frame. An avatar that has the photographs is not penalised
+        for having them; they are simply never asked for.
+        """
+        for pitch in (18.0, -18.0, 40.0, -40.0):
+            weights = weights_from_rest(_pitched(pitch))
+            assert not [role for role in weights if role.startswith("source_tilt_")]
 
     def test_brows_down_is_separate_from_brows_up(self):
         weights = weights_from_rest(expressive_tracking(gap=0.0, browDownLeft=0.6))

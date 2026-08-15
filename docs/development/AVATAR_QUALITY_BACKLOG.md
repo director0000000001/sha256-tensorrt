@@ -1013,3 +1013,114 @@ takes in the lower brow — and the avatar therefore blinked with a glare.
 Frames are now ranked by their score for the role *minus half of everything else
 they are also doing*. The chosen closed-eye frame moved from the frown to the
 three-second closure the clip was built around.
+
+---
+
+## 20. Every rung of the turn ladder was torn in half — FIXED 2026-08-15
+
+Item 17 gave the engine thirty photographs of the owner's face between −47° and
++56° and a rule for choosing between them. It did not fix the turn, because
+**each of those photographs was folded flat before it was ever used**.
+
+`recordings/turn-sources-broken.png` is what the engine actually held: a
+vertical seam down the face, the far eye and brow drawn twice, the mouth smeared
+sideways. Every rung looked like this, and at any yaw past a few degrees one of
+them was applied at full weight.
+
+**One cause, three complaints.** The owner's *"a slight turn nearly loses the
+face"*, their *"two photographs on top of each other"*, and their *"only good at
+five to ten degrees"* were all this.
+
+### Why
+
+A rung was mesh-warped onto the **frontal** portrait's landmark layout, on the
+argument that the live face supplies the angle so the photograph is wanted only
+for its shading. That argument is true of the result and false of the method.
+The live warp maps a source mesh onto the tracked face, and it can only do that
+if the mesh describes the source. Given the frontal layout for a 35-degree
+picture, the fold happens at load, before a frame is ever composed.
+
+Measured on the owner's own ladder, against a 455 px face:
+
+| rung | mean landmark distance from the frontal layout | worst |
+|---|---|---|
+| ±16° | 30 px | 69 px |
+| ±26° | 41 px | 105 px |
+| ±36° | 61 px | 156 px |
+| ±47° | 77 px | 200 px |
+
+That distance *is* the fold. It is what the mesh warp had to close, by dragging
+triangles across the face.
+
+### Fixed by the change item 11 already made for expressions
+
+Every photograph is now placed by a **similarity transform** — rotate, uniform
+scale, translate — and keeps its own geometry, pose photographs included. Its
+landmarks travel with it, and the blend carries them into `blend_points`, so the
+live warp runs from a turned mesh onto a turned face and is nearly an identity.
+
+**Two frames of reference then meet in the blend, and that is the whole of the
+new complexity.** Expression photographs are still cut from a face looking
+straight ahead. Pasted at the frontal mouth's coordinates over a head that has
+turned, a mouth photograph lands 35 px beside the mouth at 17° and 70 px beside
+it at 36° — the same double exposure, in a new place. So a region is carried
+onto the moved head, pixels and mask and landmarks together, before it is
+composed. Below a pixel of travel it is left alone: carrying costs a resampling,
+and a resampling softens.
+
+### Measured, on the recorded clip — 1847 frames
+
+The number is **how hard the live warp has to work**: after a rigid fit of the
+avatar's blended mesh onto the tracked face, the mean distance left over. That
+residual is what the warp closes by deforming, so it is a direct measure of how
+much the picture is being stretched.
+
+| | before | after |
+|---|---|---|
+| warp residual, all frames | 7.12 px | **6.83 px** |
+| warp residual, frontal | 6.82 px | 6.82 px |
+| warp residual, turned past 10° | 22.43 px | **7.35 px** |
+| rendered sharpness, all frames | 140 | **185** |
+| animate mean | 21.55 ms | 21.37 ms |
+| animate p95 | 24.14 ms | 24.03 ms |
+
+A turned face now costs the warp what a frontal one does — 7.35 px against
+6.82 — where before it cost three times as much. The frame budget is unchanged
+within run-to-run noise, which is ±0.4 ms on this machine.
+
+Sharpness over the 35 turned frames alone reads 58 → 50, and it is the one
+number here that should not be taken at face value: a Laplacian counts the
+fold's own seam as detail. Rendered side by side at +39° — the extreme in the
+clip — the two frames measure 87.3 and 87.4, and the beard, the brow and the eye
+are plainly better in the second. See `recordings/turn-before-after.png` and
+`recordings/turn-sources-fixed.png`.
+
+### What it cost: the tilt photographs, dropped
+
+The third family to go, after the four gaze photographs (item 13) and the squint
+(item 18), and for the same reason each time — *a photograph that is wrong more
+often than it is right costs more than it gives.*
+
+Measured over the whole recording, a tilt photograph was active on **99.2% of
+frames at a median weight of 0.38**. Nearly 40% of every frame of an ordinary
+conversation was a different photograph laid over the portrait. That was
+survivable while everything was folded onto the frontal layout, where it read as
+shading; once a pose photograph brought its own geometry, the mesh followed it —
+and the geometry is wrong. `clip_tilt_down.png` sits **47.5 px** from the base's
+landmarks, a tenth of a face, for a photograph about six degrees further down
+than the portrait. It is not a pitch axis; it is another frame of the same
+person, differing in more than pitch.
+
+With the tilts in, the mesh sat **11.0 px** from the tracked face on frontal
+frames against **6.8 px** without them. Rendered, they are a face pulled
+downward with hollows under the eyes, and everything softer, because
+cross-fading two pictures that do not agree is a blur. Dropping them is most of
+the 140 → 185 sharpness above.
+
+**What would make pitch usable is what made yaw usable:** a measured angle on
+the asset and a ladder of them from a nod clip, so the weight is chosen by the
+angle the photograph was shot at rather than by a guessed full-scale number.
+`extract_avatar_frames.py` already records yaw per frame; pitch is the same
+measurement, and clip 5 in `AVATAR_VIDEO_PROMPTS.txt` is a tilt clip. This is
+the second axis item 17 said would be a real change rather than a parameter —
+and it is now the cheapest quality win left in the photograph set.

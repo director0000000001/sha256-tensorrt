@@ -51,35 +51,52 @@ before and after every change. Several times today the owner was told a defect
 was found and still saw the same thing. A measure they can watch is worth more
 than another assurance.
 
-### Next session, in this order
+### The list, in order — item 1 done
 
-1. **The turn sources are torn in half.** `recordings/turn-sources-broken.png`
-   shows what the engine actually holds: a vertical seam down the face, a
-   doubled eye and brow, the mouth smeared sideways. Every ladder rung looks
-   like this, and at any yaw past a few degrees one of them is applied at full
-   weight. It is the owner's "a slight turn nearly loses the face", their "two
-   photographs on top of each other", and their "only good at five to ten
-   degrees" — all three, one cause.
-
-   **Why:** a 35°-turned face is mesh-warped onto the *frontal* base layout.
-   That is not a correction at that angle, it is a fold. The fix is the one
-   item 11 already made for expression photographs — place turned frames by
-   similarity transform so they keep their own geometry, and let the ladder
-   carry its landmarks into `blend_points` the way the regions do, so the live
-   warp runs from a turned mesh to a turned face and is nearly an identity.
+1. ~~**The turn sources are torn in half.**~~ **Fixed** later on day 8; see
+   backlog 20 and the section below. Every photograph now keeps its own
+   geometry, the mesh moves with it, and a turned face costs the warp what a
+   frontal one does: **22.4 px → 7.3 px** of residual past 10° of yaw.
 
 2. **A repeatable quality measure**, before anything else changes. One clip,
-   fixed frames, one number, so "better" stops being a matter of opinion.
+   fixed frames, one number, so "better" stops being a matter of opinion. Two
+   of the three numbers now exist as a scratch script — warp residual and
+   rendered sharpness, both reported for the turn fix — and what is missing is
+   a committed tool that anyone can run.
 
 3. **The brows over-fire.** The owner: raising them reads as *"crazily
    overjoyed"*. Same family as the squint — measure how often the brow
    photographs are active across the recording before touching a threshold.
+   **It is now measured:** `source_brows_up` is active on **56.5%** of frames
+   and `source_brows_down` on **34.4%**, so the two of them cover 91% of an
+   ordinary conversation between them. That is the squint's shape exactly.
 
-4. **Which photographs are used at all.** The owner's observation, and it is
-   sharp: the library holds 50+ images and perhaps five ever appear. Count the
-   frames each role is active over the whole recording. `source_eyes_wide`
-   managed 29 of 1847; the four gaze photographs and the squint are switched
-   off entirely. That table says where the material is being wasted.
+4. **Which photographs are used at all.** Counted over the whole recording, and
+   the owner's instinct was right — the library holds 50+ images and the table
+   is lopsided:
+
+   | photograph | frames active | |
+   |---|---|---|
+   | `source_mouth_o` | 1556 | 84.2% |
+   | `source_brows_up` | 1044 | 56.5% |
+   | `source_mouth_pressed` | 687 | 37.2% |
+   | `source_smile_closed` | 391 | 21.2% |
+   | `source_smile` | 263 | 14.2% |
+   | `source_mouth_open` | 235 | 12.7% |
+   | `source_eyes_closed` | 178 | 9.6% |
+   | `source_eyes_wide` | 69 | 3.7% |
+   | `source_frown` | 44 | 2.4% |
+   | the four gaze photographs, `source_squint` | 0 | never |
+   | `source_tilt_up` / `_down` | dropped today | — |
+
+   The four named turn roles are not in the table: this avatar has a ladder, and
+   the ladder replaces them. What the ladder itself does is on the same page —
+   the recording holds \|yaw\| > 5° on only **2.3%** of frames, so a clip for
+   judging turn quality has to be recorded for that purpose.
+
+   `source_mouth_o` on 84% of frames deserves the same scrutiny the tilts just
+   got: a rounded-lips photograph should not be present in five frames out of
+   six of a person talking normally.
 
 5. **Re-run every clip through the fixed extractor.** Three of its filters were
    wrong until today — the resting baseline, the blur floor, and the
@@ -91,6 +108,51 @@ than another assurance.
    ~21 ms is in what has never been measured: the virtual camera *with a
    consumer attached*, and the Qt preview, which converts a 720p frame in Python
    and therefore takes the GIL from the pipeline thread.
+
+7. **A pitch ladder**, new, and the cheapest quality win left in the photograph
+   set. The tilt photographs were dropped today because their weight came from
+   a guessed full-scale angle rather than from the angle they were shot at. Yaw
+   had the same problem until item 17 measured it. Clip 5 in
+   `AVATAR_VIDEO_PROMPTS.txt` is a nod clip, and the extractor already measures
+   pose per frame.
+
+---
+
+## Later on day 8 — the turn, fixed and measured
+
+**What was wrong:** every rung of the turn ladder was mesh-warped onto the
+frontal portrait's layout at load, which at 35° is not a correction but a fold.
+Measured: a 35° rung's landmarks sat 61 px from the frontal layout on average
+and 156 px at the worst of them, on a 455 px face.
+
+**What changed:** every photograph — poses included — is placed by a similarity
+transform and keeps its own geometry, and the blend carries its landmarks into
+the mesh. The live warp then runs from a turned mesh onto a turned face. The one
+new complication is that expression photographs are still cut from a frontal
+face, so a region is carried onto the moved head before it is composed; without
+that, a mouth photograph would land 70 px beside the mouth at 36°.
+
+**Measured, 1847 frames of the recorded clip.** The number is the residual left
+after a rigid fit of the avatar's mesh onto the tracked face — the work the warp
+has to do by deforming, which is what stretches the picture.
+
+| | before | after |
+|---|---|---|
+| warp residual, all frames | 7.12 px | **6.83 px** |
+| warp residual, turned past 10° | 22.43 px | **7.35 px** |
+| rendered sharpness, all frames | 140 | **185** |
+| animate mean / p95 | 21.55 / 24.14 ms | 21.37 / 24.03 ms |
+
+**What it cost:** the tilt photographs, dropped — the third family after the
+gaze photographs and the squint. They were active on 99.2% of frames at a median
+weight of 0.38, and their geometry is a tenth of a face away from the portrait's
+for about six degrees of pitch. With them in, the mesh sat 11.0 px from the
+tracked face on frontal frames instead of 6.8. They are most of the sharpness
+gain above, and item 7 is how they come back.
+
+**Evidence:** `recordings/turn-sources-fixed.png` (what the engine holds, per
+rung, before and after) and `recordings/turn-before-after.png` (the same eight
+moments rendered from the same clip).
 
 ---
 
