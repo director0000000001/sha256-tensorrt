@@ -940,11 +940,20 @@ class TestPosePhotographsKeepTheirGeometry:
 
     SHIFT = 40.0
 
-    def _turned(self, avatar, shift: float, fill: int = 120):
-        """Give the avatar one rung: the same face, ``shift`` px to the right."""
+    def _turned(self, avatar, shift: float, fill: int = 120, squeeze: float = 1.0):
+        """Give the avatar one rung: the same face, ``shift`` px to the right.
+
+        ``squeeze`` narrows it as well, which is the part of a turn a similarity
+        cannot follow — a real turn foreshortens, and that leftover is what
+        decides whether a frontal photograph can still be placed.
+        """
         avatar.sources["turn@a"] = np.full_like(avatar.image, fill)
         sideways = np.array([shift, 0.0], dtype=np.float32)
-        avatar.source_points["turn@a"] = avatar.points + sideways
+        moved = avatar.points + sideways
+        if squeeze != 1.0:
+            centre = float(moved[:, 0].mean())
+            moved[:, 0] = centre + (moved[:, 0] - centre) * squeeze
+        avatar.source_points["turn@a"] = moved
         avatar.ladder = ((0.0, None), (30.0, "turn@a"))
 
     def _weight(self, avatar, tracking) -> float:
@@ -961,8 +970,13 @@ class TestPosePhotographsKeepTheirGeometry:
         its first reading as straight ahead, which is what stops a camera above
         a monitor from putting a permanent tilt in the avatar — so a test that
         wants a turn to register has to establish rest first.
+
+        The resting frame carries the same signals as the one under test, all of
+        them quiet: a frame that reports no blendshapes at all teaches the
+        engine nothing about them, and an expression measured against nothing
+        scores zero.
         """
-        _blend_sources(avatar, expressive_tracking(gap=0.0, yaw=0.0))
+        _blend_sources(avatar, relaxed_like(tracking))
         return _blend_sources(avatar, tracking)
 
     def test_the_mesh_moves_with_the_photograph(self, engine, tmp_path):
@@ -978,6 +992,44 @@ class TestPosePhotographsKeepTheirGeometry:
         moved = avatar.blend_points - avatar.points
         assert float(moved[:, 0].mean()) == pytest.approx(self.SHIFT * weight, abs=0.5)
         assert float(np.abs(moved[:, 1]).max()) < 0.5
+
+    def test_the_eyes_follow_the_user_when_no_photograph_can_be_placed(self, engine, tmp_path):
+        """The owner: "it almost never follows my eyes opening and closing" at a turn.
+
+        Every eye photograph is of a face looking straight ahead, so past a
+        certain angle none of them can be placed and the blend has nothing to
+        say about the eyes — they freeze at whatever the turned photograph
+        caught. The mesh takes over exactly as much as the photograph loses.
+        """
+        from sha256.avatar.engine_warp import _EYE_FOLLOW, _EYE_FOLLOW_ALONE
+
+        engine.load_avatar(make_descriptor(tmp_path))
+        avatar = engine._loaded["avatar_test"]
+        # Narrowed as well as moved: a similarity can follow a shift exactly, so
+        # a rung that is only shifted is one a photograph *can* be placed on.
+        self._turned(avatar, self.SHIFT, squeeze=0.7)
+        avatar.sources["source_eyes_closed"] = np.full_like(avatar.image, 255)
+        avatar.regions = _build_regions(avatar.image, avatar.points, avatar.sources)
+
+        # Eyes shut and the head turned: a photograph is wanted and cannot be
+        # placed on a head it was not taken on.
+        shut = expressive_tracking(gap=0.0, yaw=30.0, blink=(0.9, 0.9))
+        self._turn_from_rest(avatar, shut)
+
+        assert avatar.eye_follow > _EYE_FOLLOW
+        assert avatar.eye_follow <= _EYE_FOLLOW_ALONE
+
+    def test_a_resting_face_keeps_the_avatars_own_eyes(self, engine, tmp_path):
+        """Nothing is asked for, so nothing is taken over — item 12 still holds."""
+        from sha256.avatar.engine_warp import _EYE_FOLLOW
+
+        engine.load_avatar(make_descriptor(tmp_path))
+        avatar = engine._loaded["avatar_test"]
+        self._turned(avatar, self.SHIFT)
+
+        self._turn_from_rest(avatar, expressive_tracking(gap=0.0, yaw=30.0))
+
+        assert avatar.eye_follow == _EYE_FOLLOW
 
     def test_a_still_head_leaves_the_mesh_where_the_portrait_has_it(self, engine, tmp_path):
         """The property that makes a resting avatar identical to its own photograph."""

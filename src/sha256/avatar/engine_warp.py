@@ -580,6 +580,20 @@ _BROW_FOLLOW = 0.5
 # so that expressions no photograph covers are not frozen out entirely.
 _EYE_FOLLOW = 0.2
 
+# How much the eyes follow when a photograph was asked for and **could not be
+# delivered**, which is what happens at a turn: every eye photograph is of a
+# face looking straight ahead, and past about fifteen degrees it can no longer
+# be placed (see ``_CARRY_LOST``). The blend then has nothing to say about the
+# eyes and they freeze at whatever the turned photograph happened to catch.
+#
+# The owner, testing: *"when I look sideways it closes the eye by itself while
+# mine is open, and it almost never follows my eyes opening and closing then."*
+# The second half is this. The mesh takes over exactly as much as the
+# photograph loses, so a blink still reads as a blink at an angle — and at rest,
+# where no photograph is asked for because nothing is happening, nothing
+# changes at all: the avatar keeps its own eyes, which is what item 12 was for.
+_EYE_FOLLOW_ALONE = 0.6
+
 # At most one gaze photograph at a time. Two of them — a look left and a look
 # up, say — put the pupil in two places and average it into a smear, which is
 # most of why the eyes looked washed out. One photograph puts the pupil
@@ -845,6 +859,7 @@ class _LoadedAvatar:
         "cavity",
         "correction",
         "descriptor",
+        "eye_follow",
         "full_gap",
         "gaps",
         "image",
@@ -879,6 +894,11 @@ class _LoadedAvatar:
         # a fifth of the way open, with three photographs above it and four
         # below.
         self.gaps = gaps if gaps is not None else {}
+
+        # How much the eyes should follow the user this frame. Raised when an
+        # eye photograph was asked for and could not be placed — see
+        # :data:`_EYE_FOLLOW_ALONE`.
+        self.eye_follow = _EYE_FOLLOW
 
         # Which photograph the mouth interior is being taken from this frame,
         # or ``None`` for "no photograph has one". Never an average of several —
@@ -1463,7 +1483,7 @@ def _warp_onto(
     canvas = warp_mesh(
         blended,
         source_mesh,
-        _damp_brows(source_mesh, local),
+        _damp_brows(source_mesh, local, avatar.eye_follow),
         avatar.triangles,
         box_w,
         box_h,
@@ -1609,7 +1629,9 @@ def _paint_mouth_interior(
     cv2.copyTo(placed, cv2.bitwise_and(opening, covered), region)
 
 
-def _damp_brows(source: np.ndarray, target: np.ndarray) -> np.ndarray:
+def _damp_brows(
+    source: np.ndarray, target: np.ndarray, eye_follow: float = _EYE_FOLLOW
+) -> np.ndarray:
     """Pull the brow and eye landmarks back toward the avatar's own proportions.
 
     The mesh maps the avatar's landmarks onto the user's, so wherever it acts at
@@ -1625,7 +1647,11 @@ def _damp_brows(source: np.ndarray, target: np.ndarray) -> np.ndarray:
     frame reads as pale, flat, lifeless eyes. It is the single feature that gives
     the whole picture away, and it needs the mesh least: blinking, squinting,
     widening and gaze all arrive as photographs now, carrying their own geometry
-    in the blended mesh. So the eyes follow the user barely at all.
+    in the blended mesh. So the eyes follow the user barely at all — *while a
+    photograph is doing the work*. ``eye_follow`` is raised by the caller when
+    one was asked for and could not be placed, which is every eye expression at
+    a turn: the mesh takes over exactly as much as the photograph loses, so a
+    blink at an angle still reads as a blink rather than freezing.
 
     The reference for both is where a rigid fit of the whole face would put them
     — the avatar's own proportions, positioned on the live head.
@@ -1639,7 +1665,7 @@ def _damp_brows(source: np.ndarray, target: np.ndarray) -> np.ndarray:
     rigid = cv2.transform(source.reshape(-1, 1, 2), matrix).reshape(-1, 2)
 
     damped = target.copy()
-    for where, follow in ((_BROW_SLICE, _BROW_FOLLOW), (_EYE_POSITIONS, _EYE_FOLLOW)):
+    for where, follow in ((_BROW_SLICE, _BROW_FOLLOW), (_EYE_POSITIONS, eye_follow)):
         anchor = rigid[where]
         damped[where] = anchor + (damped[where] - anchor) * follow
 
@@ -2497,6 +2523,7 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
     if not avatar.sources:
         avatar.blend_points = avatar.points
         avatar.interior_role = None
+        avatar.eye_follow = _EYE_FOLLOW
         return avatar.image
 
     weights = {
@@ -2521,6 +2548,7 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
     if not weights:
         avatar.blend_points = avatar.points
         avatar.interior_role = None
+        avatar.eye_follow = _EYE_FOLLOW
         return avatar.image
 
     # **The mouth interior comes from one photograph, never from an average.**
@@ -2587,6 +2615,7 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
     face_width = max(float(avatar.points[:, 0].max() - avatar.points[:, 0].min()), 1.0)
     travel = float(np.abs(mesh - avatar.points).max()) if whole_head else 0.0
     carrying = travel > _CARRY_MINIMUM_PX
+    avatar.eye_follow = _EYE_FOLLOW
 
     for region in avatar.regions:
         local = {role: weights[role] for role in region.sources if role in weights}
@@ -2610,6 +2639,11 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
                 # the region is left as the turned head found it.
                 carry, error = fitted
                 trust = _trust(error / face_width)
+                if region.name == "eyes":
+                    # What the photographs were asked for but could not deliver,
+                    # which the mesh has to cover instead.
+                    lost = share * (1.0 - trust)
+                    avatar.eye_follow = _EYE_FOLLOW + lost * (_EYE_FOLLOW_ALONE - _EYE_FOLLOW)
                 if trust <= 0.0:
                     continue
                 share *= trust

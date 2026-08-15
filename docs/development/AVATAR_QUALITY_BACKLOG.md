@@ -1353,6 +1353,40 @@ brow, a mouth corner — and they sit at 0.34-0.41 rather than at zero, which is
 the feather rather than a hole. The oval's own points are outside by
 construction: the oval *is* the boundary, and it is eroded on purpose.
 
+### And the eyes stopped following at a turn
+
+The owner, on the same run: *"when I look sideways it closes the eye by itself
+while mine is open, and it almost never follows my eyes opening and closing
+then."* Two separate things, and only one of them is the engine.
+
+**The closing is the blur.** Two candidates were measured and one survives. The
+engine does not ask for a closed eye at a turn — over the whole recording, the
+closed-eye weight is 0.082 within 2° of rest and **0.000 on every frame past
+5°** — and the lid measurement does not drift either, reading 0.058 at a turn
+against 0.054 at rest, slightly *more* open. Nor are the ladder photographs
+narrow-eyed: measured with the engine's own lid ratio, every rung sits between
+95% and 109% of the portrait. What is left is item 22: a motion-blurred eye
+reads as a shut one, which is the same sentence as the owner's other complaint
+in the same breath, *"the eyes look smeared."*
+
+**The not-following is real, and now fixed.** Every eye photograph is of a face
+looking straight ahead, so at a turn the carry fades it out (item 20) and the
+blend has nothing left to say about the eyes — they freeze at whatever the
+turned photograph caught. The mesh could say something, but it deliberately does
+not: `_EYE_FOLLOW` is 0.2 because item 12 found that following the user's eye
+aperture gives the avatar somebody else's eyes, pale and flat.
+
+So the mesh now takes over **exactly as much as the photograph loses**: the
+follow rises from 0.2 toward 0.6 in proportion to what was asked for and could
+not be placed. At rest, where nothing is asked for, nothing changes and the
+avatar keeps its own eyes. At a turn, a blink reads as a blink again.
+
+The owner's own diagnosis was *"we don't have photographs of a turned face with
+the eyes closed"*, and that is the right reading of the cause — but such
+photographs cannot be used yet: the ladder is one-dimensional, and yaw × eye
+state is the second axis item 17 flagged as a real change rather than a
+parameter. Generating them now would waste the clip.
+
 ### And the mouth interior is anchored to the upper lip now
 
 Same test, second complaint: *"when the teeth show, the lips are lost."* The
