@@ -283,6 +283,77 @@ changing.
 
 
 ================================================================================
+CLIP 4A and 4B — ONE DIRECTION EACH  (use these if a two-sided take comes back
+                                      turning only one way, which it did)
+================================================================================
+
+  The generator was asked for a stepped turn to the left and then to the right
+  in one take, and returned a clip that only ever went one way. It is not worth
+  arguing with: a ladder does not care how many files it came from, so ask for
+  one direction per clip and merge them.
+
+  Generate BOTH. Each is the block below with one word changed, and that word is
+  the whole point of the clip, so it is spelled out twice.
+
+  Merging afterwards, once both are extracted:
+
+    - The frames are named by the angle they were measured at — `turn_m12_0.png`
+      for minus twelve degrees, `turn_p12_0.png` for plus — so the two sides
+      cannot collide. Copy both sets into the avatar folder.
+    - Concatenate the two `ladder_assets.json` arrays into the avatar's
+      `metadata.json` assets list.
+    - DELETE THE OLD RUNGS FIRST. Every `turn_*.png` from the first clip is a
+      motion-blurred frame, and a blurred rung left in the manifest is chosen by
+      angle exactly like a sharp one.
+
+--------------------------------------------------------------------------------
+CLIP 4A — STEPPED TURN, TO THEIR LEFT ONLY
+--------------------------------------------------------------------------------
+The person in the attached photograph keeps a neutral expression with the mouth
+closed and the eyes open, and turns their head to their own left in a series of
+small separate steps, while their shoulders and body stay square to the camera
+and completely still. They begin facing the camera and hold completely still for
+two seconds. They then turn their head a small step to their left and hold
+completely still for one second, then another small step to their left and hold
+completely still for one second, and so on step by step, always to their left,
+holding still after every step, until the head is almost in profile. Each turn
+between the holds is quick and each hold is completely motionless. They then
+return to face the camera the same way, in small steps to their right with a
+still hold after each one, and hold facing the camera for two seconds. They
+never turn past the camera to the other side. Throughout, the head stays
+perfectly upright with no tilt up, down or sideways, the chin stays level, and
+the eyes stay on the camera lens so that the head turns but the gaze does not.
+The expression never changes. The head is completely motionless during every
+hold — no drift, no settling, no continuous movement at any point.
+
+[+ shared block]
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+CLIP 4B — STEPPED TURN, TO THEIR RIGHT ONLY
+--------------------------------------------------------------------------------
+The person in the attached photograph keeps a neutral expression with the mouth
+closed and the eyes open, and turns their head to their own right in a series of
+small separate steps, while their shoulders and body stay square to the camera
+and completely still. They begin facing the camera and hold completely still for
+two seconds. They then turn their head a small step to their right and hold
+completely still for one second, then another small step to their right and hold
+completely still for one second, and so on step by step, always to their right,
+holding still after every step, until the head is almost in profile. Each turn
+between the holds is quick and each hold is completely motionless. They then
+return to face the camera the same way, in small steps to their left with a
+still hold after each one, and hold facing the camera for two seconds. They
+never turn past the camera to the other side. Throughout, the head stays
+perfectly upright with no tilt up, down or sideways, the chin stays level, and
+the eyes stay on the camera lens so that the head turns but the gaze does not.
+The expression never changes. The head is completely motionless during every
+hold — no drift, no settling, no continuous movement at any point.
+
+[+ shared block]
+--------------------------------------------------------------------------------
+
+
+================================================================================
 CLIP 5 — HEAD TILTS AND GAZE
 ================================================================================
 
