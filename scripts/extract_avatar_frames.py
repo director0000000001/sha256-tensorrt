@@ -48,7 +48,15 @@ import numpy as np
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from sha256.avatar.engine_warp import _VARIANT_ROLES, _Neutral, _source_weights  # noqa: E402
+from sha256.avatar.engine_warp import (  # noqa: E402
+    _LEFT_BROW,
+    _LEFT_EYE,
+    _RIGHT_BROW,
+    _RIGHT_EYE,
+    _VARIANT_ROLES,
+    _Neutral,
+    _source_weights,
+)
 from sha256.core.enums import PixelFormat  # noqa: E402
 from sha256.core.types import FaceTrackingResult, FrameMetadata, VideoFrame  # noqa: E402
 from sha256.tracking.mediapipe_tracker import (  # noqa: E402
@@ -131,6 +139,15 @@ IDENTITY_TOLERANCE_PER_DEGREE = 0.003
 # leaves behind, so a finer ladder would be measuring its own noise.
 LADDER_STEP_DEGREES = 3.0
 
+# How much of the sharpest rung's near-eye detail a rung must keep before it is
+# called blurred. Measured on the owner's first ladder, whose turned rungs came
+# out at **4%** of the near-frontal one — a clip generated with the head moving
+# continuously, so every frame during the turn is smeared. A sharp turn loses
+# some of this measure too, because a lash line at 40 degrees is foreshortened,
+# but nothing like that much; a quarter leaves room for the honest loss and
+# still catches a smear.
+LADDER_MIN_DETAIL = 0.25
+
 # How much room to leave around the face when writing a frame out, as a fraction
 # of face width. The engine crops to the face itself when it loads a source, so
 # everything beyond this is read from disk and thrown away — and at 4K that is
@@ -186,6 +203,46 @@ def sharpness_of(image: np.ndarray, points: np.ndarray) -> float:
 
     face = cv2.cvtColor(image[y0:y1, x0:x1], cv2.COLOR_BGR2GRAY)
     return float(cv2.Laplacian(face, cv2.CV_64F).var())
+
+
+def eye_sharpness(candidate: Candidate) -> float:
+    """Sharpness measured on the eye and brow **nearer the camera**.
+
+    The whole-face measure cannot judge a turn, and this is not a subtlety: a
+    Laplacian counts the detail a face is *showing*, and a turned face shows
+    much less of it — one eye goes behind the nose, and the cheek that fills
+    the frame is smooth skin. Measured on frames sharp enough to count beard
+    hairs, the median runs 179 at 0-8 degrees of yaw against 9 at 20-35. A
+    blurred turn and a sharp one therefore score alike, which is how a ladder
+    of thirty motion-blurred frames was built and shipped.
+
+    The near eye does not have that problem. It stays fully visible and fully
+    detailed to well past 40 degrees — lashes, brow hairs, the iris edge — so
+    its sharpness is comparable across the whole turn. Taking the better of the
+    two eyes always measures the near one, whichever way the head is pointing.
+    """
+    import cv2
+
+    points = candidate.tracking.landmarks
+    if points is None:
+        return 0.0
+
+    height, width = candidate.image.shape[:2]
+    scaled = points.points[:, :2] * (width, height)
+    grey = cv2.cvtColor(candidate.image, cv2.COLOR_BGR2GRAY)
+
+    best = 0.0
+    for eye, brow in ((_LEFT_EYE, _LEFT_BROW), (_RIGHT_EYE, _RIGHT_BROW)):
+        group = scaled[list(eye) + list(brow)]
+        pad = (group[:, 0].max() - group[:, 0].min()) * 0.25
+        x0 = max(int(group[:, 0].min() - pad), 0)
+        x1 = min(int(group[:, 0].max() + pad), width)
+        y0 = max(int(group[:, 1].min() - pad), 0)
+        y1 = min(int(group[:, 1].max() + pad), height)
+        if x1 - x0 < 8 or y1 - y0 < 8:
+            continue
+        best = max(best, float(cv2.Laplacian(grey[y0:y1, x0:x1], cv2.CV_64F).var()))
+    return best
 
 
 def read_candidates(
@@ -432,7 +489,10 @@ def write_ladder(kept: list[Candidate], args: argparse.Namespace) -> None:
 
     rungs = turn_ladder(kept, args.ladder_step)
     print(f"\nturn ladder: {len(rungs)} rung(s), one per {args.ladder_step:g} degrees")
-    print(f"{'file':<30}{'yaw':>8}{'frame':>7}{'face px':>9}")
+    print(f"{'file':<30}{'yaw':>8}{'frame':>7}{'face px':>9}{'near eye':>10}")
+
+    detail = {candidate.index: eye_sharpness(candidate) for candidate in rungs}
+    sharpest = max(detail.values(), default=0.0)
 
     entries: list[dict[str, object]] = []
     for candidate in rungs:
@@ -442,7 +502,27 @@ def write_ladder(kept: list[Candidate], args: argparse.Namespace) -> None:
         entries.append(
             {"path": name, "role": "source_turn", "optional": True, "yaw": round(yaw, 1)}
         )
-        print(f"{name:<30}{yaw:>8.1f}{candidate.index:>7}{candidate.face_width:>9.0f}")
+        share = detail[candidate.index] / sharpest if sharpest > 0 else 1.0
+        mark = "  <- blurred" if share < LADDER_MIN_DETAIL else ""
+        print(
+            f"{name:<30}{yaw:>8.1f}{candidate.index:>7}{candidate.face_width:>9.0f}"
+            f"{share:>9.0%}{mark}"
+        )
+
+    floor = sharpest * LADDER_MIN_DETAIL
+    soft = [index for index, value in detail.items() if sharpest > 0 and value < floor]
+    if soft:
+        print(
+            f"\n{len(soft)} of {len(rungs)} rungs are motion blurred — "
+            f"under {LADDER_MIN_DETAIL:.0%} of the sharpest rung's near-eye detail."
+        )
+        print("The clip was generated with the head moving continuously, so every frame")
+        print("during the turn is smeared and the per-frame blur floor cannot see it:")
+        print("it compares each frame with the third of a second around it, and all of")
+        print("those are blurred alike. Geometry cannot recover this — the avatar will")
+        print("be sharp facing forward and soft at every angle.")
+        print("Regenerate the clip with the head **pausing at each angle**, or turning")
+        print("slowly enough that a frame is still, and extract again.")
 
     manifest = args.out / "ladder_assets.json"
     manifest.write_text(json.dumps(entries, indent=2), encoding="utf-8")

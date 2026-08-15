@@ -1205,3 +1205,65 @@ five photographs, and `source_mouth_o` is active on 84% of the recording. A
 mouth shape is not an axis the way yaw is, but a rounded-lip photograph present
 in five frames out of six of ordinary speech is the tilt photographs' problem
 wearing another face.
+
+---
+
+## 22. Every turned photograph in the library is motion blurred — the material, not the engine
+
+**The owner, on the renders after the turn fix:** *"the head turned to the side
+is horrible."* They are right, and after item 20 the reason is no longer the
+geometry. It is that **the photographs at those angles are smears**.
+
+### The measurement, and why it took three attempts
+
+The obvious measure says nothing here. Laplacian variance over a face counts
+the detail the face is *showing*, and a turned face shows far less of it — one
+eye goes behind the nose and a smooth cheek fills the frame. This file already
+records the effect: a median of 179 at 0-8 degrees of yaw against 9 at 20-35,
+**on frames sharp enough to count beard hairs**. So a blurred turn and a sharp
+turn score alike, and every filter built on that number is blind to exactly the
+defect it was meant to catch.
+
+The eye nearer the camera does not have the problem. It keeps its lashes, its
+brow hairs and its iris edge to well past 40 degrees, so it can be compared
+across a whole sweep. Measured that way on the owner's own ladder, each rung
+against the sharpest rung in it:
+
+| rung | near-eye detail | of the best |
+|---|---|---|
+| −1.6° | 645.7 | 100% |
+| +16.9° | 13.9 | **2.1%** |
+| +26.2° | 9.5 | **1.5%** |
+| +38.9° | 9.6 | **1.5%** |
+| +55.1° | 11.0 | **1.7%** |
+
+One frame in the clip was taken while the head was still, and it is the only
+sharp one. Every other rung was taken while the head was moving.
+
+### Why nothing caught it
+
+The extractor's blur floor is deliberately *local* — a frame is judged against
+the third of a second around it, because that is the only fair comparison for a
+measure that responds to what the face is doing (item 19's neighbours). In a
+clip where the head turns continuously, **every frame in that window is blurred
+alike**, so the local maximum is itself a smear and passes. The floor was built
+for hold-and-release expression clips and is exactly wrong for a sweep.
+
+### What changed here
+
+Nothing in the engine, because there is nothing in the engine to change: a warp
+cannot put back detail that was never photographed. Two things instead —
+
+1. **`extract_avatar_frames.py` now measures the near eye** and reports each
+   rung as a percentage of the sharpest one, with a warning naming the cause
+   and the remedy when rungs fall below a quarter. The next blurred ladder gets
+   caught before an avatar is built from it.
+2. **The clip 4 prompt now asks for a stepped turn**, not a slow sweep: turn a
+   little, hold still, turn a little, hold still. The old prompt asked for a
+   continuous movement with three pauses per side, which cannot fill a ladder
+   that wants a rung every three degrees however slowly it is taken.
+
+**This is a supply problem now, and it is the largest one open.** The engine's
+geometry at a turn is correct and measured — 22.4 px of warp residual down to
+7.3 — and the picture will stay soft at every angle until the clip is
+regenerated.

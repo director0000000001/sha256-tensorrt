@@ -175,10 +175,38 @@ tongue and no teeth either."* Three causes, each hiding the next — backlog 21:
    active, while the lips still cross-fade. Fourth appearance of one defect,
    after the gaze photographs, the squint and the averaged turns.
 
-**Still open, and named by the same evidence:** the lips are still an average
-of five photographs, `source_mouth_o` is active on 84% of the recording, and at
-39° of yaw the near eye is visibly wrong — the iris is dragged rather than
-placed, which is item 13's limit.
+## And the turned head is still bad, for a reason the engine cannot fix
+
+The owner, on the same renders: *"the head turned to the side is horrible."*
+After item 20 the geometry is right — so the pictures were measured instead,
+and **every turned photograph in the library is motion blurred**. Backlog 22.
+
+Measured on the eye nearer the camera, which keeps its lashes and brow hairs at
+any angle and so can be compared across a sweep, each rung against the sharpest
+rung in the ladder:
+
+| rung | near-eye detail | of the best |
+|---|---|---|
+| −1.6° | 645.7 | 100% |
+| +16.9° | 13.9 | **2.1%** |
+| +26.2° | 9.5 | **1.5%** |
+| +38.9° | 9.6 | **1.5%** |
+| +55.1° | 11.0 | **1.7%** |
+
+One frame in that clip was taken while the head was still. It is the only sharp
+one; every other rung was taken mid-movement. Nothing caught it because the
+blur floor compares a frame with the third of a second around it, and in a
+continuous turn every frame in that window is blurred alike.
+
+**So the head-turn clip has to be generated again**, and the prompt for it has
+changed: a *stepped* turn — turn a little, hold still, turn a little, hold
+still — rather than the slow continuous sweep the old one asked for. A sweep
+with three pauses per side cannot fill a ladder that wants a rung every three
+degrees. `extract_avatar_frames.py` now measures this and warns, so the next
+blurred ladder is caught before an avatar is built from it.
+
+**Also still open, from the same look:** the lips are an average of five
+photographs, and `source_mouth_o` is active on 84% of the recording.
 
 ---
 

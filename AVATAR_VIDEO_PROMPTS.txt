@@ -225,9 +225,21 @@ CLIP 4 — READY TO PASTE
   Two things in it are requirements rather than description, and both exist
   because of what the frames are for:
 
-    - IT PAUSES AT EACH ANGLE. A frame taken mid-turn is motion blurred, and the
-      extractor throws blurred frames away — 88 of 240 on the first clip. The
-      pauses are where the usable frames come from.
+    - IT STOPS AT EVERY ANGLE, not just at the extremes. **The first version of
+      this prompt asked for a slow continuous sweep with a pause at each end,
+      and the ladder built from it is unusable**: measured on the near eye,
+      which keeps its lashes and brow hairs at any angle, the turned rungs came
+      out at **1.5-2% of the sharpness of the one frame where the head was
+      still**. Every one of them is a smear. Worse, nothing caught it — the
+      extractor's blur floor compares a frame with the third of a second around
+      it, and in a continuous turn every frame in that window is blurred alike,
+      so the softest sweep passes. (It now measures the near eye against the
+      whole ladder and says so; see `extract_avatar_frames.py`.)
+
+      So the movement has to be a series of *stops*: turn a little, hold still,
+      turn a little, hold still. Each stop is one rung of the ladder and the
+      engine wants one every three degrees, which a sweep with three pauses in
+      it cannot give however slowly it is taken.
     - THE SHOULDERS DO NOT FOLLOW. The engine measures the *head's* yaw against
       the body. If the whole person rotates, the face is turned and the
       measurement says it is not.
@@ -240,18 +252,21 @@ CLIP 4 — READY TO PASTE
 
 --------------------------------------------------------------------------------
 The person in the attached photograph keeps a neutral expression with the mouth
-closed and the eyes open, and slowly turns their head from side to side while
-their shoulders and body stay square to the camera and completely still. They
-begin facing the camera and hold for two seconds. They then turn their head very
-slowly to their left, pausing for about a second when the head is a quarter
-turned, again when it is half turned, and again when it is almost in profile.
-They then return just as slowly to face the camera, pausing again at the same
-angles on the way back, and hold facing the camera for two seconds. They then
-repeat exactly the same movement to their right: slowly turning, pausing a
-quarter turned, half turned, and almost in profile, then slowly back to centre.
-Throughout, the head stays perfectly upright with no tilt up, down or sideways,
-the chin stays level, and the eyes stay on the camera lens so that the head
-turns but the gaze does not. The expression never changes.
+closed and the eyes open, and turns their head from side to side in a series of
+small separate steps while their shoulders and body stay square to the camera
+and completely still. They begin facing the camera and hold for two seconds.
+They then turn their head a small step to their left and hold completely still
+for one second, then another small step and hold still for one second, and so on
+step by step, holding still after each one, until the head is almost in profile.
+Each turn between holds is quick and each hold is completely motionless. They
+then come back to the camera the same way, in small steps with a still hold
+after each, and hold facing the camera for two seconds. They then repeat exactly
+the same stepped movement to their right: a small step, hold still, a small step,
+hold still, until almost in profile, then back to centre the same way. Throughout,
+the head stays perfectly upright with no tilt up, down or sideways, the chin stays
+level, and the eyes stay on the camera lens so that the head turns but the gaze
+does not. The expression never changes. The head is completely motionless during
+every hold — no drift, no settling, no continuous movement at any point.
 
 Static locked-off camera at eye level, no camera movement, no zoom, no pan, no
 cuts, one continuous take. Close-up head-and-shoulders framing with the face

@@ -295,3 +295,67 @@ class TestTurnLadder:
 
         angles = [extractor.yaw_of(c) for c in rungs]
         assert angles == sorted(angles)
+
+
+class TestEyeSharpness:
+    """The blur measure that can judge a turn, because the whole-face one cannot.
+
+    A Laplacian counts the detail a face is *showing*, and a turned face shows
+    far less of it — one eye goes behind the nose and a smooth cheek fills the
+    frame. Measured on frames sharp enough to count beard hairs, the median runs
+    179 at 0-8 degrees of yaw against 9 at 20-35, so a blurred turn and a sharp
+    one score alike. That is how a ladder of thirty motion-blurred frames was
+    built and shipped. The eye nearer the camera keeps its lashes and its brow
+    hairs to well past 40 degrees, so it can be compared across a whole turn.
+    """
+
+    @staticmethod
+    def candidate(image: np.ndarray) -> extractor.Candidate:
+        """A frame with one eye over the top-left quarter and one over the rest."""
+        points = np.full((LANDMARK_COUNT, 3), 0.5, dtype=np.float32)
+        blocks = (
+            (list(extractor._LEFT_EYE) + list(extractor._LEFT_BROW), 0.05),
+            (list(extractor._RIGHT_EYE) + list(extractor._RIGHT_BROW), 0.55),
+        )
+        for group, origin in blocks:
+            for offset, index in enumerate(group):
+                points[index, 0] = origin + 0.30 * (offset % 2)
+                points[index, 1] = origin + 0.30 * ((offset // 2) % 2)
+
+        base = tracking()
+        return extractor.Candidate(
+            index=0,
+            image=image,
+            tracking=FaceTrackingResult(
+                metadata=base.metadata,
+                face_detected=True,
+                landmarks=LandmarkSet(points=points, scheme="mediapipe_478"),
+                head_pose=base.head_pose,
+                blendshapes=base.blendshapes,
+                confidence=1.0,
+            ),
+            face_width=900.0,
+            sharpness=0.0,
+            identity_drift=0.0,
+        )
+
+    @staticmethod
+    def noise(size: int = 240) -> np.ndarray:
+        return np.random.default_rng(7).integers(0, 255, (size, size, 3), dtype=np.uint8)
+
+    def test_a_blurred_frame_scores_far_below_a_sharp_one(self):
+        cv2 = pytest.importorskip("cv2")
+        sharp = self.noise()
+
+        blurred = extractor.eye_sharpness(self.candidate(cv2.GaussianBlur(sharp, (9, 9), 0)))
+
+        assert blurred < 0.25 * extractor.eye_sharpness(self.candidate(sharp))
+
+    def test_it_reads_the_eye_that_still_has_detail(self):
+        """Whichever way the head is pointing, one eye is the near one."""
+        pytest.importorskip("cv2")
+        image = self.noise()
+        # The far half of the face, flattened: at a turn it carries nothing.
+        image[image.shape[0] // 2 :, image.shape[1] // 2 :] = 128
+
+        assert extractor.eye_sharpness(self.candidate(image)) > 1000.0

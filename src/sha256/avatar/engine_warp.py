@@ -601,6 +601,32 @@ _REDUCE_THRESHOLD = 1.25
 # every three degrees it would otherwise be paid on nearly every frame.
 _CARRY_MINIMUM_PX = 1.0
 
+# How badly a region may be misplaced before its photographs are worth nothing,
+# as a fraction of face width. The carry is a similarity and a turned face is
+# foreshortened, which a similarity cannot express, so what is left over lands
+# as a second, ghostly copy of the feature. Measured across the owner's ladder,
+# as RMS landmark error on a 455 px face:
+#
+#     yaw       mouth   eyes   brows
+#     ±10°       4.0     3.0     6.6
+#     ±17°       6.8     6.9    13.6
+#     ±39°      19.0     7.8    20.9
+#
+# A full affine was tried, which *can* express foreshortening, and it is worse:
+# six degrees of freedom fitted robustly to twenty points is less stable than
+# four, and the brows went from 20.9 px to 23.3 px at 39°.
+#
+# So a frontal photograph cannot be placed on a strongly turned head, and the
+# honest answer is to stop applying it rather than to apply it wrongly — this
+# is what put a black wedge across the avatar's eye at 39°, where the brow
+# region reaches down over the socket and was landing 21 px out. Each region
+# fades by its own fit error: full weight while the miss is inside the noise
+# between two photographs of the same face, nothing once it is wide enough to
+# read as a doubled feature. The brows go first, which is right; they fit worst
+# at every angle.
+_CARRY_CLEAN = 0.008
+_CARRY_LOST = 0.030
+
 
 class _Neutral:
     """The user's resting face, learned while they sit in front of the camera.
@@ -2274,7 +2300,9 @@ def _point_mix(
     return mixed
 
 
-def _carry_matrix(base: np.ndarray, head: np.ndarray, where: list[int]) -> np.ndarray | None:
+def _carry_matrix(
+    base: np.ndarray, head: np.ndarray, where: list[int]
+) -> tuple[np.ndarray, float] | None:
     """How to move a part of the base portrait onto the head the blend is wearing.
 
     Rotation, uniform scale and translation, fitted on that part's own
@@ -2285,17 +2313,37 @@ def _carry_matrix(base: np.ndarray, head: np.ndarray, where: list[int]) -> np.nd
     turned one at 17 degrees and 70 px off at 36 — a second mouth beside the
     first, which is the very defect a turned ladder was meant to remove.
 
-    A similarity cannot express foreshortening, and does not need to: what it
-    has to get right is *where and how big*, and the live warp supplies the
-    rest.
+    A similarity cannot express foreshortening, so **how much it fails by is
+    returned with it**: the RMS distance between where the fit puts each of the
+    region's landmarks and where the head actually has them. That number is the
+    ghost the caller would be painting, and it is what decides whether the
+    photograph is applied at all — see ``_CARRY_LOST``.
     """
     import cv2
 
     matrix: Any = cv2.estimateAffinePartial2D(base[where], head[where], method=cv2.LMEDS)[0]
     if matrix is None:
         return None
+
     carried: np.ndarray = matrix
-    return carried
+    moved = cv2.transform(base[where].reshape(-1, 1, 2), carried).reshape(-1, 2)
+    error = float(np.sqrt((np.square(moved - head[where]).sum(axis=1)).mean()))
+    return carried, error
+
+
+def _trust(error: float) -> float:
+    """How much of a photograph survives a misfit of ``error`` face widths.
+
+    One either side and a straight line between: inside the noise between two
+    photographs of one face it is applied in full, past a visible doubling it is
+    not applied at all. Linear because a fade has to be continuous — a hard
+    threshold would make an expression vanish mid-sentence as the head turned.
+    """
+    if error <= _CARRY_CLEAN:
+        return 1.0
+    if error >= _CARRY_LOST:
+        return 0.0
+    return (_CARRY_LOST - error) / (_CARRY_LOST - _CARRY_CLEAN)
 
 
 def _carry_region(
@@ -2509,6 +2557,7 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
     import cv2
 
     height, width = avatar.image.shape[:2]
+    face_width = max(float(avatar.points[:, 0].max() - avatar.points[:, 0].min()), 1.0)
     travel = float(np.abs(mesh - avatar.points).max()) if whole_head else 0.0
     carrying = travel > _CARRY_MINIMUM_PX
 
@@ -2527,8 +2576,16 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
         mixed = _photo_mix(region.sources, shares)
         mask = region.mask
         if carrying:
-            carry = _carry_matrix(avatar.points, mesh, region.positions)
-            if carry is not None:
+            fitted = _carry_matrix(avatar.points, mesh, region.positions)
+            if fitted is not None:
+                # How much of this photograph survives being placed on a head it
+                # was not taken on. Past ``_CARRY_LOST`` none of it does, and
+                # the region is left as the turned head found it.
+                carry, error = fitted
+                trust = _trust(error / face_width)
+                if trust <= 0.0:
+                    continue
+                share *= trust
                 carried = _carry_region(mixed, mask, carry, box, width, height)
                 if carried is None:
                     continue
