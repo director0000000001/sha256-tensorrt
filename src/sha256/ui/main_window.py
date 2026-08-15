@@ -258,6 +258,19 @@ class MainWindow(QMainWindow):
         self._publish_check.toggled.connect(self._on_publish_toggled)
         layout.addWidget(self._publish_check)
 
+        layout.addSpacing(10)
+
+        # "That looked wrong." Saves the last ten seconds of tracking and the
+        # frame on screen, so a complaint about the avatar can be replayed
+        # instead of reproduced from a description.
+        self._capture_button = QPushButton("That looked wrong")
+        self._capture_button.setToolTip(
+            "Save the last ten seconds of tracking and the frame on screen, "
+            "so the moment can be replayed."
+        )
+        self._capture_button.clicked.connect(self._on_capture)
+        layout.addWidget(self._capture_button)
+
         layout.addStretch(1)
 
         # Empty unless something went wrong, so the bar stays quiet in normal
@@ -317,6 +330,30 @@ class MainWindow(QMainWindow):
             _LOG.warning("Could not select avatar %s: %s", avatar_id, exc)
             QMessageBox.warning(self, "Avatar unavailable", str(exc))
             self._avatar_combo.setCurrentIndex(0)
+
+    def _on_capture(self) -> None:
+        """Save the moment that looked wrong, and say where it went.
+
+        Where it went is not a detail. What is written is tracking — landmarks
+        and expression readings, not a photograph — plus the one frame that was
+        on screen, and the person pressing the button is entitled to know which
+        of those is which and where both landed.
+        """
+        try:
+            target = self._runner.capture(self._context.paths.captures)
+        except Exception as exc:
+            _LOG.warning("Capture failed: %s", exc)
+            QMessageBox.warning(self, "That looked wrong", str(exc))
+            return
+
+        QMessageBox.information(
+            self,
+            "That looked wrong",
+            "Saved the last ten seconds.\n\n"
+            f"{target}\n\n"
+            "tracking.npz — landmark and expression readings, no imagery\n"
+            "seen.png — the frame that was on screen",
+        )
 
     def _on_publish_toggled(self, enabled: bool) -> None:
         try:

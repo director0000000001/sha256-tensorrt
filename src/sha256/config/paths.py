@@ -59,6 +59,16 @@ class AppPaths:
     cache: Path
     is_development: bool
 
+    @property
+    def captures(self) -> Path:
+        """Where "that looked wrong" writes what it saved.
+
+        Under ``root`` rather than the cache: a capture is something the user
+        made deliberately and will want to find again, and a cache is a place
+        things are allowed to vanish from.
+        """
+        return self.root / "captures"
+
     @classmethod
     def resolve(cls, *, force_development: bool | None = None) -> AppPaths:
         """Detect the run shape and build the matching layout.

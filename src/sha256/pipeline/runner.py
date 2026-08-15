@@ -25,8 +25,13 @@ window.
 from __future__ import annotations
 
 import threading
+import time
+from collections import deque
 from collections.abc import Callable
+from pathlib import Path
+from typing import Any
 
+from sha256.core.enums import PixelFormat
 from sha256.core.types import FaceTrackingResult, RenderedFrame, VideoFrame
 from sha256.pipeline.controller import PipelineController
 from sha256.utils.logging import get_logger
@@ -35,6 +40,11 @@ from sha256.utils.timing import now
 __all__ = ["PipelineRunner", "PipelineSnapshot"]
 
 _LOG = get_logger(__name__)
+
+# How many frames of tracking to keep for :meth:`PipelineRunner.capture` — ten
+# seconds at 30 fps. Long enough that a person can notice something, decide it
+# was wrong, and reach the button; short enough to be a couple of megabytes.
+_HISTORY_FRAMES = 300
 
 # How long to wait after a tick that produced nothing. A camera read normally
 # blocks until the next frame, so this only matters for sources that return
@@ -82,6 +92,10 @@ class PipelineRunner:
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
+
+        # The last few seconds of tracking, kept so that "that looked wrong" can
+        # become a file. See :meth:`capture`.
+        self._history: deque[FaceTrackingResult] = deque(maxlen=_HISTORY_FRAMES)
 
         self._latest: PipelineSnapshot | None = None
         self._latest_collected = True
@@ -162,6 +176,87 @@ class PipelineRunner:
                 self._collected += 1
             return snapshot
 
+    def capture(self, directory: Path) -> Path:
+        """Write the last few seconds of tracking, and the frame on screen now.
+
+        **The point of this is that "the eyes look wrong" is not a bug report
+        and cannot be fixed.** Five rounds of eye work have each been verified
+        against a clip recorded on one particular day, and the owner keeps
+        seeing something the clip does not contain — a different room, a
+        different distance, a moment that never happens on cue. So they press a
+        button when it looks wrong instead, and the exact seconds that produced
+        it arrive as a file.
+
+        **Tracking, not video.** Landmarks, blendshapes and head pose fully
+        determine what the engine did, and they are a few kilobytes a second
+        against a hundred megabytes for the frames. They are also not a
+        photograph of anyone: the only imagery written is the single rendered
+        frame, which is the avatar, and it is written so that what the owner saw
+        can be compared with what a replay produces.
+        """
+        import numpy as np
+
+        with self._lock:
+            history = list(self._history)
+            snapshot = self._latest
+
+        if not history:
+            msg = "nothing has been tracked yet"
+            raise RuntimeError(msg)
+
+        directory.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        target = directory / f"moment-{stamp}"
+        target.mkdir(exist_ok=True)
+
+        names = next(
+            (r.blendshapes.names for r in history if r.blendshapes is not None),
+            (),
+        )
+        width = len(names)
+        np.savez_compressed(
+            target / "tracking.npz",
+            landmarks=np.stack(
+                [
+                    r.landmarks.points
+                    if r.landmarks is not None
+                    else np.zeros((1, 3), dtype=np.float32)
+                    for r in history
+                ]
+            ),
+            weights=np.stack(
+                [
+                    r.blendshapes.weights
+                    if r.blendshapes is not None
+                    else np.zeros(width, dtype=np.float32)
+                    for r in history
+                ]
+            ),
+            pose=np.array(
+                [
+                    (r.head_pose.yaw, r.head_pose.pitch, r.head_pose.roll)
+                    if r.head_pose is not None
+                    else (0.0, 0.0, 0.0)
+                    for r in history
+                ],
+                dtype=np.float32,
+            ),
+            timestamps=np.array([r.metadata.capture_timestamp for r in history], dtype=np.float64),
+            detected=np.array([r.face_detected for r in history], dtype=bool),
+            names=np.array(names),
+        )
+
+        if snapshot is not None and snapshot.frame is not None:
+            import cv2
+
+            seen: Any = snapshot.frame.data
+            if snapshot.frame.pixel_format is PixelFormat.RGB24:
+                seen = cv2.cvtColor(seen, cv2.COLOR_RGB2BGR)
+            cv2.imwrite(str(target / "seen.png"), seen)
+
+        _LOG.info("Captured %d frame(s) of tracking to %s", len(history), target)
+        return target
+
     @property
     def fps(self) -> float:
         """Frames produced per second, over a short rolling window."""
@@ -209,6 +304,8 @@ class PipelineRunner:
         )
 
         with self._lock:
+            if snapshot.tracking is not None:
+                self._history.append(snapshot.tracking)
             # Overwriting a frame nobody read is the "drop, never queue" rule
             # doing its job. Counted rather than hidden: a consumer that never
             # keeps up is a real problem, just not the pipeline's.

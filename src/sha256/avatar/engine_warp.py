@@ -422,6 +422,20 @@ _REGION_FEATHER = 0.05
 # the one thing the colour correction cannot fix.
 _FOREHEAD_REACH = 0.85
 
+# How far down the face the jaw extension starts, as a fraction of face height
+# from the chin, and how much further those points are pushed.
+#
+# The oval runs along the jawbone, so the avatar ended there and the user's own
+# jaw carried on below it — on the owner's render, the avatar's ginger beard
+# stopping in a hard curve with their darker beard continuing underneath. The
+# mirror of the forehead problem, and easier, because below a jaw is neck: tone
+# rather than structure, which the relighting already carries.
+#
+# Only the lowest quarter is moved, and by half again, so the extension tapers
+# into the jawline instead of stepping away from it.
+_JAW_REACH = 0.25
+_JAW_REACH_SCALE = 1.5
+
 # Low-frequency relighting: the correction field is computed at 1/8 scale and
 # blurred there. Lighting varies slowly across a face by definition, so the
 # resolution costs nothing and the work drops by ~64x.
@@ -1263,11 +1277,18 @@ def _warp_onto(
     height, width = scene.shape[:2]
 
     # Work in the face's bounding box, padded, and clipped to the frame.
+    #
+    # The box is taken from the *mask's* outline rather than from the landmarks,
+    # because the mask reaches past them: below the jaw, where the avatar has to
+    # continue onto the neck or its beard ends in a hard curve. Sized from the
+    # landmarks instead, the mask was cut off at the box edge and the cut showed
+    # as a faint rectangle under the chin.
     pad = 8
-    fx0 = max(int(target[:, 0].min()) - pad, 0)
-    fy0 = max(int(target[:, 1].min()) - pad, 0)
-    fx1 = min(int(target[:, 0].max()) + pad, width)
-    fy1 = min(int(target[:, 1].max()) + pad, height)
+    outline = _trim_forehead(target)
+    fx0 = max(int(min(target[:, 0].min(), outline[:, 0].min())) - pad, 0)
+    fy0 = max(int(min(target[:, 1].min(), outline[:, 1].min())) - pad, 0)
+    fx1 = min(int(max(target[:, 0].max(), outline[:, 0].max())) + pad, width)
+    fy1 = min(int(max(target[:, 1].max(), outline[:, 1].max())) + pad, height)
     if fx1 - fx0 < 2 or fy1 - fy0 < 2:
         return scene.copy()
 
@@ -2335,22 +2356,44 @@ def _match_colour(
 
 
 def _trim_forehead(points: np.ndarray) -> np.ndarray:
-    """The face outline with its top arc pulled just short of the hairline.
+    """The face outline, pulled short of the hairline and pushed past the jaw.
 
-    MediaPipe's oval runs *along* the hairline. Filling to it puts the avatar's
-    hairline on top of the user's, and two hairlines never agree — that is
-    structure, not tone, and no amount of blending fixes it.
+    **Top.** MediaPipe's oval runs *along* the hairline. Filling to it puts the
+    avatar's hairline on top of the user's, and two hairlines never agree — that
+    is structure, not tone, and no amount of blending fixes it. Stopping a few
+    percent short keeps the whole forehead covered, which is what the owner
+    asked for, while leaving the hair itself alone.
 
-    Stopping a few percent short keeps the whole forehead covered, which is what
-    the owner asked for, while leaving the hair itself alone.
+    **Bottom, and this one was missed for a week.** The oval runs *along* the
+    jawbone, so the avatar stopped there and the user's own jaw continued below
+    it. On a bearded face that is not subtle: the owner's render showed the
+    avatar's ginger beard ending in a hard curve with their own dark beard
+    carrying on underneath it. Two beards, one chin.
+
+    The bottom is the easier half, because what is below a jaw is more jaw and
+    then neck — tone rather than structure, which is exactly what the relighting
+    can carry. So the lower arc is pushed *down*, past the jawbone, and the
+    feather on the mask edge lands on the neck where nothing has to line up.
+
+    Not to the collar: the avatar's own chin is a shape, and pushed far enough
+    it would sit over the user's neck as a visible jaw of the wrong length.
     """
     trimmed = points[_OVAL_SLICE].copy()
 
     brow_top = float(points[_BROW_SLICE][:, 1].min())
     oval_top = float(trimmed[:, 1].min())
     ceiling = brow_top - (brow_top - oval_top) * _FOREHEAD_REACH
-
     np.maximum(trimmed[:, 1], ceiling, out=trimmed[:, 1])
+
+    # Measured down the face rather than across it: a turned head narrows and
+    # the chin does not rise, so a fraction of the width would shrink the reach
+    # exactly when the jawline is most exposed.
+    face_height = float(trimmed[:, 1].max() - trimmed[:, 1].min())
+    chin = float(trimmed[:, 1].max())
+    floor = chin - face_height * _JAW_REACH
+
+    below = trimmed[:, 1] > floor
+    trimmed[below, 1] += (trimmed[below, 1] - floor) * (_JAW_REACH_SCALE - 1.0)
     return trimmed
 
 
