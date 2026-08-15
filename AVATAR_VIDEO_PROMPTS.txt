@@ -283,6 +283,110 @@ position is held for about a second.
 
 
 ================================================================================
+READY TO PASTE — the three clips still missing, in the order they are worth
+================================================================================
+
+  Copy one block between the lines, attach portrait.png, send. Order matters:
+  the eye clip first, because the eyes are the standing complaint and the
+  library holds three eye photographs against a face that spends a call
+  blinking.
+
+  Every one of them holds each position for about two seconds. That is not
+  padding. A frame taken mid-movement is motion blurred and the extractor
+  discards it — 135 of 192 on the turn clip — so the held moments are the only
+  ones that become photographs. A clip that moves continuously for eight seconds
+  yields almost nothing; a clip that stops eight times yields eight sources.
+
+--------------------------------------------------------------------------------
+CLIP 3 — BROWS AND EYES   (generate this one first)
+--------------------------------------------------------------------------------
+The person in the attached photograph faces the camera with the head still,
+upright and centred, and the mouth closed, and slowly runs through a series of
+eye and eyebrow positions, holding each one completely still for about two
+seconds and returning to a relaxed neutral face for a second between them.
+First they raise both eyebrows high in surprise, opening the eyes wide, and
+hold. Then relaxed. Then they lower and draw both eyebrows together in a frown,
+and hold. Then relaxed. Then they open both eyes as wide as they can without
+moving the eyebrows, and hold. Then relaxed. Then they narrow both eyes into a
+squint, as if looking into bright sunlight, and hold. Then relaxed. Then they
+close both eyes gently and completely, as if resting, and keep them closed and
+still for a full three seconds before opening them slowly. The head does not
+move at any point and the mouth stays closed throughout.
+
+Static locked-off camera at eye level, no camera movement, no zoom, no pan, no
+cuts, one continuous take. Close-up head-and-shoulders framing with the face
+filling most of the frame, centred, the whole head visible with a small margin
+above the hair. Soft even frontal lighting that never changes. Plain uncluttered
+light grey background. Photorealistic, sharp focus on the face, natural skin
+texture, no film grain, no colour grading, no vignette, no depth-of-field blur
+on the face. The person keeps exactly the identity, hairstyle, facial hair,
+clothing and skin tone of the attached photograph. Hands stay out of frame and
+nothing ever covers the face. No on-screen text, captions or subtitles. All
+movements are slow and deliberate, with each expression held briefly before
+changing.
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+CLIP 6 — MOUTH SHAPES
+--------------------------------------------------------------------------------
+The person in the attached photograph faces the camera with the head still,
+upright and centred, and the eyes open and on the lens, and slowly forms a
+series of distinct mouth shapes, holding each one completely still for about two
+seconds and returning to a closed relaxed mouth for a second between them.
+First the lips pressed firmly together as in the sound "m", and hold. Then the
+lips rounded and pushed forward as in "oo", and hold. Then the lips stretched
+wide and flat with the teeth close together as in "ee", and hold. Then the jaw
+dropped wide open as in "aah", with the upper and lower teeth and the dark
+interior of the mouth clearly visible, and hold. Then the upper teeth resting on
+the lower lip as in "f", and hold. Then the corners of the mouth pulled down in
+a frown, and hold. The head does not move at any point and the eyes stay open
+and on the camera lens throughout.
+
+Static locked-off camera at eye level, no camera movement, no zoom, no pan, no
+cuts, one continuous take. Close-up head-and-shoulders framing with the face
+filling most of the frame, centred, the whole head visible with a small margin
+above the hair. Soft even frontal lighting that never changes. Plain uncluttered
+light grey background. Photorealistic, sharp focus on the face, natural skin
+texture, no film grain, no colour grading, no vignette, no depth-of-field blur
+on the face. The person keeps exactly the identity, hairstyle, facial hair,
+clothing and skin tone of the attached photograph. Hands stay out of frame and
+nothing ever covers the face. No on-screen text, captions or subtitles. All
+movements are slow and deliberate, with each expression held briefly before
+changing.
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+CLIP 5 — HEAD TILTS   (the second ladder: pitch, the way clip 4 gave yaw)
+--------------------------------------------------------------------------------
+The person in the attached photograph keeps a neutral expression with the mouth
+closed and the eyes open, and slowly tilts their head up and down while their
+shoulders and body stay square to the camera and completely still. They begin
+facing the camera with the chin level and hold for two seconds. They then raise
+the chin very slowly, tilting the head back, pausing for about a second when the
+chin is slightly raised, again when it is halfway back, and again when the head
+is tilted as far back as it comfortably goes. They then return just as slowly to
+level, pausing at the same positions on the way back, and hold level for two
+seconds. They then repeat the same movement downward: slowly lowering the chin
+towards the chest, pausing slightly lowered, halfway down, and as far down as it
+comfortably goes, then slowly back to level. Throughout, the head does not turn
+left or right and does not tilt sideways, and the eyes stay on the camera lens
+so that the head tilts but the gaze does not.
+
+Static locked-off camera at eye level, no camera movement, no zoom, no pan, no
+cuts, one continuous take. Close-up head-and-shoulders framing with the face
+filling most of the frame, centred, the whole head visible with a small margin
+above the hair. Soft even frontal lighting that never changes. Plain uncluttered
+light grey background. Photorealistic, sharp focus on the face, natural skin
+texture, no film grain, no colour grading, no vignette, no depth-of-field blur
+on the face. The person keeps exactly the identity, hairstyle, facial hair,
+clothing and skin tone of the attached photograph. Hands stay out of frame and
+nothing ever covers the face. No on-screen text, captions or subtitles. All
+movements are slow and deliberate, with each expression held briefly before
+changing.
+--------------------------------------------------------------------------------
+
+
+================================================================================
 CLIP 6 — MOUTH SHAPES
 ================================================================================
 
