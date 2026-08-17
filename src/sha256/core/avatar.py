@@ -109,6 +109,46 @@ class AssetRef(BaseModel):
             "hold many turns instead of two."
         ),
     )
+    smile: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=2.0,
+        description=(
+            "How far into a smile this asset was measured: 0 at a resting mouth, "
+            "about 0.2 at a closed smile, 1 as the teeth appear and 2 at a laugh. "
+            "The same idea as "
+            "`yaw` on another axis: a series carrying it is chosen by nearest "
+            "amount, so a smile grows through photographs of itself instead of "
+            "one photograph fading in over a resting mouth."
+        ),
+    )
+
+    eyes: float | None = Field(
+        default=None,
+        ge=-1.0,
+        le=1.0,
+        description=(
+            "Where this asset's eyelids sit against a resting eye: 0 at rest, "
+            "positive as they close and 1 fully shut, negative when they are "
+            "open wider than usual. The third axis after `yaw` and `smile`, and "
+            "the one the owner cares about most. Signed because both directions "
+            "had the same defect — one photograph of fully shut eyes, and one of "
+            "fully wide ones, each faded in by however far the lids had moved, "
+            "so a resting face wore a sixth of a stare."
+        ),
+    )
+
+    brows: float | None = Field(
+        default=None,
+        ge=-1.0,
+        le=1.0,
+        description=(
+            "Where this asset's brows sit against a resting face: 0 at rest, "
+            "positive raised, negative drawn down. Signed like `eyes`, and for "
+            "the same reason — a raised-brow photograph faded in over a resting "
+            "one puts two brows on screen, the second slightly above the first."
+        ),
+    )
 
     @field_validator("path")
     @classmethod

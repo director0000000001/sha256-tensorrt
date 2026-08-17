@@ -111,6 +111,79 @@ _TURN_ROLES: tuple[str, ...] = (
 # role, because there is no fixed number of them and they are chosen by angle.
 _LADDER_PREFIX = "turn@"
 
+# The same idea on the smile axis, and the owner's own proposal after watching a
+# slight smile snap straight to a photograph of a wide one: *"we already have
+# the clip where he laughs — ten photographs from where the smile starts through
+# to the full smile."*
+#
+# They are right, and it is the yaw ladder's argument word for word. One
+# photograph of a smile fading in over a resting mouth is two mouths at once,
+# faint, and it arrives all at the same shape: the lips never stretch, the teeth
+# simply appear. A row of photographs *of the smile forming* is a smile forming.
+_SMILE_PREFIX = "smile@"
+
+# Below this much smile the ladder stays out of it, so an ordinary talking mouth
+# is chosen by the shape it is making rather than by how faintly it resembles a
+# smile. Measured against rest, like every other expression.
+_SMILE_LADDER_START = 0.08
+
+# And the third axis, which the owner ranks first: the lids closing.
+#
+# The eyes have been the standing complaint since day 8 — *"wrong far more often
+# than they are right"* — and every fix so far has been a subtraction: the gaze
+# photographs dropped, the squint dropped, two blendshapes found to measure
+# something other than their names. What was left is one shut-eye photograph
+# fading in over an open one, which is the same defect the smile had: while it
+# is faint there are two sets of eyes, and at any weight the lid it draws is
+# fully shut rather than part way.
+_EYES_PREFIX = "eyes@"
+
+# And the brows, which are the last family still driven by two named
+# photographs. The owner has reported both halves of what that costs: a slight
+# raise reading as surprise, because the photograph shows a full one at low
+# opacity, and two brows with two more faintly above them, because the
+# photograph's brows are somewhere the portrait's are not.
+_BROWS_PREFIX = "brows@"
+_BROWS_LADDER_START = 0.12
+
+# The brow bridge landmark, and how far the brows move as a fraction of their
+# resting height above it. Measured on the owner's brows clip: a full raise is
+# +18% of that height and a full frown -15%, so a fifth spans either direction
+# and the axis reaches one where the clip does.
+_NOSE_BRIDGE_LANDMARK = 168
+_BROW_SPAN = 0.18
+
+# How much of a new brow reading is taken each frame. 0.4 is a time constant of
+# about two and a half frames.
+_BROW_SMOOTHING = 0.4
+
+# How far the lids have to have moved before a brow reading is not believed.
+# Past this the landmarks are riding a blink rather than reporting a brow.
+_BROW_FREEZE_LID = 0.30
+_EYES_LADDER_START = 0.12
+
+# How much nearer another rung has to be before a ladder changes photograph.
+#
+# A rung is shown whole, so every change is a change of picture rather than a
+# change of opacity — and every one of these measurements moves a little frame
+# to frame on a face that is doing nothing. Without a hold the choice walks
+# back and forth across a boundary several times a second.
+#
+# The hold used is half of *that ladder's own* median spacing, computed where it
+# is applied: the brow ladder is fifteen rungs over two units and the eye ladder
+# eleven over one, and one fixed number cannot be right for both. This is only
+# the fallback, for a ladder too short to have a spacing.
+_RUNG_HOLD = 0.05
+
+# How wide the change from one rung to the next may be, in degrees of yaw.
+#
+# See :func:`_ladder_weights`. A ladder cut from a real clip has gaps wherever
+# the head was moving rather than stopping, and averaging two photographs eight
+# degrees apart is a smeared face rather than a face at the angle between them.
+# Three degrees, which is the spacing the extractor aims for, so a ladder at its
+# intended density behaves exactly as it did before this existed.
+_LADDER_CROSSFADE_DEGREES = 3.0
+
 # The role whose own mouth opening defines "fully open". Measured from the
 # photograph at load rather than hard-coded, so supplying a wider one simply
 # extends the range instead of needing a constant changed here.
@@ -148,6 +221,50 @@ _FLOOR_RISE = 0.0015
 # constant at 30 fps. Holding a turn for half a minute does move it, which is
 # correct: by then the turn has become how the person is sitting.
 _POSE_RATE = 0.002
+
+# How many frames the resting angle is a plain running mean of before it slows
+# down to :data:`_POSE_RATE`.
+#
+# An estimate built from one frame should move freely and one built from a
+# thousand should not, and until this was written it moved at the same crawl in
+# both cases. The seed is the first frame, which is right when someone is
+# looking at their screen and wrong when they are not: driven by a clip that
+# opens mid-turn at 31.7°, the engine took that for straight ahead and then
+# chose a 30°-turned photograph for a frontal face — a whole cheek stretched
+# sideways, and half a minute before it recovered.
+#
+# A hundred and twenty frames is four or five seconds, and the handover is
+# smooth: the warm-up's own rate has fallen to 0.008 by the end of it, four
+# times the slow rate rather than a step down to it. Measured on the case this
+# exists for — a session opening at 31.7 degrees — the error is 2.2 degrees by
+# the end of the warm-up, against 31.4 with the slow mean alone. The very first
+# frame still returns exactly zero, so an avatar still starts as its own
+# photograph.
+_POSE_WARMUP_FRAMES = 120
+
+# The seed counts for this many frames, so that a running mean over very few
+# readings is not thrown by one of them. Without it the second frame of a
+# session would move the resting angle halfway to wherever that frame happened
+# to be looking, which is the same defect as the slow crawl, mirrored: a turn
+# in the first second would be learned as straight ahead.
+#
+# The cost is honest and worth naming: a turn *held* through the opening
+# seconds does still drag the estimate. Recovering from a session that opens
+# turned and being deaf to a turn in the opening seconds are the same knob, and
+# this is where it is set.
+_POSE_PRIOR_FRAMES = 8
+
+# How far from the resting angle a reading may be before it stops counting as
+# evidence about where rest *is*, in degrees.
+#
+# After the warm-up the question changes. A person glancing at a second monitor
+# holds a large angle for seconds at a time, and a plain mean reads that as them
+# having moved their chair — the drift the owner would notice as the avatar
+# slowly deciding that turned is straight ahead. So a reading's influence falls
+# off with its distance: at twelve degrees it counts for half, at twenty-four
+# for a fifth. Soft rather than a threshold, because someone who genuinely
+# re-seats themselves at an angle must still be learned, only slowly.
+_POSE_TRUST_DEGREES = 12.0
 
 # Inner-lip landmarks, and the gap between them at which the mouth counts as
 # open, as a fraction of face height. Measured on the avatar's own photographs:
@@ -378,6 +495,11 @@ _MOUTH_POSITIONS = _positions(_OUTER_LIPS, _INNER_LIPS)
 # letting the expression itself drag the fit.
 _STABLE_POSITIONS = _positions(_FACE_OVAL, _NOSE)
 
+# The nose tip, as a position in the mesh. Which way a head is turned is
+# read from where this sits between the two edges of the face — see
+# :func:`_turn_bias`.
+_NOSE_TIP_POSITION = _MESH_POSITION[4]
+
 # Which part of the face each photograph actually describes.
 #
 # This is the fix for the defect that made the avatar look like a multiple
@@ -423,9 +545,68 @@ _REGION_ROLES: dict[str, tuple[str, ...]] = {
     ),
 }
 
+# The named smile photographs, which a smile ladder replaces entirely.
+_SMILE_ROLES: tuple[str, ...] = ("source_smile", "source_smile_closed")
+
+# And the two an eye ladder replaces. Both, because the ladder is signed: a
+# resting eye is its zero, a shut one its top, and an eye held wide is the same
+# axis in the other direction. Measured on the owner's own recording, the
+# wide-eye photograph fired on 4.6% of frames at a median weight of 0.11 — a
+# sixth of a full stare, laid over a face that was doing nothing, which is what
+# they described as looking a little mad.
+_EYES_ROLES: tuple[str, ...] = ("source_eyes_closed", "source_eyes_wide")
+
+# Both brow photographs, for the same reason as both eye ones.
+_BROWS_ROLES: tuple[str, ...] = ("source_brows_up", "source_brows_down")
+
 _ROLE_REGION: dict[str, str] = {
     role: region for region, roles in _REGION_ROLES.items() for role in roles
 }
+
+
+def _misplaced(prefix: str, points: np.ndarray, base: np.ndarray) -> str | None:
+    """Why this rung cannot be used, or ``None`` if it can.
+
+    A rung is a whole face, cut into by whichever region it belongs to, and the
+    regions are drawn around the *portrait's* features. So a photograph whose
+    brows have landed where the portrait's eyes are is not an expression of this
+    face at all — it is a differently posed one that the similarity fit could
+    not undo, and using it paints a brow inside the eye region.
+
+    Two of the owner's eye rungs were exactly that, and he identified both by
+    name from the screen before this check existed: their brows sat 18 px below
+    the portrait's brow line, inside the socket, and appeared as a second brow
+    under the real one whenever the eyes were half closed.
+    """
+    brow = float(points[_BROW_POSITIONS][:, 1].max())
+    eye_top = float(base[_EYE_POSITIONS][:, 1].min())
+    brow_line = float(base[_BROW_POSITIONS][:, 1].mean())
+
+    if prefix == _EYES_PREFIX and brow > eye_top:
+        return f"its brows sit {brow - eye_top:.0f} px inside the portrait's eye"
+    if prefix == _BROWS_PREFIX:
+        eye = float(points[_EYE_POSITIONS][:, 1].min())
+        if eye < brow_line:
+            return f"its eyes sit {brow_line - eye:.0f} px above the portrait's brow line"
+    return None
+
+
+def _region_of(role: str) -> str | None:
+    """Which part of the face a source may act on, or ``None`` for the whole head.
+
+    A smile rung is a mouth photograph like any other — it differs from its
+    neighbours in the mouth and nowhere else — so it belongs to the mouth
+    region, and the prefix is how a rung says so without needing a role name of
+    its own for every step of a smile.
+    """
+    if role.startswith(_SMILE_PREFIX):
+        return "mouth"
+    if role.startswith(_EYES_PREFIX):
+        return "eyes"
+    if role.startswith(_BROWS_PREFIX):
+        return "brows"
+    return _ROLE_REGION.get(role)
+
 
 # How far each region reaches beyond its own landmarks, and how soft its edge
 # is, both as a fraction of face width. Generous on purpose: an eye photograph
@@ -433,6 +614,17 @@ _ROLE_REGION: dict[str, str] = {
 # boundary shows as a ring around the eye. The feather is what keeps the join
 # invisible — a hard edge would trade ghosting for a visible patch.
 _REGION_MARGIN: dict[str, float] = {"mouth": 0.10, "eyes": 0.11, "brows": 0.09}
+
+# Where the brow ridge is divided between the two regions that meet on it, as a
+# fraction of the way from the top of the eye up to the brow line.
+#
+# Not halfway. The join is feathered, and a feather is 5% of face width — wider
+# than the gap between an eye and the brow above it — so a line drawn in the
+# middle leaves the brows painting their own brow at three quarters strength,
+# and the portrait's brow shows through the remaining quarter. A quarter of the
+# way up gives the brows the whole of their own feature and still leaves the
+# socket, which is all the eyes need.
+_RIDGE_SPLIT = 0.25
 _REGION_FEATHER = 0.05
 
 # How far up the forehead the mask reaches, as a fraction of the distance from
@@ -558,6 +750,26 @@ _UPPER_LIP_POSITIONS = _positions(_UPPER_INNER_LIPS)
 _MASK_SHRINK = 0.04
 _MASK_FEATHER = 0.07
 
+# How far the nose sits off the middle of the face outline, at which the near
+# cheek stops being eroded and at which it keeps all of its edge.
+#
+# The owner, turning their head: *"the part next to my ear shows on the face —
+# it does not cover me there."* The mask is eroded by :data:`_MASK_SHRINK` all
+# the way round, so that the join happens over skin on both sides rather than
+# over the background. Frontal that is right; the edge it pulls back from is
+# the silhouette, and outside it is hair and room. Turned, the near side's edge
+# runs down in front of the ear, and what lies outside *that* is more cheek —
+# so the erosion is pure loss there, a band of the user's real face left showing
+# inside their own avatar, at the widest and most visible part of the turn.
+#
+# Measured on the owner's turn clip, as the nose's offset from the middle of the
+# outline over face width: 0.14 frontal, 0.42 at 10-19 degrees, 0.69 at 20-29,
+# 0.89 at 30-39. So the erosion on the near side fades out from about fifteen
+# degrees and is gone by thirty-five — the range where the ear comes into view.
+# The far side keeps it, because that edge is still a silhouette.
+_NEAR_CHEEK_START = 0.45
+_NEAR_CHEEK_FULL = 0.90
+
 # How much of the brows' movement the avatar copies. Raising the brows moves the
 # landmarks a long way, and the mesh answers by stretching the eye beneath them
 # — the avatar inherits the user's *proportions* where it should be inheriting
@@ -666,6 +878,90 @@ _CARRY_MINIMUM_PX = 1.0
 _CARRY_CLEAN = 0.008
 _CARRY_LOST = 0.030
 
+# ---------------------------------------------------------------------------
+# One photograph per region, chosen rather than averaged.
+#
+# The owner's complaint, in their words: they smile, the teeth appear, and the
+# closed mouth is still there underneath at low opacity. Both halves of that
+# have the same cause. A region used to mix *every* photograph that scored
+# anything — at a wide smile the mouth was a smile photograph averaged with a
+# pressed-lips one and a rounded one — and whatever the mix did not claim was
+# left as base portrait, whose lips are shut. An average of pictures that
+# disagree is a picture of neither, and the leftover is a ghost of a closed
+# mouth over an open one.
+#
+# The mouth *interior* was fixed this way on day 8 and it worked; this extends
+# the same rule outward from the interior to the whole region.
+# ---------------------------------------------------------------------------
+
+# How much stronger a challenger must be before a region switches to it.
+#
+# Without it the two nearest photographs trade places whenever their scores
+# cross, which on a face mid-sentence is several times a second, and a switch is
+# a hard cut. A tenth is wide enough that nothing flickers and narrow enough
+# that a genuine change of expression is never held back — the scores separate
+# by far more than this the moment a mouth actually opens.
+_SWITCH_MARGIN = 0.10
+
+# The expression strength at which the chosen photograph is applied whole, with
+# no base portrait underneath it at all.
+#
+# Below this it fades in against the base, because an expression is a continuum
+# and a photograph appearing at full strength would pop. Above it there is
+# nothing to gain from keeping a shut mouth under an open one: seven tenths of
+# the way into an expression the photograph *is* the answer, and the mesh has
+# already deformed it to the shape the tracker measured.
+_COMMIT_FULL = 0.70
+
+# Regions where a photograph is worth nothing until it is worth most of it.
+#
+# The owner: *"two brows, and two more slightly above, faint."* That is what a
+# raised-brow photograph looks like while it is fading in — the base portrait's
+# brows are where they rest, the photograph's are raised, and both are on
+# screen at once. Every region has this while a photograph is faint, and for
+# the mouth it is small enough to live with, because a mouth photograph differs
+# from the base mostly in *texture*. A brow differs from the base in *position*,
+# which is the one difference that reads as a second copy.
+#
+# So the brows keep the mesh for small raises, which is what a mesh is for, and
+# the photograph only arrives once it is most of the answer. Below the floor it
+# contributes nothing; above it, it ramps from nothing to whole, so there is no
+# step at the boundary.
+_COMMIT_FLOOR: dict[str, float] = {"brows": 0.5}
+
+# The most a region's photograph may fade in or out in one frame.
+#
+# The owner, on the first version of the region change: the teeth arrive *"as
+# if the frame had been cut"*. They were right, and the cause is that the
+# amount was read straight off the tracker. A blendshape crosses the commit
+# point in a frame or two, so a photograph that is correct for the mouth's
+# final shape was appearing at full strength while the lips were still moving.
+# A real smile takes about a third of a second to form and the avatar's should
+# take the same, whatever the tracker does in between.
+#
+# **Per second, not per frame.** It was per frame until the owner asked to try
+# 60 fps, which would have made every expression take twice as long to arrive
+# and looked like the engine getting slower on a faster machine. A face takes
+# the time it takes whatever the camera is doing.
+#
+# Nothing to whole in about 0.27 s: slow enough to read as a face moving, fast
+# enough that a smile forming reads as a smile forming.
+_EASE_PER_SECOND = 3.7
+
+# Except the eyes, which are the one part of a face that moves faster than that.
+# A blink is 100-150 ms, so a lid that took a quarter of a second to close would
+# still be halfway down when the real eye was open again — not a slow blink, a
+# permanently half-lidded avatar. Ten per second closes it in a tenth.
+#
+# The rest of the face keeps the slower rate. Nothing else moves like a lid.
+_EASE_PER_SECOND_BY_REGION: dict[str, float] = {"eyes": 10.0}
+
+# The frame interval used when there is nothing to measure one from, and the
+# range a measured one is trusted in. A dropped frame or a paused debugger must
+# not let an expression jump.
+_FRAME_SECONDS = 1.0 / 30.0
+_FRAME_SECONDS_MAX = 0.2
+
 
 class _Neutral:
     """The user's resting face, learned while they sit in front of the camera.
@@ -695,13 +991,17 @@ class _Neutral:
     its own photograph.
     """
 
-    __slots__ = ("_ceilings", "_floors", "_means", "_pose")
+    __slots__ = ("_ceilings", "_floors", "_means", "_pose", "_pose_seen", "_smoothed")
 
     def __init__(self) -> None:
         self._floors: dict[str, float] = {}
         self._ceilings: dict[str, float] = {}
         self._means: dict[str, float] = {}
         self._pose: dict[str, float] = {}
+        self._smoothed: dict[str, float] = {}
+        # How many readings each pose estimate is built from. What separates
+        # "this is all I have seen" from "this is where they sit".
+        self._pose_seen: dict[str, int] = {}
 
     def relative_expression(self, name: str, value: float) -> float:
         """``value`` above this signal's learned resting floor, never below zero."""
@@ -767,6 +1067,55 @@ class _Neutral:
         self._means[name] = rest
         return max((value - rest) / max(rest, 1e-6), 0.0)
 
+    def level_of(self, name: str) -> float | None:
+        """The resting level of a signal, without learning from this reading.
+
+        The mean :meth:`relative_rise` maintains, read by a second caller in the
+        same frame. Advancing it twice would double how fast the estimate chases
+        the face, which is the mistake :meth:`pose_offset` exists to avoid on
+        the other estimator.
+        """
+        return self._means.get(name)
+
+    def floor_of(self, name: str) -> float | None:
+        """The resting floor of a blendshape, without learning from a reading.
+
+        The read-only companion to :meth:`relative_expression`, for a second
+        caller in the same frame — advancing the floor twice would quietly
+        double how fast it follows the face.
+        """
+        return self._floors.get(name)
+
+    def smooth(self, name: str, value: float, rate: float) -> float:
+        """A light low-pass on a measurement, kept per face.
+
+        Landmark positions jitter a pixel or two between frames on a face that
+        is not moving, and a ladder shown whole turns jitter into a change of
+        photograph. Smoothing the *measurement* is cheaper than holding the
+        choice harder, and it does not delay a real movement the way a wider
+        hold does.
+        """
+        was = self._smoothed.get(name)
+        now = value if was is None else was + rate * (value - was)
+        self._smoothed[name] = now
+        return now
+
+    def track_level(self, name: str, value: float) -> float:
+        """A plain slow mean of a signal, advanced by this reading.
+
+        For a measurement that moves both ways around rest and has no preferred
+        direction — where a brow sits, as against how open an eye is, which only
+        ever closes from its widest. The asymmetric estimators above would drift
+        toward whichever way the face happened to move most.
+        """
+        rest = self._means.get(name)
+        if rest is None:
+            self._means[name] = value
+            return value
+        rest += _POSE_RATE * (value - rest)
+        self._means[name] = rest
+        return rest
+
     def pose_offset(self, name: str, value: float) -> float:
         """``value`` against the resting angle, **without learning from it**.
 
@@ -780,15 +1129,34 @@ class _Neutral:
         return 0.0 if rest is None else value - rest
 
     def relative_pose(self, name: str, value: float) -> float:
-        """``value`` as an offset from the resting head angle. Signed."""
+        """``value`` as an offset from the resting head angle. Signed.
+
+        Two rates, and which one applies depends on how much the estimate has
+        seen. For the first :data:`_POSE_WARMUP_FRAMES` readings it is a plain
+        running mean, so a session that opens with the head somewhere other than
+        straight ahead is corrected in seconds rather than in half a minute.
+        After that it is the old slow mean, weighted down by how far this
+        reading sits from rest — see :data:`_POSE_TRUST_DEGREES` — so that a
+        glance held at a second monitor is not mistaken for a new way of
+        sitting.
+        """
         rest = self._pose.get(name)
         if rest is None:
             self._pose[name] = value
+            self._pose_seen[name] = 1
             return 0.0
 
-        rest += _POSE_RATE * (value - rest)
-        self._pose[name] = rest
-        return value - rest
+        seen = self._pose_seen.get(name, 1) + 1
+        self._pose_seen[name] = seen
+        offset = value - rest
+
+        if seen <= _POSE_WARMUP_FRAMES:
+            rate = max(_POSE_RATE, 1.0 / (seen + _POSE_PRIOR_FRAMES))
+        else:
+            rate = _POSE_RATE / (1.0 + (offset / _POSE_TRUST_DEGREES) ** 2)
+
+        self._pose[name] = rest + rate * offset
+        return offset
 
     def copy(self) -> _Neutral:
         """An independent resting face with the same estimates.
@@ -805,6 +1173,8 @@ class _Neutral:
         made._ceilings = dict(self._ceilings)
         made._means = dict(self._means)
         made._pose = dict(self._pose)
+        made._pose_seen = dict(self._pose_seen)
+        made._smoothed = dict(self._smoothed)
         return made
 
 
@@ -853,22 +1223,28 @@ class _LoadedAvatar:
     """
 
     __slots__ = (
+        "applied",
         "blend_points",
+        "brow_ladder",
         "cached_blend",
         "cached_weights",
         "cavity",
         "correction",
         "descriptor",
         "eye_follow",
+        "eye_ladder",
         "full_gap",
         "gaps",
+        "holding",
         "image",
         "interior_role",
         "ladder",
+        "last_seen",
         "neutral",
         "points",
         "regions",
         "scratch",
+        "smile_ladder",
         "source_points",
         "sources",
         "triangles",
@@ -885,6 +1261,9 @@ class _LoadedAvatar:
         source_points: dict[str, np.ndarray] | None = None,
         ladder: tuple[tuple[float, str | None], ...] = (),
         gaps: dict[str, float] | None = None,
+        smile_ladder: tuple[tuple[float, str | None], ...] = (),
+        eye_ladder: tuple[tuple[float, str | None], ...] = (),
+        brow_ladder: tuple[tuple[float, str | None], ...] = (),
     ) -> None:
         self.full_gap = full_gap
 
@@ -905,10 +1284,36 @@ class _LoadedAvatar:
         # see :func:`_paint_mouth_interior`.
         self.interior_role: str | None = None
 
+        # Which photograph currently holds each region. Carried between frames
+        # because it is what a challenger has to beat: without it the two
+        # nearest expressions swap on every score crossing. See
+        # :func:`_one_per_region`.
+        self.holding: dict[str, str] = {}
+
+        # How much of it is on screen, also carried between frames: an
+        # expression arrives and leaves over a fraction of a second rather than
+        # wherever the tracker put it this instant. See :func:`_eased`.
+        self.applied: dict[str, float] = {}
+
+        # When this avatar was last given a frame, so the next one can be given
+        # its share of a second rather than a fixed step. ``None`` until the
+        # first frame arrives.
+        self.last_seen: float | None = None
+
         # The turn ladder: photographs of this face at measured angles, sorted
         # by yaw, with ``None`` marking the base portrait's own rung at zero.
         # Empty for an avatar that has only the named turn roles.
         self.ladder = ladder
+
+        # Photographs of this face part-way into a smile, sorted by how far in,
+        # with ``None`` marking the portrait's own resting mouth at zero.
+        self.smile_ladder = smile_ladder
+
+        # And the lids closing: zero is a resting eye, one is a shut one.
+        self.eye_ladder = eye_ladder
+
+        # And the brows: zero at rest, positive raised, negative drawn down.
+        self.brow_ladder = brow_ladder
         self.descriptor = descriptor
         self.image = image
         self.points = points
@@ -1027,17 +1432,29 @@ class WarpAvatarEngine:
         # triangulation computed from that is wrong for every frame after.
         _contain_irises(points)
         triangles = _triangulate(points, image.shape[1], image.shape[0])
-        sources, source_points, gaps, ladder = self._align_variants(
+        sources, source_points, gaps, ladder, smiles, eyes, brows = self._align_variants(
             descriptor, image, points, triangles
         )
         full_gap = gaps.get(_OPENING_REFERENCE_ROLE, _LIP_GAP_FULL)
 
         self._loaded[descriptor.id] = _LoadedAvatar(
-            descriptor, image, points, triangles, sources, full_gap, source_points, ladder, gaps
+            descriptor,
+            image,
+            points,
+            triangles,
+            sources,
+            full_gap,
+            source_points,
+            ladder,
+            gaps,
+            smiles,
+            eyes,
+            brows,
         )
         _LOG.info(
             "Loaded avatar %s: %dx%d portrait, %d mesh points, %d triangles, "
-            "%d extra source(s), %d turn rung(s) from %+.0f to %+.0f degrees: %s",
+            "%d extra source(s), %d turn rung(s) from %+.0f to %+.0f degrees, "
+            "%d smile rung(s): %s",
             descriptor.id,
             image.shape[1],
             image.shape[0],
@@ -1047,7 +1464,11 @@ class WarpAvatarEngine:
             len(ladder),
             ladder[0][0] if ladder else 0.0,
             ladder[-1][0] if ladder else 0.0,
-            ", ".join(sorted(r for r in sources if not r.startswith(_LADDER_PREFIX))) or "none",
+            max(len(smiles) - 1, 0),
+            ", ".join(
+                sorted(r for r in sources if not r.startswith((_LADDER_PREFIX, _SMILE_PREFIX)))
+            )
+            or "none",
         )
 
     def _align_variants(
@@ -1060,6 +1481,9 @@ class WarpAvatarEngine:
         dict[str, np.ndarray],
         dict[str, np.ndarray],
         dict[str, float],
+        tuple[tuple[float, str | None], ...],
+        tuple[tuple[float, str | None], ...],
+        tuple[tuple[float, str | None], ...],
         tuple[tuple[float, str | None], ...],
     ]:
         """Bring every extra photograph onto the base portrait's frame.
@@ -1144,7 +1568,88 @@ class WarpAvatarEngine:
         ladder = self._align_ladder(
             descriptor, base_points, triangles, width, height, aligned, aligned_points
         )
-        return aligned, aligned_points, gaps, ladder
+        smiles = self._align_axis(
+            descriptor, base_points, width, height, aligned, aligned_points, "smile", _SMILE_PREFIX
+        )
+        eyes = self._align_axis(
+            descriptor, base_points, width, height, aligned, aligned_points, "eyes", _EYES_PREFIX
+        )
+        brows = self._align_axis(
+            descriptor, base_points, width, height, aligned, aligned_points, "brows", _BROWS_PREFIX
+        )
+        # A rung's own lip gap, like every other mouth photograph's: it is what
+        # says whether this one has an interior to show through the lips.
+        for _, key in smiles:
+            if key is not None:
+                gaps[key] = _lip_gap_of(aligned_points[key])
+        return aligned, aligned_points, gaps, ladder, smiles, eyes, brows
+
+    def _align_axis(
+        self,
+        descriptor: AvatarDescriptor,
+        base_points: np.ndarray,
+        width: int,
+        height: int,
+        aligned: dict[str, np.ndarray],
+        aligned_points: dict[str, np.ndarray],
+        field: str,
+        prefix: str,
+    ) -> tuple[tuple[float, str | None], ...]:
+        """Every asset carrying a measured smile, as rungs sorted by how much.
+
+        The turn ladder's argument, on the axis the owner asked for. A single
+        smile photograph cross-faded over a resting mouth has two failures at
+        once: while it is faint there are two mouths on screen, and whatever
+        weight it is at, the *shape* it draws is the shape it was photographed
+        at — so a small smile is a wide one at low opacity rather than a small
+        one. The lips never stretch; the teeth simply appear.
+
+        A row of photographs taken while the smile forms replaces both. The
+        nearest is chosen, so the shape is always a shape this face actually
+        made, and the neighbours are close enough that moving between them is
+        the smile moving.
+
+        The base portrait is the rung at zero, marked ``None``, exactly as it is
+        for yaw: a resting mouth is the portrait's own and nothing is mixed into
+        it.
+        """
+        rungs: list[tuple[float, str | None]] = [(0.0, None)]
+
+        for index, asset in enumerate(descriptor.manifest.assets):
+            value = getattr(asset, field)
+            if value is None:
+                continue
+
+            key = f"{prefix}{index}"
+            path = descriptor.asset_path(asset)
+            try:
+                image = self._read_image(path)
+                points = self._landmarks_of(image, f"{descriptor.id}:{key}")
+            except AvatarLoadError as exc:
+                _LOG.warning("Avatar %s: skipping %s — %s", descriptor.id, asset.path, exc)
+                continue
+
+            image, points = _reduce_to(image, points, base_points)
+            placed = _place_by_similarity(image, points, base_points, width, height)
+            if placed is None:
+                _LOG.warning(
+                    "Avatar %s: %s could not be placed by similarity", descriptor.id, asset.path
+                )
+                continue
+
+            wrong = _misplaced(prefix, placed[1], base_points)
+            if wrong is not None:
+                _LOG.warning("Avatar %s: skipping %s — %s", descriptor.id, asset.path, wrong)
+                continue
+
+            aligned[key], aligned_points[key] = placed
+            rungs.append((float(value), key))
+
+        # A ladder of one rung is the base portrait on its own, which is not a
+        # ladder. Returning it as one would be enough to make callers believe
+        # there is a smile ladder and stop using the named smile photographs —
+        # see the same guard on the turn ladder, where it was a real defect.
+        return tuple(sorted(rungs)) if len(rungs) > 1 else ()
 
     def _align_ladder(
         self,
@@ -1206,7 +1711,12 @@ class WarpAvatarEngine:
                 aligned[key], aligned_points[key] = placed
             rungs.append((float(asset.yaw), key))
 
-        return tuple(sorted(rungs))
+        # The base portrait alone is not a ladder, and saying it is has a cost:
+        # a caller that finds a ladder stops using the four named turn
+        # photographs, so an avatar with those and no ladder lost its turns
+        # entirely. Every avatar built since has had a ladder, which is why this
+        # went unseen.
+        return tuple(sorted(rungs)) if len(rungs) > 1 else ()
 
     def unload_avatar(self, avatar_id: str) -> None:
         self._loaded.pop(avatar_id, None)
@@ -1917,6 +2427,127 @@ def _lip_gap(tracking: FaceTrackingResult) -> float:
     return gap / height
 
 
+def _smiling(tracking: FaceTrackingResult) -> float:
+    """How far into a smile this face is, from 0 to 1.
+
+    One function because two places have to agree about it: the engine reading
+    a live frame, and `build_smile_ladder.py` reading a photograph to decide
+    which rung it is. A ladder whose rungs were measured differently from the
+    thing they are chosen by is a ladder that picks the wrong rung.
+    """
+    shapes = tracking.blendshapes
+    if shapes is None or not shapes.names:
+        return 0.0
+    smile = max(shapes.get("mouthSmileLeft"), shapes.get("mouthSmileRight"))
+    return min(smile / _SMILE_REFERENCE, 1.0)
+
+
+def _eye_amount(tracking: FaceTrackingResult, neutral: _Neutral) -> float:
+    """Where the lids sit against a resting eye. Signed.
+
+    Zero at rest, positive as they close, negative when they are open wider than
+    usual. **Against the resting opening rather than the widest one**, and that
+    is the difference between this and the closed-eye weight it replaces: a
+    ceiling that follows the most open the eye has been puts *rest* somewhere in
+    the middle of its own scale, so a face doing nothing reads as part way shut.
+    Rest is where a face spends its time, and it is what both directions have to
+    be measured from.
+
+    Measured on the **eyelids** rather than on ``eyeBlink``, which reads 0.14 on
+    eyes held shut and had the avatar squinting back at a person whose eyes were
+    closed.
+    """
+    lids = _eye_opening(tracking)
+    rest = neutral.level_of("eyeOpen")
+    if rest is None:
+        # First sight of this face. Seeding it here rather than leaving it to
+        # `_source_weights` keeps the two independent: whichever asks first
+        # establishes rest, and the answer on that frame is zero either way.
+        neutral.relative_rise("eyeOpen", lids)
+        return 0.0
+    if rest <= 1e-6:
+        return 0.0
+    return (rest - lids) / rest
+
+
+def _brow_height(tracking: FaceTrackingResult) -> float:
+    """How high the brows sit above the nose bridge, over face height.
+
+    **Measured on the brows**, for the third time in this file and for the third
+    time because a blendshape would not answer it. ``browInnerUp`` reacts to the
+    eyelid as well as to the brow — over the owner's recording it reached its
+    maximum on 5% of frames, most of them around blinks — so a ladder driven by
+    it put a fully raised brow on the face for an instant every time the eyes
+    opened. That is the doubled brow and the angry look they photographed.
+
+    Against the **nose bridge**, which does not move when a lid does, rather
+    than against the eye. Two vertical distances divided by each other, as the
+    lip gap and the eye opening are, so the frame's aspect ratio cancels.
+    """
+    landmarks = tracking.landmarks
+    if landmarks is None or landmarks.count <= max(max(_LEFT_BROW), max(_RIGHT_BROW)):
+        return 0.0
+    if landmarks.count <= max(_FOREHEAD_LANDMARK, _CHIN_LANDMARK, _NOSE_BRIDGE_LANDMARK):
+        return 0.0
+
+    points = landmarks.points
+    face = float(points[_CHIN_LANDMARK, 1] - points[_FOREHEAD_LANDMARK, 1])
+    if face <= 1e-6:
+        return 0.0
+
+    brows = float(np.mean(points[list(_LEFT_BROW + _RIGHT_BROW), 1]))
+    return (float(points[_NOSE_BRIDGE_LANDMARK, 1]) - brows) / face
+
+
+def _brow_amount(tracking: FaceTrackingResult, neutral: _Neutral) -> float:
+    """Where the brows sit against a resting face. Signed.
+
+    Zero at rest, positive raised, negative drawn down. Measured from
+    :func:`_brow_height` against a slow mean of it, because rest is where a face
+    keeps its brows and no two faces keep them in the same place.
+    """
+    measured = _brow_height(tracking)
+    if measured <= 1e-6:
+        return 0.0
+
+    # Smoothed before it is compared: the brow landmarks jitter about half a
+    # rung's worth on a still face, and with a rung shown whole that is a
+    # change of photograph three times a second. Two and a half frames of lag,
+    # which is under a tenth of a second and slower than no brow ever moved.
+    height = neutral.smooth("browHeight", measured, _BROW_SMOOTHING)
+    rest = neutral.track_level("browHeight", height)
+    if rest <= 1e-6:
+        return 0.0
+    return min(max(((height - rest) / rest) / _BROW_SPAN, -1.0), 1.0)
+
+
+def _smile_amount(tracking: FaceTrackingResult, neutral: _Neutral) -> float:
+    """How far into a smile this face is, on the axis the smile ladder is filed by.
+
+    The smile blendshape alone will not do it. Measured across the owner's
+    smiles clip it reaches 1.0 at the open smile and stays there through the
+    laugh, so everything from "teeth showing" to "laughing" collapses into one
+    value and a ladder built on it stops where the teeth begin — which is
+    precisely where it is needed.
+
+    So the opening carries it the rest of the way: ``smile x (1 + opening)``,
+    which runs 0.2 at a closed smile, 1.1 as the teeth appear, 2.0 at a laugh,
+    and is monotonic through the clip. A mouth open without a smile stays near
+    zero, so speech still chooses its own shapes.
+
+    Measured **above the resting face**, like every other expression here: a
+    relaxed mouth reads 0.07-0.09 on this tracker, and a ladder that starts
+    below that would be on permanently.
+    """
+    above = neutral.relative_expression("smileAmount", _smiling(tracking))
+    if above <= 0.0:
+        return 0.0
+
+    gap = _lip_gap(tracking)
+    opening = (gap - _LIP_GAP_CLOSED) / max(_LIP_GAP_FULL - _LIP_GAP_CLOSED, 1e-6)
+    return above * (1.0 + min(max(opening, 0.0), 1.0))
+
+
 def _source_weights(
     tracking: FaceTrackingResult,
     full_gap: float = _LIP_GAP_FULL,
@@ -1975,8 +2606,7 @@ def _source_weights(
         # Which of the two open-mouth photographs it should come from: a smile
         # shows teeth differently from an "ah". They split the same budget
         # rather than adding to each other.
-        smile = max(shapes.get("mouthSmileLeft"), shapes.get("mouthSmileRight"))
-        smiling = min(smile / _SMILE_REFERENCE, 1.0)
+        smiling = _smiling(tracking)
         weights["source_smile"] = opening * smiling
         weights["source_mouth_open"] = opening * (1.0 - smiling)
 
@@ -2133,6 +2763,125 @@ def _source_weights(
     return chosen
 
 
+def _is_rung(role: str) -> bool:
+    """Whether this source is one of a ladder rather than a named expression."""
+    return role.startswith((_SMILE_PREFIX, _EYES_PREFIX, _LADDER_PREFIX))
+
+
+def _commit(weight: float, region: str = "") -> float:
+    """How much of a chosen photograph is applied, against the base underneath.
+
+    Straight line to :data:`_COMMIT_FULL` and flat at one after it. The flat
+    part is the point: past it the base portrait contributes nothing to the
+    region, so there is no shut mouth left under an open one and no open eye
+    left under a closed lid.
+
+    Some regions start later than others — see :data:`_COMMIT_FLOOR` — and the
+    rest of the range is stretched over what is left, so the curve stays
+    continuous and still reaches one.
+    """
+    share = min(weight / _COMMIT_FULL, 1.0)
+    floor = _COMMIT_FLOOR.get(region, 0.0)
+    if floor <= 0.0:
+        return share
+    return max(share - floor, 0.0) / (1.0 - floor)
+
+
+def _eased(
+    region: str, wanted: float, applied: dict[str, float], seconds: float = _FRAME_SECONDS
+) -> float:
+    """``wanted``, but no further than this frame's worth of change.
+
+    The photograph is chosen instantly and *arrives* over a fraction of a
+    second. Only the amount is limited: which photograph it is has already been
+    decided, and a fade between two of them is the double exposure this whole
+    path exists to remove.
+    """
+    was = applied.get(region, 0.0)
+    # Clamped here rather than at the call: a dropped frame, a paused debugger
+    # or a clip replayed as fast as it will go must not let an expression jump,
+    # whoever is asking.
+    seconds = min(max(seconds, 0.0), _FRAME_SECONDS_MAX)
+    limit = _EASE_PER_SECOND_BY_REGION.get(region, _EASE_PER_SECOND) * seconds
+    step = min(max(wanted - was, -limit), limit)
+    now = was + step
+    applied[region] = now
+    return now
+
+
+def _one_per_region(
+    weights: dict[str, float],
+    holding: dict[str, str],
+    applied: dict[str, float] | None = None,
+    seconds: float = _FRAME_SECONDS,
+) -> dict[str, float]:
+    """Keep the strongest photograph in each region and drop the others.
+
+    Whole-head photographs — the turns, and the ladder's rungs — pass through
+    untouched. They are not in competition with anything: they describe the
+    angle the head is at, and the ladder already chooses among them by that
+    angle. Everything with a region competes, and exactly one wins it.
+
+    ``holding`` is the previous frame's winner per region, and it is what stops
+    the choice flickering: a challenger has to beat the incumbent by
+    :data:`_SWITCH_MARGIN` rather than merely tie with it. It is mutated in
+    place, so it must belong to the avatar rather than to the frame.
+
+    The winner's weight is replaced by how much of it to apply — see
+    :func:`_commit`, and :func:`_eased` for why that amount is rate limited
+    rather than read straight off the tracker. What used to be "this
+    photograph's share of a mix" becomes "how much of this photograph is on
+    screen", which is the only question left once there is nothing to mix it
+    with.
+    """
+    kept = {role: weight for role, weight in weights.items() if _region_of(role) is None}
+    applied = {} if applied is None else applied
+
+    contenders: dict[str, dict[str, float]] = {}
+    for role, weight in weights.items():
+        region = _region_of(role)
+        if region is not None:
+            contenders.setdefault(region, {})[role] = weight
+
+    for region, scores in contenders.items():
+        winner = max(scores, key=lambda role: scores[role])
+        held = holding.get(region)
+        # The incumbent keeps the region unless it is beaten by a clear margin.
+        defended = held is not None and held != winner and held in scores
+        if defended and scores[winner] - scores[held] < _SWITCH_MARGIN:  # type: ignore[index]
+            winner = held  # type: ignore[assignment]
+        holding[region] = winner
+
+        # **A rung is shown whole.** For a named photograph the weight says how
+        # much of that expression this frame has, and fading it in against the
+        # base is how an expression arrives. For a rung it says no such thing:
+        # the amount is already in *which rung was chosen* — the eye ladder's
+        # 0.3 rung is a photograph of an eye three tenths shut — so mixing it
+        # with the portrait underneath puts a wide-open eye back under a closing
+        # lid at exactly the opacity the owner keeps reporting. The choosing has
+        # already answered the question the fade was trying to answer.
+        wanted = 1.0 if _is_rung(winner) else _commit(scores[winner], region)
+        share = _eased(region, wanted, applied, seconds)
+        if share > 0.0:
+            kept[winner] = share
+
+    # A region with no photograph this frame still has to *leave*, and leaving
+    # takes as many frames as arriving did. Only once it is gone does it stop
+    # being a region with an incumbent — otherwise a photograph fading out would
+    # have no name to be drawn under.
+    for region in tuple(holding):
+        if region in contenders:
+            continue
+        share = _eased(region, 0.0, applied, seconds)
+        if share > 0.0:
+            kept[holding[region]] = share
+        else:
+            del holding[region]
+            applied.pop(region, None)
+
+    return kept
+
+
 def _place_by_similarity(
     image: np.ndarray,
     points: np.ndarray,
@@ -2216,13 +2965,59 @@ def _build_regions(
     feather = max(3, int(face_width * _REGION_FEATHER) | 1)
     source_points = source_points or {}
 
+    # **No pixel belongs to two regions.** The owner, still seeing photographs
+    # mixed after each region was cut to one of them: *"especially around the
+    # eyes and brows"*. Which is where the regions overlap — a brow's box is
+    # grown by its margin and reaches down over the socket, an eye's reaches up
+    # — so a closed eyelid and a lowered brow were both painted over the same
+    # skin, in sequence, and the result is an average of two photographs after
+    # all the work to stop being one.
+    #
+    # Each region is therefore cut back by whatever the regions before it have
+    # already claimed, in the order they are built: the mouth first, then the
+    # eyes, then the brows. The eyes own the socket because that is the feature
+    # in it. What the brows keep is the skin above, where they are the only
+    # photograph with anything to say.
+    claimed = np.zeros((height, width), dtype=np.float32)
+
+    # **Where the brows end and the eyes begin.** Giving the whole overlap to
+    # the eyes was right for the socket and wrong for the ridge above it: a
+    # brow rung could then not paint over the portrait's own brow, because that
+    # sits inside what the eyes had claimed — so the portrait's brow stayed
+    # where it was and the rung's brow appeared above it. Two brows, and a dark
+    # seam between them, which the owner reported as looking angry, and which
+    # happened when the eyes opened because that is when an eye rung is on.
+    #
+    # So the pair is divided anatomically rather than by priority: halfway
+    # between the brows and the top of the eyes. Each keeps its own half, and
+    # the feather crosses the line as it crosses every other edge.
+    brow_line = float(points[_BROW_POSITIONS][:, 1].mean())
+    eye_top = float(points[_EYE_POSITIONS][:, 1].min())
+    split = eye_top + (brow_line - eye_top) * _RIDGE_SPLIT
+
+    # The brows may reach down to the top of the eye and no further: their own
+    # margin is a tenth of a face and would otherwise cover the iris, and a
+    # brow photograph has nothing to say about an eye.
+    brow_floor = eye_top
+    rows = np.arange(height, dtype=np.float32)[:, None]
+
     built: list[_Region] = []
+    # Brows before eyes, which is the order they claim overlapping skin in.
+    # Measured on the owner's own library: the brow rungs place their brows
+    # anywhere from 23 px above the portrait's to 19 px below it, because that
+    # is the range a brow moves through. A mask cut to a line through the ridge
+    # therefore clipped the lowered rungs, and where a rung was clipped the
+    # portrait's own brow showed through — the second brow, and it appeared
+    # while the eyes were closing because that is when a rung is held.
+    #
+    # So the brows keep every pixel their photographs need, the eyes are cut at
+    # the ridge line and take what is left below it.
     for name, positions in (
         ("mouth", _MOUTH_POSITIONS),
-        ("eyes", _EYE_REGION_POSITIONS),
         ("brows", _BROW_POSITIONS),
+        ("eyes", _EYE_REGION_POSITIONS),
     ):
-        present = [role for role in _REGION_ROLES[name] if role in sources]
+        present = [role for role in sources if _region_of(role) == name]
         if not present:
             continue
 
@@ -2245,8 +3040,8 @@ def _build_regions(
         # the region's landmarks grown by the margin, then blurred. Blurring
         # inside the box means the edge fades to zero at the box border, so the
         # composite can never produce a seam at the rectangle itself.
-        filled = np.zeros((y1 - y0, x1 - x0), dtype=np.uint8)
-        cv2.fillConvexPoly(filled, cv2.convexHull((group[:, :2] - (x0, y0)).astype(np.int32)), 255)
+        filled = np.zeros((height, width), dtype=np.uint8)
+        cv2.fillConvexPoly(filled, cv2.convexHull(group[:, :2].astype(np.int32)), 255)
         grown = cv2.dilate(
             filled, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (margin | 1, margin | 1))
         )
@@ -2260,16 +3055,25 @@ def _build_regions(
         # blur the join around the *base's* features and has no business
         # extending an opening the mesh has never seen.
         for extra in extras:
-            cv2.fillConvexPoly(
-                grown, cv2.convexHull((extra[:, :2] - (x0, y0)).astype(np.int32)), 255
-            )
+            cv2.fillConvexPoly(grown, cv2.convexHull(extra[:, :2].astype(np.int32)), 255)
+        if name == "eyes":
+            grown = np.where(rows >= split, grown, 0).astype(np.uint8)
+        elif name == "brows":
+            grown = np.where(rows <= brow_floor, grown, 0).astype(np.uint8)
+
         mask = cv2.GaussianBlur(grown, (feather, feather), 0).astype(np.float32) / 255.0
+
+        # What is left after the regions before it have taken theirs, and what
+        # it takes in turn. Subtracted rather than cut, so the join stays a fade
+        # — and the two can never add up to more than one photograph's worth.
+        np.clip(mask - claimed, 0.0, 1.0, out=mask)
+        np.clip(claimed + mask, 0.0, 1.0, out=claimed)
 
         built.append(
             _Region(
                 name=name,
                 box=(x0, y0, x1, y1),
-                mask=mask[:, :, None],
+                mask=np.ascontiguousarray(mask[y0:y1, x0:x1])[:, :, None],
                 sources={
                     role: np.ascontiguousarray(sources[role][y0:y1, x0:x1]) for role in present
                 },
@@ -2482,6 +3286,24 @@ def _ladder_weights(ladder: tuple[tuple[float, str | None], ...], yaw: float) ->
     span = above[0] - below[0]
     share = (yaw - below[0]) / span if span > 1e-6 else 0.0
 
+    # **A gap in the ladder is not a licence to average across it.** The claim
+    # above — that a mix of two angles three degrees apart is indistinguishable
+    # from either — is true at three degrees and false at eight, and a ladder
+    # cut from a real clip has gaps: the owner's second turn clip left one of
+    # eight degrees between +11 and +19, because that is where the head was
+    # moving rather than stopping. Averaged across it, a cheek at +11 lies over
+    # a cheek at +19 and the face reads as smeared — the owner's word was
+    # *dough*, around the nose, where the two disagree most.
+    #
+    # So the cross-fade keeps its width in degrees rather than in rungs: it
+    # happens over :data:`_LADDER_CROSSFADE_DEGREES` in the middle of the gap,
+    # and everywhere else one photograph is shown whole. At a three-degree
+    # spacing this is exactly the old behaviour; at eight it is the nearer rung
+    # for two and a half degrees either side, then a quick change.
+    if span > _LADDER_CROSSFADE_DEGREES:
+        width = _LADDER_CROSSFADE_DEGREES / span
+        share = min(max((share - 0.5) / width + 0.5, 0.0), 1.0)
+
     # A rung at zero weight is dropped rather than carried: it would cost a
     # cache key and break "a resting face uses no sources at all", which is the
     # property that makes a still avatar byte-identical to its own photograph.
@@ -2490,6 +3312,79 @@ def _ladder_weights(ladder: tuple[tuple[float, str | None], ...], yaw: float) ->
         if rung[1] is not None and weight > 1e-6:
             weights[rung[1]] = weight
     return weights
+
+
+def _nearest_smile(
+    ladder: tuple[tuple[float, str | None], ...], smiling: float, held: str | None = None
+) -> dict[str, float]:
+    """The one rung nearest this much smile, at a weight of how much there is.
+
+    **One, not two.** The yaw ladder crosses a short fade between neighbours
+    because a head passes through every angle on its way and a jump would read
+    as a flick of the head. A smile does not work that way: the rungs are
+    photographs of one face at ten stages of the same movement, the shape
+    changes little between neighbours, and what the owner objected to was
+    *two mouths at once*. So the nearest is shown whole and the change from one
+    to the next is carried by :func:`_eased`, which is a third of a second — the
+    time a smile takes.
+
+    The weight is the amount of smile rather than one, so a faint smile is a
+    faint photograph of a faint smile, and an ordinary talking mouth can still
+    win the region on the shape it is making.
+    """
+    return _nearest_rung(ladder, smiling, _SMILE_LADDER_START, held)
+
+
+def _nearest_rung(
+    ladder: tuple[tuple[float, str | None], ...],
+    amount: float,
+    start: float,
+    held: str | None = None,
+    freeze: bool = False,
+) -> dict[str, float]:
+    """The one rung nearest ``amount``, at a weight of how much there is.
+
+    Shared by the smile and the lids, which want the same thing and for the same
+    reason. **One rung, not two**: unlike yaw, where a head passes through every
+    angle on its way and a jump would read as a flick, these are stages of one
+    movement whose neighbours differ little — and what the owner objected to was
+    two photographs on screen at once. The change from one to the next is
+    carried by :func:`_eased`.
+    """
+    if len(ladder) < 2:
+        return {}
+
+    # Frozen: the measurement is not to be trusted this frame, so whatever was
+    # chosen last stays and nothing new starts. Holding is not the same as
+    # leaving — leaving would be a change of picture too — and starting on an
+    # untrustworthy reading is the very thing being avoided.
+    if freeze:
+        current = next((rung for rung in ladder if rung[1] == held), None)
+        if current is None or current[1] is None:
+            return {}
+        return {current[1]: min(abs(current[0]), 1.0)}
+
+    if abs(amount) < start:
+        return {}
+
+    nearest = min(ladder, key=lambda rung: abs(rung[0] - amount))
+
+    # The rung in hand keeps the region until another is *clearly* nearer.
+    # Without it the tracker's own noise walks the choice back and forth across
+    # a boundary several times a second, and since a rung is shown whole, each
+    # crossing is a change of photograph. Half a rung of margin, so a real
+    # movement still moves it immediately.
+    if held is not None:
+        current = next((rung for rung in ladder if rung[1] == held), None)
+        if (
+            current is not None
+            and abs(current[0] - amount) <= abs(nearest[0] - amount) + _RUNG_HOLD
+        ):
+            nearest = current
+
+    if nearest[1] is None:
+        return {}
+    return {nearest[1]: min(abs(amount), 1.0)}
 
 
 def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.ndarray:
@@ -2545,11 +3440,76 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
                 _ladder_weights(avatar.ladder, avatar.neutral.pose_offset("yaw", pose.yaw))
             )
 
+    if avatar.smile_ladder:
+        # The smile ladder owns the smile the way the turn ladder owns yaw. The
+        # two named smile roles go with it: one of them is a photograph the
+        # ladder holds ten better versions of, and keeping it would put a wide
+        # smile back in competition with the right-sized one.
+        for role in _SMILE_ROLES:
+            weights.pop(role, None)
+        weights.update(_nearest_smile(avatar.smile_ladder, _smile_amount(tracking, avatar.neutral)))
+
+    # The lids, measured once: the brows are read against them as well as the
+    # eye ladder being chosen by them.
+    lid = (
+        _eye_amount(tracking, avatar.neutral) if (avatar.eye_ladder or avatar.brow_ladder) else 0.0
+    )
+
+    if avatar.brow_ladder:
+        # The brows' own ladder, and both named photographs go with it. A raised
+        # brow and a lowered one are two ends of one movement, which is what the
+        # signed axis says and what two separate photographs could not.
+        for role in _BROWS_ROLES:
+            weights.pop(role, None)
+        weights.update(
+            _nearest_rung(
+                avatar.brow_ladder,
+                _brow_amount(tracking, avatar.neutral),
+                _BROWS_LADDER_START,
+                avatar.holding.get("brows"),
+                # **Not while the lids are moving.** Measured over the owner's
+                # recording, where the brows sit correlates with the lids at
+                # r=+0.24 whatever it is measured against — the landmarks ride
+                # the blink, so a blink reads as a brow raise of 0.63 and puts a
+                # raised brow on the avatar for three frames. That is the flash
+                # they photographed. A brow does not change while an eye blinks,
+                # so the choice is held until the lids are back.
+                freeze=abs(lid) > _BROW_FREEZE_LID,
+            )
+        )
+
+    if avatar.eye_ladder:
+        # The lids' own ladder, and the shut-eye photograph goes with it for the
+        # same reason the smile's did: the ladder holds ten better versions of
+        # it, one for each stage of the same closing.
+        for role in _EYES_ROLES:
+            weights.pop(role, None)
+        weights.update(
+            _nearest_rung(avatar.eye_ladder, lid, _EYES_LADDER_START, avatar.holding.get("eyes"))
+        )
+
     if not weights:
         avatar.blend_points = avatar.points
         avatar.interior_role = None
         avatar.eye_follow = _EYE_FOLLOW
+        avatar.holding.clear()
+        avatar.applied.clear()
         return avatar.image
+
+    # One photograph per region from here on. Everything below still speaks of
+    # mixes and shares because a whole-head photograph is still mixed across the
+    # frame and the ladder still crosses two rungs three degrees apart — but
+    # inside a region there is now exactly one photograph, and `share` says how
+    # much of it is on screen rather than how it was averaged with its rivals.
+    # How long this frame is worth. Measured from the camera's own timestamps,
+    # so an expression takes the same time at 60 fps as at 30 — and clamped,
+    # because a dropped frame or a paused debugger must not let one jump.
+    now = tracking.metadata.capture_timestamp
+    last = avatar.last_seen
+    avatar.last_seen = now
+    seconds = _FRAME_SECONDS if last is None else now - last
+
+    weights = _one_per_region(weights, avatar.holding, avatar.applied, seconds)
 
     # **The mouth interior comes from one photograph, never from an average.**
     # The lips may cross-fade — an opening is a continuum and the photographs
@@ -2585,7 +3545,7 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
     # degrees, and it is only usable if the mesh also says 35 degrees: the live
     # warp reads this mesh as "where these pixels are", and given the frontal
     # one it would fold a turned face flat before the frame was even composed.
-    whole_head = {role: weight for role, weight in weights.items() if role not in _ROLE_REGION}
+    whole_head = {role: weight for role, weight in weights.items() if _region_of(role) is None}
     mesh = avatar.points.copy()
     if whole_head:
         blended = _weighted_sum(avatar.image, avatar.sources, whole_head)
@@ -2930,6 +3890,28 @@ def _trim_forehead(points: np.ndarray) -> np.ndarray:
     return trimmed
 
 
+def _turn_bias(points: np.ndarray) -> tuple[float, bool]:
+    """How far off centre the nose sits, and which side of it is the near one.
+
+    A turn read from the mesh itself rather than from the tracker's pose, so it
+    is measured in the same picture the mask is drawn in — the two can never
+    disagree about which cheek is facing the camera. The near side is simply
+    the side of the nose with more face on it.
+
+    Returns the offset as a fraction of half the outline's width, and ``True``
+    when the near cheek is on the right of the picture.
+    """
+    oval = points[_OVAL_SLICE]
+    nose = float(points[_NOSE_TIP_POSITION][0])
+    left = nose - float(oval[:, 0].min())
+    right = float(oval[:, 0].max()) - nose
+    total = left + right
+    if total <= 1e-6:
+        return 0.0, True
+    bias = (right - left) / total
+    return abs(bias), bias > 0.0
+
+
 def _destination_mask(points: np.ndarray, width: int, height: int) -> np.ndarray:
     """Soft-edged mask following the face outline, in the local box.
 
@@ -2958,14 +3940,35 @@ def _destination_mask(points: np.ndarray, width: int, height: int) -> np.ndarray
     """
     import cv2
 
+    edge = _trim_forehead(points)
     outline = np.zeros((height, width), dtype=np.uint8)
-    cv2.fillPoly(outline, [_trim_forehead(points).astype(np.int32)], 255)
+    cv2.fillPoly(outline, [edge.astype(np.int32)], 255)
 
     face_width = max(float(points[:, 0].max() - points[:, 0].min()), 1.0)
     shrink = max(1, int(face_width * _MASK_SHRINK))
     feather = max(3, int(face_width * _MASK_FEATHER) | 1)
 
     trimmed = cv2.erode(outline, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (shrink, shrink)))
+
+    # **The near cheek keeps its edge once the head is turned**, because what
+    # lies just outside it there is more face rather than background. See
+    # :data:`_NEAR_CHEEK_START`. Never further out than the outline itself: the
+    # restored piece is clipped to it, so this can only undo the erosion and
+    # never reach into hair or into the room.
+    bias, near_right = _turn_bias(points)
+    ramp = min(max((bias - _NEAR_CHEEK_START) / (_NEAR_CHEEK_FULL - _NEAR_CHEEK_START), 0.0), 1.0)
+    if ramp > 0.0:
+        nose = float(points[_NOSE_TIP_POSITION][0])
+        side = edge[edge[:, 0] >= nose] if near_right else edge[edge[:, 0] <= nose]
+        if len(side) >= 3:
+            near = np.zeros((height, width), dtype=np.uint8)
+            corners = np.vstack([side, points[_PROFILE_POSITIONS]]).astype(np.int32)
+            cv2.fillConvexPoly(near, cv2.convexHull(corners), 255)
+            cv2.bitwise_and(near, outline, dst=near)
+            keep = max(1, round(shrink * (1.0 - ramp)))
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (keep, keep))
+            cv2.erode(near, kernel, dst=near)
+            cv2.max(trimmed, near, dst=trimmed)
 
     # The features go on **after** the erosion, at full strength. The erosion
     # exists to pull the outer boundary inside the real face so the blend

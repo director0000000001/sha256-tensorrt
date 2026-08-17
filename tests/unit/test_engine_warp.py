@@ -14,21 +14,56 @@ that the message should name.
 from __future__ import annotations
 
 import json
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
 
-from sha256.avatar.engine_warp import _OVAL_SLICE as OVAL_COUNT_SLICE
 from sha256.avatar.engine_warp import (
+    _BROW_POSITIONS,
+    _BROWS_LADDER_START,
+    _BROWS_PREFIX,
+    _COMMIT_FULL,
+    _EASE_PER_SECOND,
+    _EYE_POSITIONS,
+    _EYES_LADDER_START,
+    _EYES_PREFIX,
+    _FRAME_SECONDS,
+    _IRIS_POSITIONS,
+    _LADDER_CROSSFADE_DEGREES,
+    _MASK_FEATHER,
+    _NEAR_CHEEK_START,
+    _NOSE_TIP_POSITION,
+    _POSE_RATE,
+    _POSE_WARMUP_FRAMES,
+    _PROFILE_POSITIONS,
+    _ROLE_REGION,
+    _SMILE_LADDER_START,
+    _SWITCH_MARGIN,
     MESH_INDICES,
     WarpAvatarEngine,
     _blend_sources,
+    _brow_amount,
     _build_regions,
+    _commit,
+    _destination_mask,
+    _eased,
+    _eye_amount,
+    _ladder_weights,
+    _misplaced,
+    _nearest_rung,
+    _nearest_smile,
     _Neutral,
+    _one_per_region,
+    _pixel_points,
+    _smile_amount,
     _source_weights,
+    _trim_forehead,
+    _turn_bias,
 )
+from sha256.avatar.engine_warp import _OVAL_SLICE as OVAL_COUNT_SLICE
 from sha256.core.avatar import AvatarDescriptor, AvatarManifest
 from sha256.core.enums import PixelFormat
 from sha256.core.errors import AvatarLoadError
@@ -118,6 +153,36 @@ def synthetic_landmarks(*, centre: tuple[float, float] = (0.5, 0.5), scale: floa
         points[index, 1] = centre[1] + radius * 1.25 * np.sin(angle)
 
     return points
+
+
+def with_brow_anatomy(points: np.ndarray) -> np.ndarray:
+    """The synthetic face, with the brows put above the eyes.
+
+    ``synthetic_landmarks`` scatters every inner feature around a ring, which is
+    enough for anything that only needs *a* face — and useless for a question
+    about what sits above what. Anything testing where the brows end and the
+    eyes begin has to say where they are.
+    """
+    from sha256.avatar.engine_warp import (
+        _LEFT_BROW,
+        _LEFT_EYE,
+        _LEFT_IRIS,
+        _RIGHT_BROW,
+        _RIGHT_EYE,
+        _RIGHT_IRIS,
+    )
+
+    moved = points.copy()
+    # The brows get a slight arc rather than a flat line: a convex hull of
+    # collinear points has no area, so a flat brow would leave the region's mask
+    # empty and every question about what it covers unanswerable.
+    for position, index in enumerate(_LEFT_BROW + _RIGHT_BROW):
+        moved[index, 1] = 0.36 + 0.004 * (position % 3)
+    for index in _LEFT_EYE + _RIGHT_EYE:
+        moved[index, 1] = 0.46
+    for index in _LEFT_IRIS + _RIGHT_IRIS:
+        moved[index, 1] = 0.46
+    return moved
 
 
 def relaxed_like(tracking: FaceTrackingResult) -> FaceTrackingResult:
@@ -711,6 +776,901 @@ class TestSourceBlending:
         assert float(blended.mean()) > float(avatar.image.mean())
 
 
+class TestTheRestingAngle:
+    """Where the engine thinks straight ahead is.
+
+    It is seeded from the first frame, which is right when someone opens the
+    application looking at their screen and wrong when they do not. Driven by a
+    clip that opens mid-turn at 31.7 degrees, the engine took that for straight
+    ahead and then chose a 30-degree-turned photograph for a frontal face: a
+    whole cheek stretched sideways, for half a minute.
+    """
+
+    def feed(self, neutral: _Neutral, angle: float, frames: int) -> float:
+        for _ in range(frames):
+            neutral.relative_pose("yaw", angle)
+        return neutral.pose_offset("yaw", angle)
+
+    def test_the_first_frame_is_its_own_resting_angle(self):
+        """The property that makes an avatar start as its own photograph."""
+        neutral = _Neutral()
+
+        assert neutral.relative_pose("yaw", 31.7) == 0.0
+
+    def test_one_frame_does_not_move_the_estimate_far(self):
+        """A turn in the opening second must not be learned as straight ahead."""
+        neutral = _Neutral()
+        neutral.relative_pose("yaw", 0.0)
+
+        neutral.relative_pose("yaw", 30.0)
+
+        assert neutral.pose_offset("yaw", 30.0) > 25.0
+
+    def test_a_session_that_opens_turned_is_corrected_within_the_warm_up(self):
+        """The defect this exists for, stated as a number."""
+        neutral = _Neutral()
+        neutral.relative_pose("yaw", 31.7)
+
+        settled = self.feed(neutral, 0.0, _POSE_WARMUP_FRAMES)
+
+        assert abs(settled) < 3.0, "still thinks a turned head was straight ahead"
+
+    def test_the_old_slow_mean_would_not_have_managed_that(self):
+        """Guards the fix rather than the framework.
+
+        At the slow rate alone, the same number of frames leaves most of the
+        error in place — which is what the owner would have seen as a cheek
+        stretched sideways until well after they had stopped caring why.
+        """
+        left_over = 31.7 * (1.0 - _POSE_RATE) ** _POSE_WARMUP_FRAMES
+
+        assert left_over > 20.0
+
+    def test_a_held_turn_after_the_warm_up_is_not_a_new_way_of_sitting(self):
+        neutral = _Neutral()
+        self.feed(neutral, 0.0, _POSE_WARMUP_FRAMES * 2)
+
+        self.feed(neutral, 30.0, 90)
+
+        # Three seconds of looking at a second monitor. The estimate may creep;
+        # it may not follow.
+        assert neutral.pose_offset("yaw", 30.0) > 27.0
+
+    def test_someone_who_genuinely_moves_their_chair_is_still_learned(self):
+        """Soft rather than a threshold: slowly is not never."""
+        neutral = _Neutral()
+        self.feed(neutral, 0.0, _POSE_WARMUP_FRAMES * 2)
+
+        settled = self.feed(neutral, 20.0, 6000)
+
+        assert abs(settled) < 5.0
+
+    def test_reading_the_offset_does_not_teach_it(self):
+        neutral = _Neutral()
+        neutral.relative_pose("yaw", 0.0)
+
+        for _ in range(500):
+            neutral.pose_offset("yaw", 40.0)
+
+        assert neutral.pose_offset("yaw", 40.0) == pytest.approx(40.0)
+
+
+class TestOnePhotographPerRegion:
+    """The owner's report, in their words: they smile, the teeth appear, and the
+    closed mouth is still there underneath at low opacity.
+
+    Both halves of that were one cause. A region mixed every photograph that
+    scored anything, and whatever the mix did not claim was left as base
+    portrait — whose lips are shut. So a wide smile was a smile photograph
+    averaged with a pressed-lips one and a rounded one, over a closed mouth.
+    """
+
+    def test_only_the_strongest_photograph_in_a_region_survives(self):
+        kept = _one_per_region(
+            {
+                "source_smile": 0.8,
+                "source_smile_closed": 0.5,
+                "source_mouth_pressed": 0.3,
+                "source_mouth_o": 0.2,
+            },
+            {},
+        )
+
+        assert set(kept) == {"source_smile"}
+
+    def test_a_committed_expression_leaves_no_base_portrait_underneath(self):
+        """The teeth case. Past the commit point the shut mouth is gone, not faint.
+
+        Held for a few frames first, because the amount is now rate limited —
+        see :class:`TestExpressionsArriveOverTime`. What matters here is where
+        it settles, not how long it takes to get there.
+        """
+        holding: dict[str, str] = {}
+        applied: dict[str, float] = {}
+        for _ in range(12):
+            kept = _one_per_region(
+                {"source_smile": 0.8, "source_smile_closed": 0.5}, holding, applied
+            )
+
+        assert kept["source_smile"] == 1.0
+
+    def test_a_faint_expression_still_fades_in_rather_than_popping(self):
+        kept = _one_per_region({"source_mouth_o": _COMMIT_FULL / 2}, {})
+
+        assert 0.0 < kept["source_mouth_o"] < 1.0
+
+    def test_every_region_keeps_its_own_winner(self):
+        kept = _one_per_region(
+            {
+                "source_smile": 0.8,
+                "source_mouth_o": 0.4,
+                "source_eyes_closed": 0.6,
+                "source_eyes_wide": 0.1,
+                "source_brows_up": 0.5,
+            },
+            {},
+        )
+
+        assert set(kept) == {"source_smile", "source_eyes_closed", "source_brows_up"}
+
+    def test_whole_head_photographs_are_not_in_the_competition(self):
+        """A rung is not a rival of a mouth: it says what angle the head is at."""
+        kept = _one_per_region(
+            {"turn@4": 0.7, "turn@5": 0.3, "source_turn_left": 0.4, "source_smile": 0.9}, {}
+        )
+
+        assert kept["turn@4"] == 0.7
+        assert kept["turn@5"] == 0.3
+        assert kept["source_turn_left"] == 0.4
+
+    def test_the_incumbent_holds_the_region_against_a_narrow_challenge(self):
+        """Without this the two nearest expressions swap several times a second."""
+        holding = {"mouth": "source_mouth_o"}
+
+        kept = _one_per_region(
+            {"source_mouth_o": 0.50, "source_mouth_pressed": 0.50 + _SWITCH_MARGIN / 2}, holding
+        )
+
+        assert set(kept) == {"source_mouth_o"}
+        assert holding["mouth"] == "source_mouth_o"
+
+    def test_a_clear_challenger_takes_the_region(self):
+        holding = {"mouth": "source_mouth_o"}
+
+        kept = _one_per_region(
+            {"source_mouth_o": 0.50, "source_mouth_pressed": 0.50 + _SWITCH_MARGIN * 2}, holding
+        )
+
+        assert set(kept) == {"source_mouth_pressed"}
+        assert holding["mouth"] == "source_mouth_pressed"
+
+    def test_a_region_with_nothing_this_frame_forgets_its_incumbent(self):
+        """So the next expression to arrive starts unopposed, not out-argued by
+        whatever was last on screen seconds ago."""
+        holding = {"mouth": "source_smile"}
+
+        _one_per_region({"source_brows_up": 0.4}, holding)
+
+        assert "mouth" not in holding
+
+    def test_the_commit_curve_is_continuous_up_to_full(self):
+        assert _commit(0.0) == 0.0
+        assert _commit(_COMMIT_FULL) == 1.0
+        assert _commit(_COMMIT_FULL * 2) == 1.0
+        assert _commit(_COMMIT_FULL / 4) < _commit(_COMMIT_FULL / 2)
+
+    def test_a_blend_ends_with_one_mouth_photograph_and_remembers_it(self, engine, tmp_path):
+        """The same rule, through the real composite rather than the arithmetic."""
+        engine.load_avatar(make_descriptor(tmp_path))
+        avatar = engine._loaded["avatar_test"]
+        for role in ("source_mouth_open", "source_smile", "source_smile_closed"):
+            avatar.sources[role] = np.full_like(avatar.image, 255)
+        avatar.regions = _build_regions(avatar.image, avatar.points, avatar.sources)
+
+        _blend_sources(avatar, expressive_tracking(jaw=0.5, smile=0.5))
+
+        mouth = [role for role in avatar.cached_weights if _ROLE_REGION.get(role) == "mouth"]
+        assert len(mouth) == 1, f"more than one photograph in the mouth: {mouth}"
+        assert avatar.holding["mouth"] == mouth[0]
+
+
+class TestTheLadderDoesNotAverageAcrossAGap:
+    """The owner, on turning their head: *dough*, around the nose.
+
+    A ladder cut from a real clip is not evenly spaced — the second turn clip
+    left eight degrees between +11 and +19, because that is where the head was
+    moving rather than stopping. Averaged across that gap, a cheek at +11 lies
+    over a cheek at +19 and the face reads as smeared.
+    """
+
+    TIGHT = ((0.0, None), (3.0, "a"), (6.0, "b"))
+    WIDE = ((0.0, None), (11.0, "a"), (19.0, "b"))
+
+    def test_a_ladder_at_its_intended_spacing_is_unchanged(self):
+        """Three degrees apart, the mix is the old proportional one."""
+        weights = _ladder_weights(self.TIGHT, 4.0)
+
+        assert weights["a"] == pytest.approx(2 / 3)
+        assert weights["b"] == pytest.approx(1 / 3)
+
+    def test_across_a_wide_gap_one_photograph_is_shown_whole(self):
+        weights = _ladder_weights(self.WIDE, 12.5)
+
+        assert weights == {"a": 1.0}
+
+    def test_the_change_still_happens_and_is_centred_in_the_gap(self):
+        middle = _ladder_weights(self.WIDE, 15.0)
+
+        assert middle["a"] == pytest.approx(0.5)
+        assert middle["b"] == pytest.approx(0.5)
+
+    def test_the_change_is_no_wider_than_the_crossfade(self):
+        below = _ladder_weights(self.WIDE, 15.0 - _LADDER_CROSSFADE_DEGREES)
+        above = _ladder_weights(self.WIDE, 15.0 + _LADDER_CROSSFADE_DEGREES)
+
+        assert below == {"a": 1.0}
+        assert above == {"b": 1.0}
+
+    def test_nothing_is_ever_extrapolated_past_the_ends(self):
+        assert _ladder_weights(self.WIDE, 90.0) == {"b": 1.0}
+        assert _ladder_weights(self.WIDE, -90.0) == {}
+
+
+class TestExpressionsArriveOverTime:
+    """The owner, on the first version of the region change: the teeth arrive
+    *"as if the frame had been cut"*.
+
+    They were right. The amount was read straight off the tracker, and a
+    blendshape crosses the commit point in a frame or two — so a photograph
+    correct for the mouth's final shape was appearing whole while the lips were
+    still moving. A real smile takes about a third of a second to form.
+    """
+
+    def run(
+        self,
+        weights: dict[str, float],
+        frames: int,
+        holding: dict[str, str] | None = None,
+        applied: dict[str, float] | None = None,
+    ) -> tuple[list[dict[str, float]], dict[str, str], dict[str, float]]:
+        holding = {} if holding is None else holding
+        applied = {} if applied is None else applied
+        seen = []
+        for _ in range(frames):
+            seen.append(_one_per_region(dict(weights), holding, applied))
+        return seen, holding, applied
+
+    def test_a_smile_does_not_arrive_in_one_frame(self):
+        seen, _, _ = self.run({"source_smile": 1.0}, 1)
+
+        assert seen[-1]["source_smile"] == pytest.approx(_EASE_PER_SECOND * _FRAME_SECONDS)
+
+    def test_it_is_whole_within_a_third_of_a_second(self):
+        frames = round(0.34 / _FRAME_SECONDS)
+        seen, _, _ = self.run({"source_smile": 1.0}, frames)
+
+        assert seen[-1]["source_smile"] == 1.0
+
+    def test_it_rises_a_step_at_a_time(self):
+        seen, _, _ = self.run({"source_smile": 1.0}, 4)
+        shares = [frame["source_smile"] for frame in seen]
+
+        assert shares == sorted(shares)
+        step = _EASE_PER_SECOND * _FRAME_SECONDS
+        assert all(b - a == pytest.approx(step) for a, b in pairwise(shares))
+
+    def test_an_expression_that_stops_fades_rather_than_vanishing(self):
+        _, holding, applied = self.run({"source_smile": 1.0}, 20)
+
+        gone, _, _ = self.run({}, 1, holding, applied)
+
+        assert gone[-1]["source_smile"] == pytest.approx(1.0 - _EASE_PER_SECOND * _FRAME_SECONDS)
+
+    def test_and_is_forgotten_once_it_has_gone(self):
+        _, holding, applied = self.run({"source_smile": 1.0}, 20)
+
+        self.run({}, 20, holding, applied)
+
+        assert holding == {} and applied == {}
+
+    def test_switching_photograph_does_not_restart_the_fade(self):
+        """The content changes at once; the amount carries over. Restarting it
+        would drop the region back to base portrait mid-expression."""
+        _, holding, applied = self.run({"source_mouth_o": 1.0}, 20)
+
+        after, holding, _ = self.run({"source_mouth_open": 1.0}, 1, holding, applied)
+
+        assert holding["mouth"] == "source_mouth_open"
+        assert after[-1]["source_mouth_open"] == 1.0
+
+    def test_a_blink_still_closes_the_eye(self):
+        """The limit must not outlast the fastest thing a face does."""
+        seen, _, _ = self.run({"source_eyes_closed": 1.0}, 6)
+
+        assert seen[-1]["source_eyes_closed"] > 0.7
+
+
+class TestTheMaskAtALargeTurn:
+    """The owner, turning their head: *"the part next to my ear shows on the
+    face — it does not cover me there."*
+
+    The mask is eroded all the way round so the join happens over skin on both
+    sides rather than over the background. Frontal that is right. Turned, the
+    near side's edge runs down in front of the ear and what lies outside it is
+    more cheek, so the erosion is pure loss: a band of the user's own face left
+    showing inside their avatar, at the most visible part of the turn.
+    """
+
+    def turned(self, points: np.ndarray, by: float) -> np.ndarray:
+        """The same mesh with the nose moved off centre, which is what a turn
+        looks like to the mask — it reads the picture, not the tracker.
+
+        ``by`` runs from -1 (nose against the left edge of the face, so the near
+        cheek is the right one) through 0 to +1.
+        """
+        moved = points.copy()
+        oval = points[OVAL_COUNT_SLICE][:, 0]
+        low, high = float(oval.min()), float(oval.max())
+        middle = (low + high) / 2.0
+        moved[_NOSE_TIP_POSITION, 0] = middle + (high - middle) * by
+        return moved
+
+    def uncovered(self, points: np.ndarray, size: int = 320) -> float:
+        """How much of the face the mask leaves showing."""
+        mask = _destination_mask(points, size, size)[:, :, 0]
+        face = np.zeros((size, size), np.uint8)
+        cv2.fillPoly(face, [points[OVAL_COUNT_SLICE].astype(np.int32)], 255)
+        return float((mask[face > 0] < 0.5).mean())
+
+    def points(self) -> np.ndarray:
+        from sha256.avatar.engine_warp import _pixel_points
+
+        mesh = _pixel_points(synthetic_landmarks(scale=0.3), 320, 320)
+        assert mesh is not None
+        return mesh
+
+    def test_a_face_looking_straight_ahead_is_left_exactly_as_it_was(self):
+        """The erosion still protects the silhouette where it is a silhouette."""
+        points = self.turned(self.points(), 0.0)
+
+        assert _turn_bias(points)[0] < _NEAR_CHEEK_START
+        assert self.uncovered(points) == pytest.approx(self.uncovered(self.turned(points, 0.2)))
+
+    def test_a_turned_face_is_covered_where_it_was_not(self):
+        points = self.points()
+
+        frontal = self.uncovered(self.turned(points, 0.0))
+        turned = self.uncovered(self.turned(points, 1.0))
+
+        assert turned < frontal / 2.0, "the near cheek is still being eroded"
+
+    def test_it_never_reaches_outside_the_face(self):
+        """Undoing the erosion, never extending past the outline into hair or
+        into the room — the restored piece is clipped to the outline first."""
+        points = self.turned(self.points(), 1.0)
+        size = 320
+
+        mask = _destination_mask(points, size, size)[:, :, 0]
+        outline = np.zeros((size, size), np.uint8)
+        cv2.fillPoly(outline, [_trim_forehead(points).astype(np.int32)], 255)
+        # The nose and lips are filled at full strength too, and always were —
+        # what is being tested here is that the near-side restoration adds
+        # nothing beyond them.
+        cv2.fillConvexPoly(
+            outline, cv2.convexHull(points[_PROFILE_POSITIONS].astype(np.int32)), 255
+        )
+        feather = max(3, int(320 * 0.3 * _MASK_FEATHER) | 1)
+        allowed = cv2.dilate(outline, np.ones((feather * 2 + 1, feather * 2 + 1), np.uint8))
+
+        assert float(mask[allowed == 0].max(initial=0.0)) == 0.0
+
+    def test_which_cheek_is_the_near_one(self):
+        points = self.points()
+
+        assert _turn_bias(self.turned(points, 1.0))[1] is False
+        assert _turn_bias(self.turned(points, -1.0))[1] is True
+
+
+class TestRegionsDoNotOverlap:
+    """The owner, after each region was cut to one photograph: *"sometimes the
+    photographs still mix into each other, especially around the eyes and
+    brows."*
+
+    Which is where the regions overlap. A brow's box is grown by its margin and
+    reaches down over the socket, an eye's reaches up, so a closed eyelid and a
+    lowered brow were painted over the same skin in sequence — an average of two
+    photographs after all the work to stop being one.
+    """
+
+    def regions(self, engine: Any, tmp_path: Path) -> tuple[Any, tuple[Any, ...]]:
+        engine.load_avatar(make_descriptor(tmp_path))
+        avatar = engine._loaded["avatar_test"]
+        for role in ("source_eyes_closed", "source_brows_up", "source_mouth_open"):
+            avatar.sources[role] = np.full_like(avatar.image, 255)
+        points = _pixel_points(
+            with_brow_anatomy(synthetic_landmarks()), avatar.image.shape[1], avatar.image.shape[0]
+        )
+        assert points is not None
+        avatar.points = points
+        return avatar, _build_regions(avatar.image, points, avatar.sources)
+
+    def full(self, region: Any, shape: tuple[int, ...]) -> np.ndarray:
+        """One region's mask back in the frame's own coordinates."""
+        canvas = np.zeros(shape[:2], dtype=np.float32)
+        x0, y0, x1, y1 = region.box
+        canvas[y0:y1, x0:x1] = region.mask[:, :, 0]
+        return canvas
+
+    def test_no_pixel_is_claimed_by_two_regions(self, engine, tmp_path):
+        avatar, regions = self.regions(engine, tmp_path)
+
+        masks = [self.full(region, avatar.image.shape) for region in regions]
+        total = np.sum(masks, axis=0)
+
+        assert float(total.max()) <= 1.0 + 1e-6
+
+    def test_the_eyes_keep_the_socket_and_the_brows_give_it_up(self, engine, tmp_path):
+        avatar, regions = self.regions(engine, tmp_path)
+        by_name = {region.name: self.full(region, avatar.image.shape) for region in regions}
+
+        # The irises, which are unambiguously inside the socket. The eye ring's
+        # topmost points sit on the brow ridge itself, and which side of the
+        # line those fall on is what the anatomical split decides — see
+        # :class:`TestTheBrowsAndTheEyesDivideTheRidge`.
+        at_eyes = avatar.points[_IRIS_POSITIONS].astype(int)
+        eyes = np.array([by_name["eyes"][y, x] for x, y in at_eyes])
+        brows = np.array([by_name["brows"][y, x] for x, y in at_eyes])
+
+        assert float(eyes.mean()) > 0.9, "the eyes lost their own socket"
+        assert float(brows.max()) < 0.1, "a brow photograph is still painted over the eyes"
+
+
+class TestTheSmileLadder:
+    """The owner's own proposal: *"we already have the clip where he laughs —
+    ten photographs from where the smile starts through to the full smile."*
+
+    One smile photograph faded in over a resting mouth fails twice at once.
+    While it is faint there are two mouths on screen; and at any weight the
+    shape it draws is the shape it was photographed at, so a small smile is a
+    wide one at low opacity. The lips never stretch, the teeth simply appear —
+    which is exactly what the owner described.
+    """
+
+    LADDER = ((0.0, None), (0.2, "smile@a"), (0.6, "smile@b"), (1.5, "smile@c"))
+
+    def test_a_resting_mouth_uses_no_rung_at_all(self):
+        assert _nearest_smile(self.LADDER, 0.0) == {}
+
+    def test_a_faint_smile_is_below_the_ladder_and_left_to_the_mouth_shapes(self):
+        """So an ordinary talking mouth is chosen by the shape it is making."""
+        assert _nearest_smile(self.LADDER, _SMILE_LADDER_START / 2) == {}
+
+    def test_the_nearest_rung_wins_and_only_it(self):
+        """One photograph, not two: the rungs are stages of one movement and
+        what the owner objected to was two mouths at once."""
+        assert set(_nearest_smile(self.LADDER, 0.5)) == {"smile@b"}
+        assert set(_nearest_smile(self.LADDER, 0.25)) == {"smile@a"}
+
+    def test_the_rung_is_weighted_by_how_much_smile_there_is(self):
+        """A faint smile is a faint photograph of a faint smile, so a speech
+        shape can still win the mouth."""
+        assert _nearest_smile(self.LADDER, 0.3)["smile@a"] == pytest.approx(0.3)
+
+    def test_past_the_end_it_holds_the_widest_rather_than_inventing_one(self):
+        assert set(_nearest_smile(self.LADDER, 3.0)) == {"smile@c"}
+
+    def test_a_ladder_of_one_rung_is_not_a_ladder(self):
+        assert _nearest_smile(((0.0, None),), 1.0) == {}
+
+    def test_the_axis_keeps_rising_after_the_blendshape_saturates(self):
+        """The smile blendshape reaches 1.0 at the open smile and stays there
+        through the laugh, so the opening has to carry the rest — otherwise the
+        ladder stops exactly where the teeth begin."""
+        neutral = _Neutral()
+        # A resting face first: the floor is learned from what a face does when
+        # it is doing nothing, exactly as every other expression here is.
+        _smile_amount(expressive_tracking(gap=0.002, smile=0.0), neutral)
+
+        closed = _smile_amount(expressive_tracking(gap=0.002, smile=1.0), neutral)
+        wide = _smile_amount(expressive_tracking(gap=0.090, smile=1.0), neutral)
+
+        assert wide > closed > 0.0
+
+    def test_a_mouth_open_without_a_smile_stays_off_the_ladder(self):
+        neutral = _Neutral()
+        _smile_amount(expressive_tracking(gap=0.002, smile=0.0), neutral)
+
+        assert _smile_amount(expressive_tracking(gap=0.090, jaw=0.9), neutral) < _SMILE_LADDER_START
+
+
+class TestTheEyeLadder:
+    """The oldest complaint, and the one the owner ranks first.
+
+    What was left after the gaze photographs and the squint were dropped is a
+    single shut-eye photograph fading in over an open one: two sets of eyes
+    while it is faint, and a lid that is fully shut at any weight, so a
+    half-closed eye was a shut one at half opacity.
+    """
+
+    LADDER = ((0.0, None), (0.2, "eyes@a"), (0.5, "eyes@b"), (0.7, "eyes@c"))
+
+    def test_an_open_eye_uses_no_rung(self):
+        assert _nearest_rung(self.LADDER, 0.0, _EYES_LADDER_START) == {}
+
+    def test_the_lid_moves_through_the_rungs_as_it_closes(self):
+        assert set(_nearest_rung(self.LADDER, 0.22, _EYES_LADDER_START)) == {"eyes@a"}
+        assert set(_nearest_rung(self.LADDER, 0.48, _EYES_LADDER_START)) == {"eyes@b"}
+        assert set(_nearest_rung(self.LADDER, 0.69, _EYES_LADDER_START)) == {"eyes@c"}
+
+    def test_never_two_rungs_at_once(self):
+        """Which is the whole complaint: an open eye and a shut one together."""
+        for amount in (0.15, 0.3, 0.45, 0.6, 0.75):
+            assert len(_nearest_rung(self.LADDER, amount, _EYES_LADDER_START)) <= 1
+
+    def test_the_amount_rises_as_the_lids_come_down(self):
+        neutral = _Neutral()
+        _eye_amount(expressive_tracking(blink=(0.0, 0.0)), neutral)  # learns the open eye
+
+        half = _eye_amount(expressive_tracking(blink=(0.5, 0.5)), neutral)
+        shut = _eye_amount(expressive_tracking(blink=(1.0, 1.0)), neutral)
+
+        assert shut > half > 0.0
+
+    def test_a_blink_is_faster_than_the_rest_of_the_face(self):
+        """A blink is 100-150 ms — three or four frames. At the mouth's rate the
+        lid would still be half shut when the eye was open again."""
+        eyes: dict[str, float] = {}
+        mouth: dict[str, float] = {}
+        for _ in range(3):
+            _eased("eyes", 1.0, eyes)
+            _eased("mouth", 1.0, mouth)
+
+        assert eyes["eyes"] == pytest.approx(1.0)
+        assert mouth["mouth"] < 0.5
+
+
+class TestTheLidAxisIsSigned:
+    """The owner: *"sometimes I do not widen my eyes at all and the screen
+    does, as if I were mad. It is a bit funny."*
+
+    Measured on their own recording, the wide-eye photograph fired on 4.6% of
+    frames at a median weight of 0.11 — a sixth of a full stare over a face
+    doing nothing. The same shape of defect as the squint, which was dropped for
+    it, and the tilts, which were dropped for it.
+    """
+
+    LADDER = (
+        (-0.30, "eyes@w"),
+        (-0.15, "eyes@v"),
+        (0.0, None),
+        (0.20, "eyes@a"),
+        (0.50, "eyes@b"),
+    )
+
+    def test_a_resting_eye_uses_the_portrait(self):
+        assert _nearest_rung(self.LADDER, 0.0, _EYES_LADDER_START) == {}
+
+    def test_and_so_does_a_flicker_of_one(self):
+        """The lid measure moves a few percent frame to frame on a face doing
+        nothing. That is not an expression."""
+        assert _nearest_rung(self.LADDER, _EYES_LADDER_START / 2, _EYES_LADDER_START) == {}
+        assert _nearest_rung(self.LADDER, -_EYES_LADDER_START / 2, _EYES_LADDER_START) == {}
+
+    def test_a_widened_eye_is_its_own_photograph_rather_than_a_faded_stare(self):
+        assert set(_nearest_rung(self.LADDER, -0.16, _EYES_LADDER_START)) == {"eyes@v"}
+        assert set(_nearest_rung(self.LADDER, -0.31, _EYES_LADDER_START)) == {"eyes@w"}
+
+    def test_a_closing_eye_still_walks_the_other_way(self):
+        assert set(_nearest_rung(self.LADDER, 0.22, _EYES_LADDER_START)) == {"eyes@a"}
+        assert set(_nearest_rung(self.LADDER, 0.55, _EYES_LADDER_START)) == {"eyes@b"}
+
+    def test_the_amount_is_measured_from_rest_not_from_the_widest(self):
+        """A ceiling that follows the most open the eye has been puts rest a
+        third of the way shut on its own scale, and a face doing nothing then
+        wears a part-closed lid."""
+        neutral = _Neutral()
+        _eye_amount(expressive_tracking(blink=(0.0, 0.0)), neutral)
+
+        assert _eye_amount(expressive_tracking(blink=(0.0, 0.0)), neutral) == pytest.approx(
+            0.0, abs=0.02
+        )
+
+    def test_the_rung_in_hand_is_kept_until_another_is_clearly_nearer(self):
+        """Every change is a change of photograph, so a boundary crossed by
+        noise is a visible flicker."""
+        just_past = 0.11  # a hair nearer 0.20 than the -0.15 rung it holds
+        assert set(_nearest_rung(self.LADDER, just_past, 0.05, "eyes@a")) == {"eyes@a"}
+
+    def test_but_a_real_movement_moves_it_at_once(self):
+        assert set(_nearest_rung(self.LADDER, 0.50, 0.05, "eyes@v")) == {"eyes@b"}
+
+
+class TestTheBrowsAndTheEyesDivideTheRidge:
+    """The owner, on a screenshot taken while opening their eyes: two brows, a
+    dark seam between them, and an angry face for an instant.
+
+    Giving the whole overlap to the eyes was right for the socket and wrong for
+    the ridge above it. A brow rung could not paint over the *portrait's* brow,
+    because that sits inside what the eyes had claimed — so the portrait's brow
+    stayed and the rung's appeared above it. It happened when the eyes opened
+    because that is when an eye rung is on at all.
+    """
+
+    def masks(self, engine: Any, tmp_path: Path) -> tuple[Any, dict[str, np.ndarray]]:
+        engine.load_avatar(make_descriptor(tmp_path))
+        avatar = engine._loaded["avatar_test"]
+        for role in ("source_eyes_closed", "source_brows_up"):
+            avatar.sources[role] = np.full_like(avatar.image, 255)
+        points = _pixel_points(
+            with_brow_anatomy(synthetic_landmarks()), avatar.image.shape[1], avatar.image.shape[0]
+        )
+        assert points is not None
+        avatar.points = points
+        regions = _build_regions(avatar.image, points, avatar.sources)
+        full = {}
+        for region in regions:
+            canvas = np.zeros(avatar.image.shape[:2], dtype=np.float32)
+            x0, y0, x1, y1 = region.box
+            canvas[y0:y1, x0:x1] = region.mask[:, :, 0]
+            full[region.name] = canvas
+        return avatar, full
+
+    def test_the_brows_reach_the_brow_line(self, engine, tmp_path):
+        """Which is what lets a brow rung cover the portrait's own brow."""
+        avatar, full = self.masks(engine, tmp_path)
+
+        at_brows = avatar.points[_BROW_POSITIONS].astype(int)
+        brows = np.array([full["brows"][y, x] for x, y in at_brows])
+
+        assert float(brows.mean()) > 0.9, "the brows cannot paint over their own brow"
+
+    def test_and_the_eyes_do_not(self, engine, tmp_path):
+        avatar, full = self.masks(engine, tmp_path)
+
+        at_brows = avatar.points[_BROW_POSITIONS].astype(int)
+        eyes = np.array([full["eyes"][y, x] for x, y in at_brows])
+
+        assert float(eyes.max()) < 0.5, "an eye photograph still covers the brow"
+
+
+class TestTheBrowAxisIsSigned:
+    """The last family that was two named photographs, and the owner reported
+    both halves of what that cost.
+
+    *"A slight raise takes on a surprised face — the brows do not actually go
+    up"*, because the photograph shows a full raise faded in by how far they
+    moved. And *"two brows, and two more slightly above, faint"*, because the
+    photograph's brows are somewhere the portrait's are not.
+    """
+
+    LADDER = (
+        (-0.60, "brows@d"),
+        (-0.20, "brows@e"),
+        (0.0, None),
+        (0.25, "brows@a"),
+        (0.80, "brows@b"),
+    )
+
+    def test_resting_brows_use_the_portrait(self):
+        assert _nearest_rung(self.LADDER, 0.0, _BROWS_LADDER_START) == {}
+
+    def test_a_small_raise_is_a_photograph_of_a_small_raise(self):
+        """Not a big one at low opacity, which is what read as surprise."""
+        assert set(_nearest_rung(self.LADDER, 0.22, _BROWS_LADDER_START)) == {"brows@a"}
+
+    def test_a_big_raise_reaches_the_big_photograph(self):
+        assert set(_nearest_rung(self.LADDER, 0.85, _BROWS_LADDER_START)) == {"brows@b"}
+
+    def test_lowered_brows_are_the_same_axis_the_other_way(self):
+        assert set(_nearest_rung(self.LADDER, -0.25, _BROWS_LADDER_START)) == {"brows@e"}
+        assert set(_nearest_rung(self.LADDER, -0.70, _BROWS_LADDER_START)) == {"brows@d"}
+
+    def test_raised_and_lowered_can_never_both_be_on_screen(self):
+        """Which two named photographs could not promise, and one signed axis
+        does by construction."""
+        for amount in (-0.9, -0.5, -0.2, 0.2, 0.5, 0.9):
+            assert len(_nearest_rung(self.LADDER, amount, _BROWS_LADDER_START)) <= 1
+
+    def moved(self, by: float) -> FaceTrackingResult:
+        """A face with its brows shifted, in normalised landmark coordinates.
+
+        Measured on the brows themselves now, not on ``browInnerUp`` — which
+        reacts to the eyelid as well, reached its maximum on 5% of the owner's
+        recording, and so put a fully raised brow on the avatar for an instant
+        every time their eyes opened.
+        """
+        from sha256.avatar.engine_warp import _LEFT_BROW, _RIGHT_BROW
+
+        points = with_brow_anatomy(synthetic_landmarks())
+        points[10, 1], points[152, 1] = 0.2, 0.8  # forehead and chin
+        points[168, 1] = 0.5  # the nose bridge the brows are measured against
+        for index in _LEFT_BROW + _RIGHT_BROW:
+            points[index, 1] = 0.36 - by
+        return tracking_from(points)
+
+    def test_the_amount_is_signed_around_a_resting_face(self):
+        neutral = _Neutral()
+        _brow_amount(self.moved(0.0), neutral)  # learns where they rest
+
+        raised = _brow_amount(self.moved(0.02), neutral)
+        lowered = _brow_amount(self.moved(-0.02), neutral)
+
+        assert raised > 0.0 > lowered
+
+    def test_a_blendshape_is_not_consulted_at_all(self):
+        """So a tracker that spikes a brow blendshape on a blink cannot move the
+        avatar's brows."""
+        neutral = _Neutral()
+        _brow_amount(self.moved(0.0), neutral)
+
+        assert _brow_amount(self.moved(0.0), neutral) == pytest.approx(0.0, abs=0.02)
+
+
+class TestTheBrowsHoldStillThroughABlink:
+    """The owner, twice: two brows and an angry face, *"for a very short time"*,
+    while the eyes open.
+
+    The brow landmarks ride the blink. Measured over their recording, where the
+    brows sit correlates with the lids at r=+0.24 against the nose bridge and
+    -0.22 against the forehead — neither anchor escapes it — and a blink reads
+    as a brow raise of 0.63, which is most of the way up a ladder that is shown
+    whole. Three frames of a raised brow, every blink.
+    """
+
+    LADDER = ((-0.5, "brows@d"), (0.0, None), (0.3, "brows@a"), (0.9, "brows@b"))
+
+    def test_a_blink_does_not_move_the_brows(self):
+        frozen = _nearest_rung(self.LADDER, 0.9, 0.12, "brows@a", freeze=True)
+
+        assert set(frozen) == {"brows@a"}, "the blink raised the brows"
+
+    def test_and_they_do_not_leave_either(self):
+        """Leaving would be a change of picture too, and the brows have not
+        moved — only the eyes have."""
+        assert _nearest_rung(self.LADDER, 0.0, 0.12, "brows@a", freeze=True) != {}
+
+    def test_once_the_eyes_are_back_the_brows_move_again(self):
+        assert set(_nearest_rung(self.LADDER, 0.9, 0.12, "brows@a")) == {"brows@b"}
+
+    def test_a_frozen_ladder_with_nothing_in_hand_stays_empty(self):
+        assert _nearest_rung(self.LADDER, 0.9, 0.12, None, freeze=True) == {}
+
+
+class TestARungWhoseFeaturesLandInAnotherRegion:
+    """The owner picked the files off the screen: *"eyes_c014, eyes_c017,
+    brows_d100 — one of those is being drawn."*
+
+    Two of them were. A rung is a whole face, cut into by whichever region it
+    belongs to, and the regions are drawn around the *portrait's* features. Both
+    of those eye rungs had their brows 18 px below the portrait's brow line —
+    inside the socket — because the head was pitched in those frames and the
+    similarity fit could not undo it. Painted in the eye region, that is a
+    second brow under the real one, exactly where he saw it.
+    """
+
+    def face(self, brow: float, eye: float) -> np.ndarray:
+        points = np.zeros((len(MESH_INDICES), 2), dtype=np.float32)
+        points[_BROW_POSITIONS, 1] = brow
+        points[_EYE_POSITIONS, 1] = eye
+        return points
+
+    def test_an_eye_rung_may_not_bring_a_brow_into_the_socket(self):
+        base = self.face(brow=100.0, eye=140.0)
+        rung = self.face(brow=150.0, eye=170.0)
+
+        assert _misplaced(_EYES_PREFIX, rung, base) is not None
+
+    def test_an_ordinary_eye_rung_passes(self):
+        base = self.face(brow=100.0, eye=140.0)
+        rung = self.face(brow=95.0, eye=145.0)
+
+        assert _misplaced(_EYES_PREFIX, rung, base) is None
+
+    def test_a_brow_rung_may_not_bring_an_eye_above_the_brow_line(self):
+        base = self.face(brow=100.0, eye=140.0)
+        rung = self.face(brow=60.0, eye=80.0)
+
+        assert _misplaced(_BROWS_PREFIX, rung, base) is not None
+
+    def test_and_the_reason_is_said_in_pixels(self):
+        """So a rung dropped at load can be found and replaced rather than
+        wondered about."""
+        base = self.face(brow=100.0, eye=140.0)
+        rung = self.face(brow=150.0, eye=170.0)
+
+        assert "10 px" in str(_misplaced(_EYES_PREFIX, rung, base))
+
+
+class TestARungIsShownWhole:
+    """The owner, after the eye ladder went in: *"while it closes, the open eye
+    is still there over the closed one, at low opacity."*
+
+    Right again, and the fade was the cause. For a named photograph the weight
+    says how much of that expression this frame has, and fading it in against
+    the portrait is how an expression arrives. For a rung it says no such thing:
+    the amount is already in *which rung was chosen*, so mixing a
+    three-tenths-shut eye with a wide-open portrait puts the wide-open one back
+    underneath at exactly the opacity being reported.
+    """
+
+    def settle(self, weights: dict[str, float], frames: int = 20) -> dict[str, float]:
+        holding: dict[str, str] = {}
+        applied: dict[str, float] = {}
+        kept: dict[str, float] = {}
+        for _ in range(frames):
+            kept = _one_per_region(dict(weights), holding, applied)
+        return kept
+
+    def test_a_rung_leaves_nothing_of_the_portrait_underneath(self):
+        assert self.settle({"eyes@a": 0.3})["eyes@a"] == 1.0
+
+    def test_even_a_faint_one(self):
+        """A tenth-shut eye is a photograph of a tenth-shut eye, not a tenth of
+        a photograph of a shut one."""
+        assert self.settle({"eyes@a": 0.12})["eyes@a"] == 1.0
+
+    def test_a_smile_rung_the_same(self):
+        assert self.settle({"smile@b": 0.4})["smile@b"] == 1.0
+
+    def test_a_named_photograph_still_fades_in(self):
+        """Because for one of those the weight is the only thing that says how
+        far into the expression this frame is."""
+        assert self.settle({"source_mouth_o": 0.3})["source_mouth_o"] < 1.0
+
+
+class TestTheEasingIsMeasuredInSeconds:
+    """Asked to try 60 fps, and it would have made every expression take twice
+    as long — the engine appearing to get slower on a faster machine."""
+
+    def test_the_same_expression_takes_the_same_time_at_any_rate(self):
+        slow: dict[str, float] = {}
+        fast: dict[str, float] = {}
+        for _ in range(15):
+            _eased("mouth", 1.0, slow, 1 / 30)
+        for _ in range(30):
+            _eased("mouth", 1.0, fast, 1 / 60)
+
+        assert slow["mouth"] == pytest.approx(fast["mouth"])
+
+    def test_a_long_gap_between_frames_does_not_let_it_jump(self):
+        applied: dict[str, float] = {}
+
+        _eased("mouth", 1.0, applied, 5.0)
+
+        assert applied["mouth"] < 1.0
+
+
+class TestTheBrowsDoNotDouble:
+    """The owner: *"two brows, and two more slightly above, faint."*
+
+    A raised-brow photograph fading in over the portrait puts the base's brows
+    and the photograph's on screen together. Every region has that while a
+    photograph is faint; for the mouth it is a texture difference and survivable,
+    for a brow it is a *position* difference, which reads as a second copy.
+    """
+
+    def test_a_small_raise_does_not_bring_the_photograph_in_at_all(self):
+        kept = _one_per_region({"source_brows_up": 0.25}, {}, {})
+
+        assert kept == {}
+
+    def test_a_real_raise_still_reaches_the_photograph_in_full(self):
+        holding: dict[str, str] = {}
+        applied: dict[str, float] = {}
+        for _ in range(20):
+            kept = _one_per_region({"source_brows_up": 1.0}, holding, applied)
+
+        assert kept["source_brows_up"] == 1.0
+
+    def test_the_mouth_keeps_its_own_curve(self):
+        """Only the brows start late. A mouth photograph differs from the base
+        in texture, and fading one in is what an expression arriving looks
+        like."""
+        kept = _one_per_region({"source_mouth_o": 0.25}, {}, {})
+
+        assert kept["source_mouth_o"] > 0.0
+
+
 class TestEyeGeometry:
     """The avatar keeps its own eyes.
 
@@ -822,7 +1782,7 @@ class TestEyeGeometry:
             assert abs(offset[1]) < 0.03
 
     def test_the_avatar_does_not_inherit_the_users_eye_shape(self):
-        from sha256.avatar.engine_warp import _EYE_POSITIONS, _damp_brows
+        from sha256.avatar.engine_warp import _damp_brows
 
         source = synthetic_landmarks()[list(MESH_INDICES)][:, :2].astype(np.float32) * 500.0
         target = source.copy()
@@ -880,13 +1840,20 @@ class TestTurnLadder:
         assert _ladder_weights(self.LADDER, 0.0) == {}
 
     def test_between_two_rungs_it_mixes_only_those_two(self):
+        """Never a third rung, whatever the spacing.
+
+        Measured at the middle of the gap, which is the only place two rungs
+        this far apart are both on screen at all — twenty degrees is far wider
+        than the ladder's own three, and across a gap that wide the nearer rung
+        is shown whole. See :class:`TestTheLadderDoesNotAverageAcrossAGap`.
+        """
         from sha256.avatar.engine_warp import _ladder_weights
 
-        weights = _ladder_weights(self.LADDER, -25.0)
+        weights = _ladder_weights(self.LADDER, -20.0)
 
         assert set(weights) == {"turn@a", "turn@b"}
-        assert weights["turn@a"] == pytest.approx(0.75)
-        assert weights["turn@b"] == pytest.approx(0.25)
+        assert weights["turn@a"] == pytest.approx(0.5)
+        assert weights["turn@b"] == pytest.approx(0.5)
 
     def test_on_a_rung_it_is_that_rung(self):
         from sha256.avatar.engine_warp import _ladder_weights
@@ -915,12 +1882,15 @@ class TestTurnLadder:
         rung that reached full weight at a small angle would replace the
         avatar's own photograph with a video frame on a face that is barely
         turned.
+
+        The rule is stricter than it was: with the nearest rung ten degrees
+        away, two degrees of turn now leaves the portrait *untouched* rather
+        than mixing a fifth of a ten-degree photograph into it.
         """
         from sha256.avatar.engine_warp import _ladder_weights
 
-        weights = _ladder_weights(self.LADDER, 2.0)
-
-        assert sum(weights.values()) == pytest.approx(0.2)
+        assert _ladder_weights(self.LADDER, 2.0) == {}
+        assert sum(_ladder_weights(self.LADDER, 9.0).values()) <= 1.0
 
 
 class TestPosePhotographsKeepTheirGeometry:
