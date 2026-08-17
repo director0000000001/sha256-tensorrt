@@ -2,6 +2,32 @@
 AVATAR VIDEO PROMPTS — for Google Veo 3.1, image-to-video
 ================================================================================
 
+THE PROMPTS ARE ALSO DATA NOW — configs/avatar_clips.toml
+
+  This file is prose: what each clip is for, why it is worded the way it is,
+  and what went wrong with the last one. The prompts themselves, revised, live
+  in `configs/avatar_clips.toml`, which is read by
+
+      uv run python scripts/generate_avatar_clips.py --plan     # price it, send nothing
+      uv run python scripts/generate_avatar_clips.py --all      # generate, measure, retry
+      uv run python scripts/generate_avatar_clips.py --print-prompt turn-frame-right
+
+  The tool generates a clip, runs it straight through the extractor, reads the
+  measurement, and generates again **only** when the measurement failed. Every
+  request is priced before it is sent and refused if it would cross `--budget`;
+  every attempt is written to a ledger. Two clips have already been paid for
+  twice because nothing measured them until days later.
+
+  Paste by hand from `--print-prompt`, not from the blocks below, wherever the
+  two disagree: the catalogue is what the tests check.
+
+  WHAT CHANGED IN THE TURN PROMPTS, 2026-08-16 — the owner watched the stepped
+  clip and it looked *rushed*: the head snapped between positions. So the moves
+  between stops are now asked for as slow and gentle, taking about half a
+  second, and the number of steps drops from eight to about seven so they fit
+  in eight seconds without hurrying. The stops themselves are unchanged and
+  still the point of the clip — a sweep, however slow, yields no still frame.
+
 WHY VIDEO INSTEAD OF MORE STILLS
 
   One clip gives hundreds of frames of the same face under the same light, with
@@ -326,52 +352,30 @@ CLIP 4A and 4B — ONE DIRECTION EACH  (use these if a two-sided take comes back
 CLIP 4A — STEPPED TURN, FACE TOWARD THE RIGHT EDGE OF THE FRAME
           (the person's own LEFT — the side the first clip did NOT cover)
 --------------------------------------------------------------------------------
-The person in the attached photograph keeps a neutral expression with the mouth
-closed and the eyes open, and turns their head to their own left, so that in the
-picture their face comes to point toward the right-hand edge of the frame. They
-do it in a series of about eight small separate steps, while their shoulders and
-body stay square to the camera and completely still. They begin facing the
-camera and hold completely still for one second. They then turn their head one
-small step and stop, and hold completely still; then another small step and
-stop, and hold completely still; and so on, always turning the same way, coming
-to a complete stop after every single step, until after about eight steps the
-head is almost in profile, where they hold completely still until the end. The
-head never turns back toward the camera and never turns to the other side. Each
-movement between the stops is gentle and unhurried, and each stop is a full
-stop: in total the head is stationary for more than half of the eight seconds.
-Throughout, the head stays perfectly upright with no tilt up, down or sideways,
-the chin stays level, and the eyes stay on the camera lens so that the head
-turns but the gaze does not. The expression never changes. During every hold the
-head is completely motionless — no drift, no settling, no continuous movement at
-any point.
+  Catalogue id `turn-frame-right`. The text is one command away, revised on
+  2026-08-16 to ask for slow movement between the stops:
 
-[+ shared block]
+      uv run python scripts/generate_avatar_clips.py --print-prompt turn-frame-right
+
+  It is kept there rather than here so there is one copy to correct, and so the
+  tool that measures the result is reading the same words that produced it. The
+  measurement for this clip: at least five sharp rungs, reaching 25 degrees or
+  more, with **positive** yaw — the engine's convention for a turn to the
+  subject's own left.
 --------------------------------------------------------------------------------
 
 --------------------------------------------------------------------------------
 CLIP 4B — STEPPED TURN, FACE TOWARD THE LEFT EDGE OF THE FRAME
           (the person's own RIGHT — the side the first clip already covered)
 --------------------------------------------------------------------------------
-The person in the attached photograph keeps a neutral expression with the mouth
-closed and the eyes open, and turns their head to their own right, so that in
-the picture their face comes to point toward the left-hand edge of the frame.
-They do it in a series of about eight small separate steps, while their
-shoulders and body stay square to the camera and completely still. They begin
-facing the camera and hold completely still for one second. They then turn their
-head one small step and stop, and hold completely still; then another small step
-and stop, and hold completely still; and so on, always turning the same way,
-coming to a complete stop after every single step, until after about eight steps
-the head is almost in profile, where they hold completely still until the end.
-The head never turns back toward the camera and never turns to the other side.
-Each movement between the stops is gentle and unhurried, and each stop is a full
-stop: in total the head is stationary for more than half of the eight seconds.
-Throughout, the head stays perfectly upright with no tilt up, down or sideways,
-the chin stays level, and the eyes stay on the camera lens so that the head
-turns but the gaze does not. The expression never changes. During every hold the
-head is completely motionless — no drift, no settling, no continuous movement at
-any point.
+  Catalogue id `turn-frame-left`, same revision, mirrored:
 
-[+ shared block]
+      uv run python scripts/generate_avatar_clips.py --print-prompt turn-frame-left
+
+  Its measurement wants **negative** yaw. If a clip that visibly turns the
+  right way fails that check, it is the tracker's sign convention that is
+  inverted and `expect_yaw_sign` in the catalogue that needs flipping — not the
+  clip, and not another generation.
 --------------------------------------------------------------------------------
 
 

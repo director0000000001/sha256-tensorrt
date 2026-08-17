@@ -15,22 +15,12 @@
       "optional": false
     },
     {
-      "path": "portrait_smile.png",
-      "role": "source_smile",
-      "optional": true
-    },
-    {
-      "path": "portrait_smile_closed.jpg",
-      "role": "source_smile_closed",
-      "optional": true
-    },
-    {
-      "path": "clip_mouth_open.png",
+      "path": "clip2_mouth_open.png",
       "role": "source_mouth_open",
       "optional": true
     },
     {
-      "path": "clip_mouth_o.png",
+      "path": "clip2_mouth_o.png",
       "role": "source_mouth_o",
       "optional": true
     },
@@ -50,28 +40,8 @@
       "optional": true
     },
     {
-      "path": "clip_eyes_closed.png",
-      "role": "source_eyes_closed",
-      "optional": true
-    },
-    {
-      "path": "clip_eyes_wide.png",
-      "role": "source_eyes_wide",
-      "optional": true
-    },
-    {
       "path": "clip_squint.png",
       "role": "source_squint",
-      "optional": true
-    },
-    {
-      "path": "clip_brows_up.png",
-      "role": "source_brows_up",
-      "optional": true
-    },
-    {
-      "path": "portrait_brows_down.jpg",
-      "role": "source_brows_down",
       "optional": true
     },
     {
@@ -105,190 +75,442 @@
       "optional": true
     },
     {
-      "path": "turn_m64_8.png",
+      "path": "turn_m58_6.png",
       "role": "source_turn",
       "optional": true,
-      "yaw": -64.8
+      "yaw": -58.6
     },
     {
-      "path": "turn_m47_1.png",
+      "path": "turn_m56_9.png",
       "role": "source_turn",
       "optional": true,
-      "yaw": -47.1
+      "yaw": -56.9
     },
     {
-      "path": "turn_m45_0.png",
+      "path": "turn_m53_2.png",
       "role": "source_turn",
       "optional": true,
-      "yaw": -45.0
+      "yaw": -53.2
     },
     {
-      "path": "turn_m41_6.png",
+      "path": "turn_m52_2.png",
       "role": "source_turn",
       "optional": true,
-      "yaw": -41.6
+      "yaw": -52.2
     },
     {
-      "path": "turn_m39_0.png",
+      "path": "turn_m48_5.png",
       "role": "source_turn",
       "optional": true,
-      "yaw": -39.0
+      "yaw": -48.5
     },
     {
-      "path": "turn_m35_6.png",
+      "path": "turn_m44_0.png",
       "role": "source_turn",
       "optional": true,
-      "yaw": -35.6
+      "yaw": -44.0
     },
     {
-      "path": "turn_m32_2.png",
+      "path": "turn_m42_0.png",
       "role": "source_turn",
       "optional": true,
-      "yaw": -32.2
+      "yaw": -42.0
     },
     {
-      "path": "turn_m28_8.png",
+      "path": "turn_m39_2.png",
       "role": "source_turn",
       "optional": true,
-      "yaw": -28.8
+      "yaw": -39.2
     },
     {
-      "path": "turn_m27_4.png",
+      "path": "turn_m35_1.png",
       "role": "source_turn",
       "optional": true,
-      "yaw": -27.4
+      "yaw": -35.1
     },
     {
-      "path": "turn_m25_4.png",
+      "path": "turn_m32_7.png",
       "role": "source_turn",
       "optional": true,
-      "yaw": -25.4
+      "yaw": -32.7
     },
     {
-      "path": "turn_m22_2.png",
+      "path": "turn_m30_3.png",
       "role": "source_turn",
       "optional": true,
-      "yaw": -22.2
+      "yaw": -30.3
     },
     {
-      "path": "turn_m19_2.png",
+      "path": "turn_m25_6.png",
       "role": "source_turn",
       "optional": true,
-      "yaw": -19.2
+      "yaw": -25.6
     },
     {
-      "path": "turn_m16_0.png",
+      "path": "turn_m23_2.png",
       "role": "source_turn",
       "optional": true,
-      "yaw": -16.0
+      "yaw": -23.2
     },
     {
-      "path": "turn_m13_0.png",
+      "path": "turn_m20_5.png",
       "role": "source_turn",
       "optional": true,
-      "yaw": -13.0
+      "yaw": -20.5
     },
     {
-      "path": "turn_m01_6.png",
+      "path": "turn_m18_7.png",
       "role": "source_turn",
       "optional": true,
-      "yaw": -1.6
+      "yaw": -18.7
     },
     {
-      "path": "turn_m01_4.png",
+      "path": "turn_m16_2.png",
       "role": "source_turn",
       "optional": true,
-      "yaw": -1.4
+      "yaw": -16.2
     },
     {
-      "path": "turn_p06_2.png",
+      "path": "turn_m12_2.png",
       "role": "source_turn",
       "optional": true,
-      "yaw": 6.2
+      "yaw": -12.2
     },
     {
-      "path": "turn_p08_8.png",
+      "path": "turn_m08_2.png",
       "role": "source_turn",
       "optional": true,
-      "yaw": 8.8
+      "yaw": -8.2
     },
     {
-      "path": "turn_p10_5.png",
+      "path": "turn_m07_2.png",
       "role": "source_turn",
       "optional": true,
-      "yaw": 10.5
+      "yaw": -7.2
     },
     {
-      "path": "turn_p14_8.png",
+      "path": "turn_m02_5.png",
       "role": "source_turn",
       "optional": true,
-      "yaw": 14.8
+      "yaw": -2.5
     },
     {
-      "path": "turn_p16_9.png",
+      "path": "turn_p00_5.png",
       "role": "source_turn",
       "optional": true,
-      "yaw": 16.9
+      "yaw": 0.5
     },
     {
-      "path": "turn_p21_7.png",
+      "path": "turn_p02_1.png",
       "role": "source_turn",
       "optional": true,
-      "yaw": 21.7
+      "yaw": 2.1
     },
     {
-      "path": "turn_p24_0.png",
+      "path": "turn_p06_5.png",
       "role": "source_turn",
       "optional": true,
-      "yaw": 24.0
+      "yaw": 6.5
     },
     {
-      "path": "turn_p26_2.png",
+      "path": "turn_p10_3.png",
       "role": "source_turn",
       "optional": true,
-      "yaw": 26.2
+      "yaw": 10.3
     },
     {
-      "path": "turn_p29_3.png",
+      "path": "turn_p12_7.png",
       "role": "source_turn",
       "optional": true,
-      "yaw": 29.3
+      "yaw": 12.7
     },
     {
-      "path": "turn_p33_0.png",
+      "path": "turn_p14_1.png",
       "role": "source_turn",
       "optional": true,
-      "yaw": 33.0
+      "yaw": 14.1
     },
     {
-      "path": "turn_p36_6.png",
+      "path": "turn_p18_7.png",
       "role": "source_turn",
       "optional": true,
-      "yaw": 36.6
+      "yaw": 18.7
     },
     {
-      "path": "turn_p38_9.png",
+      "path": "turn_p21_4.png",
       "role": "source_turn",
       "optional": true,
-      "yaw": 38.9
+      "yaw": 21.4
     },
     {
-      "path": "turn_p41_0.png",
+      "path": "turn_p24_9.png",
       "role": "source_turn",
       "optional": true,
-      "yaw": 41.0
+      "yaw": 24.9
     },
     {
-      "path": "turn_p55_1.png",
+      "path": "turn_p25_9.png",
       "role": "source_turn",
       "optional": true,
-      "yaw": 55.1
+      "yaw": 25.9
     },
     {
-      "path": "turn_p55_8.png",
+      "path": "turn_p31_5.png",
       "role": "source_turn",
       "optional": true,
-      "yaw": 55.8
+      "yaw": 31.5
+    },
+    {
+      "path": "turn_p42_2.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": 42.2
+    },
+    {
+      "path": "turn_p44_9.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": 44.9
+    },
+    {
+      "path": "turn_p46_7.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": 46.7
+    },
+    {
+      "path": "turn_p49_6.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": 49.6
+    },
+    {
+      "path": "turn_p55_0.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": 55.0
+    },
+    {
+      "path": "turn_p57_5.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": 57.5
+    },
+    {
+      "path": "turn_p58_8.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": 58.8
+    },
+    {
+      "path": "turn_p61_8.png",
+      "role": "source_turn",
+      "optional": true,
+      "yaw": 61.8
+    },
+    {
+      "path": "smile_000.png",
+      "role": "source_smile_step",
+      "optional": true,
+      "smile": 0.001
+    },
+    {
+      "path": "smile_012.png",
+      "role": "source_smile_step",
+      "optional": true,
+      "smile": 0.118
+    },
+    {
+      "path": "smile_042.png",
+      "role": "source_smile_step",
+      "optional": true,
+      "smile": 0.421
+    },
+    {
+      "path": "smile_061.png",
+      "role": "source_smile_step",
+      "optional": true,
+      "smile": 0.605
+    },
+    {
+      "path": "smile_072.png",
+      "role": "source_smile_step",
+      "optional": true,
+      "smile": 0.721
+    },
+    {
+      "path": "smile_108.png",
+      "role": "source_smile_step",
+      "optional": true,
+      "smile": 1.084
+    },
+    {
+      "path": "smile_117.png",
+      "role": "source_smile_step",
+      "optional": true,
+      "smile": 1.166
+    },
+    {
+      "path": "smile_140.png",
+      "role": "source_smile_step",
+      "optional": true,
+      "smile": 1.401
+    },
+    {
+      "path": "smile_152.png",
+      "role": "source_smile_step",
+      "optional": true,
+      "smile": 1.522
+    },
+    {
+      "path": "smile_175.png",
+      "role": "source_smile_step",
+      "optional": true,
+      "smile": 1.748
+    },
+    {
+      "path": "eyes_w038.png",
+      "role": "source_eyes_step",
+      "optional": true,
+      "eyes": -0.378
+    },
+    {
+      "path": "eyes_w028.png",
+      "role": "source_eyes_step",
+      "optional": true,
+      "eyes": -0.275
+    },
+    {
+      "path": "eyes_w023.png",
+      "role": "source_eyes_step",
+      "optional": true,
+      "eyes": -0.228
+    },
+    {
+      "path": "eyes_w013.png",
+      "role": "source_eyes_step",
+      "optional": true,
+      "eyes": -0.128
+    },
+    {
+      "path": "eyes_c014.png",
+      "role": "source_eyes_step",
+      "optional": true,
+      "eyes": 0.141
+    },
+    {
+      "path": "eyes_c017.png",
+      "role": "source_eyes_step",
+      "optional": true,
+      "eyes": 0.173
+    },
+    {
+      "path": "eyes_c032.png",
+      "role": "source_eyes_step",
+      "optional": true,
+      "eyes": 0.323
+    },
+    {
+      "path": "eyes_c042.png",
+      "role": "source_eyes_step",
+      "optional": true,
+      "eyes": 0.423
+    },
+    {
+      "path": "eyes_c047.png",
+      "role": "source_eyes_step",
+      "optional": true,
+      "eyes": 0.466
+    },
+    {
+      "path": "eyes_c056.png",
+      "role": "source_eyes_step",
+      "optional": true,
+      "eyes": 0.558
+    },
+    {
+      "path": "brows_d100.png",
+      "role": "source_brows_step",
+      "optional": true,
+      "brows": -1.0
+    },
+    {
+      "path": "brows_d093.png",
+      "role": "source_brows_step",
+      "optional": true,
+      "brows": -0.927
+    },
+    {
+      "path": "brows_d080.png",
+      "role": "source_brows_step",
+      "optional": true,
+      "brows": -0.8
+    },
+    {
+      "path": "brows_d053.png",
+      "role": "source_brows_step",
+      "optional": true,
+      "brows": -0.526
+    },
+    {
+      "path": "brows_d043.png",
+      "role": "source_brows_step",
+      "optional": true,
+      "brows": -0.433
+    },
+    {
+      "path": "brows_d030.png",
+      "role": "source_brows_step",
+      "optional": true,
+      "brows": -0.303
+    },
+    {
+      "path": "brows_d014.png",
+      "role": "source_brows_step",
+      "optional": true,
+      "brows": -0.136
+    },
+    {
+      "path": "brows_u020.png",
+      "role": "source_brows_step",
+      "optional": true,
+      "brows": 0.199
+    },
+    {
+      "path": "brows_u031.png",
+      "role": "source_brows_step",
+      "optional": true,
+      "brows": 0.311
+    },
+    {
+      "path": "brows_u043.png",
+      "role": "source_brows_step",
+      "optional": true,
+      "brows": 0.43
+    },
+    {
+      "path": "brows_u057.png",
+      "role": "source_brows_step",
+      "optional": true,
+      "brows": 0.568
+    },
+    {
+      "path": "brows_u080.png",
+      "role": "source_brows_step",
+      "optional": true,
+      "brows": 0.796
+    },
+    {
+      "path": "brows_u088.png",
+      "role": "source_brows_step",
+      "optional": true,
+      "brows": 0.88
+    },
+    {
+      "path": "brows_u100.png",
+      "role": "source_brows_step",
+      "optional": true,
+      "brows": 1.0
     }
   ],
   "engine": {
