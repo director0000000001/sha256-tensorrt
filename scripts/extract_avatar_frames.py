@@ -483,8 +483,13 @@ def best_per_role(
     return chosen
 
 
-def write_ladder(kept: list[Candidate], args: argparse.Namespace) -> None:
-    """Write one frame per band of yaw, and the manifest entries for them."""
+def write_ladder(kept: list[Candidate], args: argparse.Namespace) -> list[dict[str, object]]:
+    """Write one frame per band of yaw, and the manifest entries for them.
+
+    Returns one row per rung — angle, frame, and the near-eye detail it kept —
+    so a caller that is deciding whether a clip is worth paying for again can
+    read the same numbers this prints. See ``--report``.
+    """
     import cv2
 
     rungs = turn_ladder(kept, args.ladder_step)
@@ -495,6 +500,7 @@ def write_ladder(kept: list[Candidate], args: argparse.Namespace) -> None:
     sharpest = max(detail.values(), default=0.0)
 
     entries: list[dict[str, object]] = []
+    rows: list[dict[str, object]] = []
     for candidate in rungs:
         yaw = yaw_of(candidate)
         name = f"turn_{'m' if yaw < 0 else 'p'}{abs(yaw):04.1f}".replace(".", "_") + ".png"
@@ -507,6 +513,16 @@ def write_ladder(kept: list[Candidate], args: argparse.Namespace) -> None:
         print(
             f"{name:<30}{yaw:>8.1f}{candidate.index:>7}{candidate.face_width:>9.0f}"
             f"{share:>9.0%}{mark}"
+        )
+        rows.append(
+            {
+                "path": name,
+                "yaw": round(yaw, 1),
+                "frame": candidate.index,
+                "face_px": round(candidate.face_width),
+                "detail": round(share, 3),
+                "blurred": share < LADDER_MIN_DETAIL,
+            }
         )
 
     floor = sharpest * LADDER_MIN_DETAIL
@@ -528,6 +544,21 @@ def write_ladder(kept: list[Candidate], args: argparse.Namespace) -> None:
     manifest.write_text(json.dumps(entries, indent=2), encoding="utf-8")
     print(f"\nManifest entries: {manifest}")
     print("Paste them into the avatar's metadata.json 'assets' list.")
+    return rows
+
+
+def write_report(path: Path | None, payload: dict[str, object]) -> None:
+    """Write the JSON summary, if one was asked for.
+
+    ``error`` is set instead of the measurements when the run failed for a
+    reason that has nothing to do with the clip — a missing model bundle, an
+    unreadable portrait. A caller that regenerates on failure must be able to
+    tell those apart from a bad clip, or a broken checkout spends money.
+    """
+    if path is None:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -564,17 +595,29 @@ def main(argv: list[str] | None = None) -> int:
         default=LADDER_STEP_DEGREES,
         help="Degrees of yaw per ladder rung.",
     )
+    parser.add_argument(
+        "--report",
+        type=Path,
+        default=None,
+        help=(
+            "Also write everything printed here as JSON, for a caller that has to "
+            "decide whether the clip is usable without a human reading the output. "
+            "scripts/generate_avatar_clips.py uses it to judge a clip it just paid for."
+        ),
+    )
     args = parser.parse_args(argv)
 
     model_path = REPO_ROOT / "models" / DEFAULT_MODEL_RELATIVE_PATH
     if not model_path.is_file():
         print(f"Model bundle missing: {model_path}")
         print("Fetch it with: python scripts/fetch_face_landmarker.py")
+        write_report(args.report, {"error": f"model bundle missing: {model_path}"})
         return 1
 
     base_image = cv2.imread(str(args.base), cv2.IMREAD_COLOR)
     if base_image is None:
         print(f"Could not read the base portrait: {args.base}")
+        write_report(args.report, {"error": f"unreadable base portrait: {args.base}"})
         return 1
 
     tracker = MediaPipeFaceTracker(model_path=model_path)
@@ -589,6 +632,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         if not base.face_detected or base.landmarks is None:
             print(f"No face found in the base portrait {args.base}.")
+            write_report(args.report, {"error": f"no face in the base portrait: {args.base}"})
             return 1
 
         base_ratios = identity_ratios(
@@ -623,6 +667,17 @@ def main(argv: list[str] | None = None) -> int:
 
     if not kept:
         print("\nNothing usable. Lower --min-face, or generate a sharper clip.")
+        write_report(
+            args.report,
+            {
+                "video": str(args.video),
+                "frames": total,
+                "usable": 0,
+                "rejected": dict(rejected),
+                "roles": {"covered": [], "missing": list(_VARIANT_ROLES)},
+                "ladder": None,
+            },
+        )
         return 1
 
     widths = [c.face_width for c in kept]
@@ -655,8 +710,39 @@ def main(argv: list[str] | None = None) -> int:
         print("Not covered — another clip, or the existing photographs, must supply:")
         print("  " + ", ".join(r.replace("source_", "") for r in missing))
 
+    ladder: dict[str, object] | None = None
     if args.ladder:
-        write_ladder(kept, args)
+        rungs = write_ladder(kept, args)
+        yaws = [float(row["yaw"]) for row in rungs]  # type: ignore[arg-type]
+        ladder = {
+            "step_degrees": args.ladder_step,
+            "min_detail_fraction": LADDER_MIN_DETAIL,
+            "rungs": rungs,
+            "blurred": sum(1 for row in rungs if row["blurred"]),
+            "yaw_min": min(yaws, default=0.0),
+            "yaw_max": max(yaws, default=0.0),
+        }
+
+    write_report(
+        args.report,
+        {
+            "video": str(args.video),
+            "frames": total,
+            "usable": len(kept),
+            "rejected": dict(rejected),
+            "face_width": {
+                "min": round(min(widths), 1),
+                "median": round(float(np.median(widths)), 1),
+                "max": round(max(widths), 1),
+            },
+            "roles": {
+                "covered": [role for role in _VARIANT_ROLES if role in chosen],
+                "missing": missing,
+                "known": list(_VARIANT_ROLES),
+            },
+            "ladder": ladder,
+        },
+    )
 
     print(f"\nWritten to {args.out}")
     print("Check them before use:")

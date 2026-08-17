@@ -1,0 +1,483 @@
+# ---------------------------------------------------------------------------
+# sha256 — the avatar source clips, as data.
+#
+# Every clip the avatar library still needs, with the prompt that produces it
+# and the measurement that decides whether it came back usable. Driven by
+#
+#     scripts/generate_avatar_clips.py
+#
+# which generates, extracts, measures, and only pays again when the measurement
+# says the take is unusable. The prompts also live in AVATAR_VIDEO_PROMPTS.txt
+# in prose, for pasting into a web UI by hand; this file is what the tool reads.
+#
+# WHY THE PROMPTS READ THE WAY THEY DO. Only a frame in which the head was
+# STILL becomes a photograph — a frame taken mid-movement is smeared, and
+# softness is the one flaw the warp cannot recover from. The first turn clip
+# swept continuously and its rungs came out at 1.5-2% of the near-eye detail of
+# the single frame where the head paused. So the turn prompts ask for a series
+# of full stops, and for the movement between them to be slow and unhurried
+# rather than a snap, which is also what stops the clip looking rushed.
+# ---------------------------------------------------------------------------
+
+[api]
+# MODEL IDS AND PRICES ARE NOT GUESSES TO TRUST — verify both before a big run:
+#
+#     uv run python scripts/generate_avatar_clips.py --list-models
+#
+# lists what this API key can actually reach, and the prices are whatever the
+# billing page says today. They are here, not in the code, so a change costs an
+# edit rather than a patch. Every cost the tool reports is computed from them,
+# so a wrong number here makes the budget guard wrong in the same direction.
+model_final = "veo-3.1-generate-preview"
+model_probe = "veo-3.1-fast-generate-preview"
+usd_per_second_final = 0.40
+usd_per_second_probe = 0.15
+
+# Eight seconds is the cap on the owner's plan and the reason each turn clip
+# goes one way only: a return to centre would spend half the budget
+# re-photographing angles already covered.
+duration_seconds = 8
+
+# The face has to be large in frame — frames are cut out of this and the base
+# portrait is 1024x1024. Highest the account allows; drop to "720p" if the API
+# rejects it.
+resolution = "1080p"
+aspect_ratio = "16:9"
+person_generation = "allow_adult"
+
+# How long to wait for one video, and how often to ask. Generation is minutes,
+# not seconds.
+poll_seconds = 15.0
+timeout_seconds = 900.0
+
+# Config fields the API rejects on some model versions. Name them here and the
+# tool leaves them out of the request instead of failing — cheaper than a code
+# edit when a preview model changes its accepted fields.
+drop_fields = []
+
+
+[defaults]
+# Appended to every prompt below. One block, so the framing and the light are
+# identical between clips: the engine relights the avatar to the room, and a
+# source lit differently reads as a flicker when the engine switches to it.
+shared = '''
+Static locked-off camera at eye level, no camera movement, no zoom, no pan, no
+cuts, one continuous take. Close-up head-and-shoulders framing with the face
+filling most of the frame, centred, the whole head visible with a small margin
+above the hair. Soft even frontal lighting that never changes. Plain uncluttered
+light grey background. Photorealistic and extremely sharp: the face is in crisp
+focus in every single frame, with visible skin texture and pores, individual
+eyelashes, and individual hairs in the eyebrows and the beard. No motion blur at
+any point. No film grain, no colour grading, no vignette, no depth-of-field blur
+on the face. The person keeps exactly the identity, hairstyle, facial hair,
+clothing and skin tone of the attached photograph, and the face never changes
+shape or proportions. Hands stay out of frame and nothing ever covers the face.
+No on-screen text, captions or subtitles. All movements are slow and deliberate,
+with each position held completely still before changing.
+'''
+
+# What the generator must not produce. The first three lines are the failures
+# this project has actually paid for.
+negative_prompt = '''
+motion blur, blurred face, smeared face, soft focus, out of focus, fast movement,
+sudden movement, jerky movement, snapping head movement, continuous sweeping
+movement, camera shake, handheld camera, zoom, pan, dolly, cuts, jump cuts,
+scene change, changing identity, different person, face morphing, distorted
+face, warped features, changing hairstyle, changing clothing, glasses appearing,
+hat, hands, hands near face, text, captions, subtitles, watermark, logo,
+lighting change, moving shadows, colour shift, film grain, noise, vignette,
+depth of field, background blur over the face, low resolution, compression
+artifacts
+
+
+'''
+
+
+# ---------------------------------------------------------------------------
+# THE TURN LADDER — the two clips that block the largest open item.
+#
+# Every turned photograph in the library is motion blurred, so the avatar is
+# sharp facing forward and soft at every angle. No engine change puts back
+# detail that was never photographed.
+#
+# DIRECTION IS STATED TWICE, TWO DIFFERENT WAYS. "Their own left" and "the
+# right-hand edge of the frame" are opposite phrasings of one movement and
+# agree with each other, so following either produces the same clip. The first
+# stepped clip came back turning the other way and it was not knowable from the
+# prompt which reading the generator had obeyed.
+#
+# `expect_yaw_sign` is that check, automated: HeadPose documents positive yaw as
+# a turn to the subject's own left (src/sha256/core/types.py). If a clip that
+# visibly turns the right way fails this check, the tracker's sign convention is
+# inverted rather than the clip being wrong — flip the value here and say so.
+# ---------------------------------------------------------------------------
+
+[[clip]]
+id = "turn-frame-right"
+order = 1
+title = "Stepped turn, face toward the RIGHT edge of frame (their own left)"
+why = "The side the first clip did not cover. Half the ladder."
+check = "ladder"
+probe_first = true
+min_rungs = 5
+min_yaw_span = 25.0
+max_blurred_fraction = 0.34
+expect_yaw_sign = "positive"
+body = '''
+The person in the attached photograph keeps a neutral expression with the mouth
+closed and the eyes open, and turns their head to their own left, so that in the
+picture their face comes to point toward the right-hand edge of the frame. Their
+shoulders and body stay square to the camera and completely still.
+
+The very first movement of the head is in that direction. There is no small
+movement the other way before it, no wind-up and no rocking back, and at no
+point in the clip does the head turn back toward the camera or to the other
+side.
+
+They begin facing the camera and hold completely still for one second. They then
+turn their head one small step in that direction and come to a complete stop,
+holding completely motionless for about three quarters of a second; then one
+more small step the same way and another complete stop, motionless again; and so
+on for about five steps in total, until the head has turned roughly three
+quarters of the way toward a full profile, where they hold completely still
+until the end.
+
+Every movement between one stop and the next is very slow, smooth and gentle,
+taking about half a second. The head never snaps, jerks or whips around, and
+nothing in the shot ever looks rushed or hurried. Each stop is a full stop, with
+no drift, no settling and no slow continuous creeping: in total the head is
+stationary for well over half of the eight seconds.
+
+Throughout, the head stays perfectly upright with no tilt up, down or sideways,
+the chin stays level, and the eyes stay on the camera lens so that the head
+turns but the gaze does not. The expression never changes, and the face stays in
+sharp focus at every angle.
+'''
+
+[[clip]]
+id = "turn-frame-left"
+order = 2
+title = "Stepped turn, face toward the LEFT edge of frame (their own right)"
+why = "The other half of the ladder, sharp this time."
+check = "ladder"
+probe_first = true
+min_rungs = 5
+min_yaw_span = 25.0
+max_blurred_fraction = 0.34
+expect_yaw_sign = "negative"
+body = '''
+The person in the attached photograph keeps a neutral expression with the mouth
+closed and the eyes open, and turns their head to their own right, so that in
+the picture their face comes to point toward the left-hand edge of the frame.
+Their shoulders and body stay square to the camera and completely still.
+
+The very first movement of the head is in that direction. There is no small
+movement the other way before it, no wind-up and no rocking back, and at no
+point in the clip does the head turn back toward the camera or to the other
+side.
+
+They begin facing the camera and hold completely still for one second. They then
+turn their head one small step in that direction and come to a complete stop,
+holding completely motionless for about three quarters of a second; then one
+more small step the same way and another complete stop, motionless again; and so
+on for about five steps in total, until the head has turned roughly three
+quarters of the way toward a full profile, where they hold completely still
+until the end.
+
+Every movement between one stop and the next is very slow, smooth and gentle,
+taking about half a second. The head never snaps, jerks or whips around, and
+nothing in the shot ever looks rushed or hurried. Each stop is a full stop, with
+no drift, no settling and no slow continuous creeping: in total the head is
+stationary for well over half of the eight seconds.
+
+Throughout, the head stays perfectly upright with no tilt up, down or sideways,
+the chin stays level, and the eyes stay on the camera lens so that the head
+turns but the gaze does not. The expression never changes, and the face stays in
+sharp focus at every angle.
+'''
+
+
+# ---------------------------------------------------------------------------
+# THE EXPRESSION CLIPS — one best frame per role, not a ladder.
+#
+# `want_roles` are the roles this clip exists to supply, and `min_roles` is how
+# many of them have to come back before it counts as paid for. They are the
+# engine's own role names (`_VARIANT_ROLES` in engine_warp), because the
+# extractor classifies frames with the renderer's selector rather than by rules
+# the renderer would disagree with.
+#
+# THREE HELD POSITIONS PER CLIP, WHICH IS WHY THERE ARE FIVE OF THEM RATHER
+# THAN TWO. The generator caps at eight seconds. Only a frame taken while the
+# face was still becomes a photograph, and an expression needs about two
+# seconds of stillness to be caught cleanly; with a second to settle at the
+# start and half a second to move between positions, eight seconds holds three.
+# The earlier single "brows and eyes" prompt asked for five expressions plus
+# three seconds of closed eyes — fifteen seconds of instructions inside an
+# eight-second clip, which a generator resolves by rushing all of them. Rushed
+# is blurred, and blurred is worthless.
+#
+# THE MOST IMPORTANT POSITION IS ALWAYS FIRST. If the generator runs out of
+# time it loses the end of the list, so the list is ordered by what the engine
+# uses most.
+#
+# NOT ASKED FOR, DELIBERATELY: the squint and the four gaze photographs. Both
+# families were dropped from the engine on 2026-08-15 — the gaze photographs
+# were never selected once in a whole recording, and the squint fired where it
+# did not belong. A clip for them would buy frames nothing reads.
+# ---------------------------------------------------------------------------
+
+[[clip]]
+id = "eyes"
+order = 3
+title = "Eyes closing, and a natural blink"
+why = "The eyes are the owner's standing complaint. source_eyes_closed is active on 9.6% of a conversation and every blink passes through it, so the closed frame gets a clip of its own and three full seconds inside it."
+check = "roles"
+probe_first = false
+want_roles = ["source_eyes_closed"]
+min_roles = 1
+body = '''
+The person in the attached photograph faces the camera with the head still,
+upright and centred, the mouth closed and the eyes on the lens.
+
+They begin with a relaxed neutral face and hold completely still for one second.
+They then close both eyes gently and completely, as if resting, and keep them
+closed and completely motionless for three full seconds. They then open them
+slowly, return to a relaxed neutral face with the eyes on the lens, and hold
+completely still until the end, blinking once naturally.
+
+The eyelids close and open smoothly and gently, never suddenly. The head does
+not move at any point, the eyebrows do not move, and the mouth stays closed
+throughout.
+'''
+
+[[clip]]
+id = "brows"
+order = 4
+title = "Brows raised, brows drawn down, eyes wide"
+why = "source_brows_up is active on 56.5% of a conversation and source_brows_down on 34.4% — between them 91% of ordinary speech, on photographs that have never been sharp."
+check = "roles"
+probe_first = false
+want_roles = ["source_brows_up", "source_brows_down", "source_eyes_wide"]
+min_roles = 2
+body = '''
+The person in the attached photograph faces the camera with the head still,
+upright and centred, and the mouth closed and the eyes on the lens. They move
+through three expressions, holding each one completely motionless for two
+seconds, and returning briefly to a relaxed neutral face between them.
+
+They begin relaxed and hold still for one second. First they raise both eyebrows
+high, as in mild surprise, and hold completely still. Then relaxed. Then they
+lower and draw both eyebrows down and together, as in concentration, and hold
+completely still. Then relaxed. Then, keeping the eyebrows relaxed and still,
+they open both eyes as wide as they can and hold completely still until the end.
+
+Every change from one expression to the next is slow and gentle, never sudden,
+and each expression is completely motionless while it is held. The head does not
+move at any point and the mouth stays closed throughout.
+'''
+
+[[clip]]
+id = "mouth-closed"
+order = 5
+title = "Closed and rounded mouth shapes — m, oo, ee"
+why = "source_mouth_o is active on 84% of a conversation and source_mouth_pressed on 37%. The mouth is the last family that averages five photographs instead of choosing one."
+check = "roles"
+probe_first = false
+want_roles = ["source_mouth_o", "source_mouth_pressed", "source_mouth_wide"]
+min_roles = 2
+body = '''
+The person in the attached photograph faces the camera with the head still,
+upright and centred, and the eyes open and on the lens. They form three distinct
+mouth shapes, holding each one completely motionless for two seconds, and
+returning briefly to a closed relaxed mouth between them.
+
+They begin with a closed relaxed mouth and hold still for one second. First the
+lips rounded and pushed forward, as in the sound "oo", and hold completely
+still. Then relaxed. Then the lips pressed firmly together, as in the sound "m",
+and hold completely still. Then relaxed. Then the lips stretched wide and flat
+with the teeth close together, as in the sound "ee", and hold completely still
+until the end.
+
+Every change from one shape to the next is slow and gentle, never sudden, and
+each shape is completely motionless while it is held. The head does not move at
+any point and the eyes stay open and on the camera lens throughout.
+'''
+
+[[clip]]
+id = "mouth-open"
+order = 6
+title = "Open mouth, teeth, and a frown"
+why = "The open mouth was an empty hole until day 8 and the teeth still double now and then. This is the only clip that photographs the mouth interior held still."
+check = "roles"
+probe_first = false
+want_roles = ["source_mouth_open", "source_frown"]
+min_roles = 2
+body = '''
+The person in the attached photograph faces the camera with the head still,
+upright and centred, and the eyes open and on the lens. They form three distinct
+mouth shapes, holding each one completely motionless for two seconds, and
+returning briefly to a closed relaxed mouth between them.
+
+They begin with a closed relaxed mouth and hold still for one second. First the
+jaw dropped wide open, as in the sound "aah", with the upper and lower teeth and
+the dark interior of the mouth clearly visible, and hold completely still. Then
+relaxed. Then the upper teeth resting on the lower lip, as in the sound "f",
+with the upper teeth clearly visible, and hold completely still. Then relaxed.
+Then the corners of the mouth pulled down in a frown, with the lips together,
+and hold completely still until the end.
+
+Every change from one shape to the next is slow and gentle, never sudden, and
+each shape is completely motionless while it is held. The head does not move at
+any point and the eyes stay open and on the camera lens throughout.
+'''
+
+[[clip]]
+id = "smiles"
+order = 7
+title = "Smiles and laughter"
+why = "The smile family is still separately generated stills, which is exactly where identity drift comes from — within one clip it cannot happen."
+check = "roles"
+probe_first = false
+want_roles = ["source_smile", "source_smile_closed"]
+min_roles = 2
+body = '''
+The person in the attached photograph faces the camera with the head still,
+upright and centred, and the eyes on the lens. They move through three
+expressions, holding each one completely motionless for two seconds, and
+returning briefly to a relaxed neutral face between them.
+
+They begin relaxed and hold still for one second. First a gentle closed-mouth
+smile, with the lips together and the corners of the mouth raised, and hold
+completely still. Then relaxed. Then a warm open smile showing the upper teeth,
+and hold completely still. Then relaxed. Then a genuine happy laugh with the
+mouth open and the eyes narrowing, and hold completely still until the end.
+
+Every change from one expression to the next is slow and gentle, never sudden,
+and each expression is completely motionless while it is held. The head does not
+move at any point and the eyes stay on the camera lens throughout.
+'''
+
+[[clip]]
+id = "speech"
+order = 8
+title = "Speech — a sales manager on a first call"
+why = "The case the avatar spends almost all its time in, and the only clip that gives the mouth shapes in the order real speech puts them. Also the closest thing to training footage for the refiner."
+check = "roles"
+probe_first = false
+want_roles = [
+    "source_mouth_open",
+    "source_mouth_o",
+    "source_mouth_pressed",
+    "source_mouth_wide",
+    "source_smile",
+]
+min_roles = 3
+body = '''
+The person in the attached photograph is a sales manager speaking directly to
+the camera on a video call. He holds exactly the pose he has in the photograph
+throughout: facing the camera straight on, head level and centred, shoulders
+square, as in an identity document photograph. His eyes stay on the camera lens
+the entire time, with natural blinking and only very small head movements.
+
+He speaks warmly and very slowly, articulating every word clearly and
+deliberately, so that each mouth shape is fully formed and held for a moment
+before the next one begins.
+
+He says: "Hi. Thanks for making the time. Before we begin, let me show you what
+my team has built, and why it may matter for your business."
+
+He speaks continuously from the first frame to the last, pausing with the mouth
+closed and relaxed between the sentences. The delivery is unhurried throughout
+and never fast.
+'''
+
+# The second speech clip exists because eight seconds of one sentence cannot
+# carry every mouth shape, and the two sentences are chosen so that between them
+# they do. What clip 8 leaves uncovered, this one is built around:
+#
+#     f / v    upper teeth on the lower lip     "fast", "off", "for"
+#     aah      jaw open, teeth visible          "fast"
+#     p / b    lips fully closed, then released "pays", "numbers"
+#     oo       lips rounded and pushed forward  "you", "move"
+#     ee       lips wide and flat               "we", "me"
+#
+# The instruction that does the work is the lip-reading one: a speaker who knows
+# they are being lip-read forms each shape completely and holds it for an
+# instant, and an instant is all a photograph needs.
+[[clip]]
+id = "speech-numbers"
+order = 9
+title = "Speech — the value sentence, fully articulated"
+why = "Eight seconds of speech cannot carry every mouth shape. This clip covers what the first speech clip does not: f and v, the open jaw, and the released p."
+check = "roles"
+probe_first = false
+want_roles = [
+    "source_mouth_open",
+    "source_mouth_o",
+    "source_mouth_pressed",
+    "source_mouth_wide",
+]
+min_roles = 3
+body = '''
+The person in the attached photograph is a sales manager speaking directly to
+the camera on a video call, talking to a client. He holds exactly the pose he
+has in the photograph throughout: facing the camera straight on, head level and
+centred, shoulders square, as in an identity document photograph. His eyes stay
+on the camera lens the entire time, with natural blinking and only very small
+head movements.
+
+He speaks slowly and warmly, and he articulates every word as clearly and fully
+as a person who knows the listener is reading his lips: every mouth shape is
+completely formed, opened or closed to its full extent, and held for an instant
+before the next one begins. The delivery is unhurried and never fast.
+
+He says: "Let me show you the numbers. We move fast, and it pays off for you.
+Give me five minutes, and I will walk you through it myself."
+
+He speaks continuously from the first frame to the last, closing his mouth
+completely and holding it relaxed and still for a moment between the sentences.
+'''
+
+
+# ---------------------------------------------------------------------------
+# PARKED — generated only with --include-parked, and the reason is not caution.
+#
+# The tilt photographs were dropped from the engine on 2026-08-15: they were
+# active on 99.2% of frames at a median weight of 0.38 and their geometry sits a
+# tenth of a face away from the portrait's. What would make pitch usable is a
+# ladder like the turn one, and the ladder is one-dimensional — it brackets on
+# yaw and nothing else. A second axis is a real change in the engine, not a
+# parameter. Until it is built, the frames from this clip have nothing to read
+# them, so generating it now buys nothing.
+# ---------------------------------------------------------------------------
+
+[[clip]]
+id = "tilts"
+order = 10
+title = "Head tilts — the second ladder, pitch"
+why = "PARKED: the engine has no pitch ladder yet, so these frames would sit unused."
+check = "roles"
+parked = true
+probe_first = false
+want_roles = ["source_tilt_up", "source_tilt_down"]
+min_roles = 2
+body = '''
+The person in the attached photograph keeps a neutral expression with the mouth
+closed and the eyes open, and tilts their head up and down in a series of small
+separate steps, while their shoulders and body stay square to the camera and
+completely still.
+
+They begin facing the camera with the chin level and hold completely still for
+one second. They then raise the chin one small step and come to a complete stop,
+holding completely motionless for about half a second; then one more small step
+and another complete stop; and so on until the head is tilted as far back as it
+comfortably goes, where they hold completely still. They then lower the chin the
+same way, one small step and a complete stop at a time, down through level and
+on until the chin is as far down toward the chest as it comfortably goes, where
+they hold completely still until the end.
+
+Every movement between one stop and the next is slow, smooth and gentle, taking
+about half a second, and nothing in the shot ever looks rushed. Throughout, the
+head does not turn left or right and does not tilt sideways, and the eyes stay
+on the camera lens so that the head tilts but the gaze does not.
+'''

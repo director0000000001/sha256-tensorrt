@@ -107,3 +107,17 @@ avatars/**/*.webp
 # The owner's recorded driving clips: their real face, kept on this machine
 # only, used to replay the engine offline. Never in Git.
 recordings/
+
+# Frames pulled out of a clip by scripts/extract_avatar_frames.py. Working
+# output: the clip is the original, and anything worth keeping is copied into
+# an avatar folder and named in its manifest.
+extracted/
+
+# Dense frame dumps from scripts/dump_clip_frames.py. Working material: the
+# clips they came from are the originals, and what is worth keeping is copied
+# into the avatar and named in its manifest.
+avatars/**/frames/
+avatars/**/superseded-*/
+
+# Manifest backups written before a ladder is installed.
+*.json.bak

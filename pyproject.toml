@@ -57,6 +57,12 @@ onnx = ["onnxruntime-gpu>=1.20"]
 # docs/decisions/ADR-0005-virtual-camera-strategy.md.
 vcam-gpl = ["pyvirtualcam>=0.12"]
 
+# Generating avatar source clips (scripts/generate_avatar_clips.py). A tool
+# extra, not a runtime one: the application never calls a hosted model, and
+# nothing in src/ imports this. It is only installed on the machine that builds
+# the photograph library.
+video-gen = ["google-genai>=1.0"]
+
 [dependency-groups]
 dev = [
     "pytest>=8.3",
@@ -151,7 +157,7 @@ ignore_missing_imports = true
 # that cover the extractor put it on `sys.path` themselves, at runtime. Checking
 # it here would apply the package's strict settings to standalone tools, which
 # is a separate decision from testing them.
-module = ["extract_avatar_frames"]
+module = ["build_turn_ladder", "extract_avatar_frames", "generate_avatar_clips"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
