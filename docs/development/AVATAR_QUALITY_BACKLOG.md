@@ -1657,3 +1657,76 @@ section already records. There was no frame-rate regression to find. The lesson
 is the one the project already had on its list and had not yet done: **a quality
 measure has to be a committed tool that reports its own conditions**, or a
 number taken in passing ends up in a commit message.
+
+---
+
+## 26. An open eye stayed behind the closed one — FIXED 2026-08-19
+
+**The owner's own diagnosis, and it was right:** *"during the closed-eye
+photograph, I think the open-eye photograph stays behind it. That is my guess."*
+
+It was not the base portrait, and it was not the brow rungs either — removing
+the brows region entirely moved the number by 0.1 of a grey level. It is
+**everything else in the library at once**, because of the order the composite
+is built in.
+
+### Why every photograph but one has an open eye in it
+
+`_blend_sources` lays the whole-head photographs down first, across the entire
+image: `_weighted_sum(avatar.image, avatar.sources, whole_head)`. Those are the
+turn rungs, and **one of them is mixed in on nearly every frame** — a head is
+almost never at exactly its resting angle, so the ladder's nearest rung is
+almost always carrying some weight. A turn rung is this face at an angle with
+its **eyes open**. The regions then compose on top.
+
+So whatever share of the eye's opening the eyes region does not hold is an open
+eye — sclera, iris and all — and the mesh squeezes it into the slit that a shut
+lid has become. Measured on the owner's avatar, over the portrait's own eye:
+
+| | eyes region | every other region |
+|---|---|---|
+| eye 0, the opening | mean 0.985, **min 0.608** | max 0.349 |
+| eye 0, the iris | mean 0.996, **min 0.878** | max 0.118 |
+| eye 1, the opening | mean 0.961, **min 0.333** | max 0.549 |
+| eye 1, the iris | mean 0.978, **min 0.608** | max 0.349 |
+
+Two thirds of an open eye at the worst pixel of it. The deficit is the brows'
+claim: their mask is cut at the top of the eye *before* it is blurred, and a
+feather is 5% of a face — 23 px here — so the blur puts it back over the top
+eleven pixels of the eye. The iris starts four pixels below that line.
+
+### Fixed: nobody but the eyes paints inside an eye
+
+A fence around the portrait's own openings, lids and irises together, subtracted
+from every other region's mask after its blur.
+
+**Feathered at 1.5% of face width rather than 5%**, and that is the whole
+difficulty of the fix rather than a detail. The gap between the top of an eye
+and the brow above it is smaller than a region's feather, so a fence faded over
+the usual distance reaches up the ridge and clips the brow rungs that hang
+lowest — which is day 10's second brow, arrived at from the other side.
+Measured, at 1.5%:
+
+| | before | after |
+|---|---|---|
+| eyes over their own iris, eye 0 | min 0.878 | **min 0.996** |
+| eyes over their own iris, eye 1 | min 0.608 | **min 0.946** |
+| anything else over the iris | max 0.349 | **max 0.011** |
+| the deepest brow rung over its own brow | mean 0.639 | 0.625 |
+| the next two | 0.823, 0.880 | 0.817, 0.877 |
+| no pixel claimed twice | 1.0000 | 1.0000 |
+
+The brow rungs lose **0.014 at worst**, and they were already losing that much
+to their own floor before this — a brow that has come down past the top of the
+eye is clipped by `brow_floor`, which is a separate item and not this one.
+
+Frame cost is unchanged: this is all at load.
+
+### What is not yet known
+
+The owner sees this live and the recorded clip only shows the mild half of it —
+`driving.mkv` is frontal through its blinks, so the turn rungs are barely
+weighted there, and the visible difference before and after is confined to the
+upper lid arc. **Whether this is the whole of what they are seeing is not
+established**, and the way to establish it is a driving clip recorded in the
+pose that shows it, not another guess.

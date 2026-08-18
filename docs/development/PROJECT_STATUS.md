@@ -3,7 +3,7 @@
 **Living document.** Update it at the end of each working day. For the frozen
 record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
-**Last updated:** 2026-08-19 · **Day 11 — a blink stops being a cross-fade, and a shut eye keeps its iris out of the way**
+**Last updated:** 2026-08-19 · **Day 11 — three passes at one shut eye**
 
 ---
 
@@ -756,6 +756,60 @@ passing, is the argument for item 1 below.
 
 **565 tests.**
 
+## Day 11, third pass — nobody but the eyes paints inside an eye
+
+**The owner's own diagnosis, and it was right:** *"during the closed-eye
+photograph, I think the open-eye photograph stays behind it. That is my guess."*
+
+Not the base portrait, and not the brow rungs either — removing the brows region
+entirely moved the number by 0.1 of a grey level. It is **everything else in the
+library at once**, because of the order the composite is built in. The whole-head
+photographs are laid down first, across the entire image, and one of them is
+mixed in on nearly every frame: a head is almost never at exactly its resting
+angle, so the turn ladder's nearest rung almost always carries some weight. A
+turn rung is this face at an angle **with its eyes open**.
+
+So whatever share of the eye's opening the eyes region did not hold was an open
+eye, and the mesh squeezed it into the slit a shut lid had become:
+
+| over the portrait's own eye | eyes region | every other region |
+|---|---|---|
+| eye 0, the opening | mean 0.985, **min 0.608** | max 0.349 |
+| eye 0, the iris | mean 0.996, **min 0.878** | max 0.118 |
+| eye 1, the opening | mean 0.961, **min 0.333** | max 0.549 |
+| eye 1, the iris | mean 0.978, **min 0.608** | max 0.349 |
+
+The deficit is the brows' claim: their mask is cut at the top of the eye *before*
+it is blurred, and a feather is 5% of a face — 23 px here — so the blur puts it
+back over the top eleven pixels of the eye. The iris starts four pixels below.
+
+**Fixed with a fence** around the portrait's own openings, lids and irises
+together, taken off every other region's mask after its blur. Feathered at
+**1.5% of face width rather than 5%**, and that is the difficulty rather than a
+detail: the gap between the top of an eye and the brow above it is narrower than
+a region's feather, so a fence faded over the usual distance climbs the ridge and
+clips the brow rungs that hang lowest — day 10's second brow, from the other
+side.
+
+| | before | after |
+|---|---|---|
+| eyes over their own iris, eye 0 / eye 1 | min 0.878 / 0.608 | **0.996 / 0.946** |
+| anything else over the iris | max 0.349 | **max 0.011** |
+| the deepest brow rung over its own brow | mean 0.639 | 0.625 |
+| no pixel claimed twice | 1.0000 | 1.0000 |
+
+The brow rungs lose 0.014 at worst. Frame cost is unchanged — this is all at
+load. **566 tests.**
+
+**What is not yet known, and it is the honest end of the day:** the owner sees
+this live and `driving.mkv` only shows the mild half of it. The clip is frontal
+through its blinks, so the turn rungs are barely weighted there, and the visible
+difference before and after is confined to the upper lid arc. Whether this is
+the whole of what they are seeing is not established. Three passes today have
+each found a real defect by measurement and none has been confirmed against the
+thing the owner is actually looking at — **the next step is a driving clip
+recorded in the pose that shows it**, not a fourth guess.
+
 ### Where day 11 leaves off
 
 **Waiting on the owner, and it blocks the largest open item:** two head-turn
@@ -1109,7 +1163,7 @@ when the quality work that needs it is done.**
 | 6 | Quality: neutral baseline, eyes, teeth | ✅ Done — backlog 8, 9, 10 |
 | **7** | **Neural engine evaluated and closed; gaze as geometry; replay harness** | **✅ Done — B005** |
 | **8** | **Quality: the wedge above a blinking eye (backlog 15)** | **✅ Done** |
-| **9–11** | **Ladders: turn, smile, eyes, brows. A blink stops being a cross-fade, and a shut eye has no iris (backlog 24, 25)** | **✅ Done** |
+| **9–11** | **Ladders: turn, smile, eyes, brows. Three passes at one shut eye (backlog 24, 25, 26)** | **✅ Done** |
 
 The rows below this line are from the **14-day plan, superseded on 2026-08-15**.
 What replaces them is the four-week table at the top of this file; they are kept

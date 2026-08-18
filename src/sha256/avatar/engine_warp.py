@@ -707,6 +707,17 @@ _REGION_MARGIN: dict[str, float] = {"mouth": 0.10, "eyes": 0.11, "brows": 0.09}
 _RIDGE_SPLIT = 0.25
 _REGION_FEATHER = 0.05
 
+# How softly the eye's own opening is fenced off from every other region, as a
+# fraction of face width. See :func:`_build_regions`.
+#
+# A fifteenth of a region's feather, and the reason is that the two edges are
+# not the same kind of edge. A region's feather hides the join between two
+# photographs of *different parts of a face*, and wants to be wide. This one
+# runs along the top of the eye, three or four pixels under a lowered brow
+# rung's own brow, and a wide fade here would take that brow off — which is the
+# second brow the owner reported on day 10, arrived at from the other side.
+_OPENING_FEATHER = 0.015
+
 # How far up the forehead the mask reaches, as a fraction of the distance from
 # the brows to the top of the face outline. The owner's requirement is that the
 # forehead is covered — a mask stopping above the brows leaves a band of real
@@ -3216,6 +3227,32 @@ def _build_regions(
     brow_floor = eye_top
     rows = np.arange(height, dtype=np.float32)[:, None]
 
+    # The portrait's own eye openings, lids and irises together. **No other
+    # region may paint inside them.**
+    #
+    # The owner, on the third look at a shut eye: *"behind the closed-eye
+    # photograph, I think the open-eye one is still there."* They were right.
+    # Every other photograph in the library was taken with the eyes open — the
+    # whole-head turn rungs above all, and one of those is mixed in on nearly
+    # every frame because a head is never at exactly its resting angle — so
+    # whatever share of the opening the eyes did not claim was *an open eye*,
+    # and the mesh then squeezed it into the slit the shut lid had become.
+    # Measured on this avatar, the eyes' own mask over the portrait's opening
+    # fell as low as **0.333**: two thirds of an open eye at the worst pixel.
+    #
+    # Feathered far more tightly than the regions themselves — see
+    # :data:`_OPENING_FEATHER`. A region's own feather is 5% of a face, which is
+    # wider than the gap between the top of an eye and the brow above it, so
+    # fading this over the same distance would reach up the ridge and clip the
+    # brow rungs that hang lowest. It has to be sharp enough to stay inside the
+    # eye and soft enough not to draw a line of its own.
+    filled_eyes = np.zeros((height, width), dtype=np.uint8)
+    for eye, iris in _EYE_PAIRS:
+        hull = cv2.convexHull(points[eye + iris][:, :2].astype(np.int32))
+        cv2.fillConvexPoly(filled_eyes, hull, 255)
+    keep = max(3, int(face_width * _OPENING_FEATHER) | 1)
+    opening = cv2.GaussianBlur(filled_eyes, (keep, keep), 0).astype(np.float32) / 255.0
+
     built: list[_Region] = []
     # Brows before eyes, which is the order they claim overlapping skin in.
     # Measured on the owner's own library: the brow rungs place their brows
@@ -3278,9 +3315,16 @@ def _build_regions(
 
         mask = cv2.GaussianBlur(grown, (feather, feather), 0).astype(np.float32) / 255.0
 
+        # Nobody but the eyes paints inside an eye. A brow photograph, a mouth
+        # photograph and a turned head all have an open eye where this face's
+        # shut one is, and any share of it left to them is that open eye.
+        if name != "eyes":
+            mask *= 1.0 - opening
+
         # What is left after the regions before it have taken theirs, and what
         # it takes in turn. Subtracted rather than cut, so the join stays a fade
         # — and the two can never add up to more than one photograph's worth.
+        #
         np.clip(mask - claimed, 0.0, 1.0, out=mask)
         np.clip(claimed + mask, 0.0, 1.0, out=claimed)
 

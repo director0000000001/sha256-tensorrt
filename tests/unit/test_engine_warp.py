@@ -1230,6 +1230,35 @@ class TestRegionsDoNotOverlap:
         assert float(eyes.mean()) > 0.9, "the eyes lost their own socket"
         assert float(brows.max()) < 0.1, "a brow photograph is still painted over the eyes"
 
+    def test_nothing_but_the_eyes_paints_inside_an_eye(self, engine, tmp_path):
+        """The owner, on a shut eye: *"behind the closed-eye photograph, I think
+        the open-eye one is still there."*
+
+        Every other photograph in the library was taken with the eyes open — the
+        whole-head turn rungs above all, and one of those is mixed in on nearly
+        every frame because a head is never at exactly its resting angle. So any
+        share of the opening the eyes do not hold is an open eye, and the mesh
+        squeezes it into the slit a shut lid has become. Measured on the owner's
+        avatar before this: the eyes held as little as **0.333** of their own
+        opening, and 0.608 of their own iris.
+        """
+        avatar, regions = self.regions(engine, tmp_path)
+        by_name = {region.name: self.full(region, avatar.image.shape) for region in regions}
+
+        # The irises rather than the whole opening: the fence fades over the
+        # opening's own outline, and what has to be clean is the part of the eye
+        # a pupil is actually seen through.
+        for _, iris in _EYE_PAIRS:
+            inside = np.zeros(avatar.image.shape[:2], dtype=np.uint8)
+            cv2.fillConvexPoly(
+                inside, cv2.convexHull(avatar.points[iris][:, :2].astype(np.int32)), 255
+            )
+            sel = inside > 0
+
+            others = sum(mask[sel] for name, mask in by_name.items() if name != "eyes")
+            assert float(np.max(others)) < 0.05, "another photograph reaches inside the eye"
+            assert float(by_name["eyes"][sel].min()) > 0.9, "the eyes do not hold their own iris"
+
 
 class TestTheSmileLadder:
     """The owner's own proposal: *"we already have the clip where he laughs —
