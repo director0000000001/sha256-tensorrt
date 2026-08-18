@@ -34,6 +34,7 @@ from sha256.avatar.engine_warp import (
     _FRAME_SECONDS,
     _IRIS_POSITIONS,
     _LADDER_CROSSFADE_DEGREES,
+    _LEVEL_WARMUP_FRAMES,
     _MASK_FEATHER,
     _NEAR_CHEEK_START,
     _NOSE_TIP_POSITION,
@@ -54,6 +55,7 @@ from sha256.avatar.engine_warp import (
     _destination_mask,
     _eased,
     _eye_amount,
+    _eye_opening,
     _ladder_weights,
     _lid_aspect,
     _misplaced,
@@ -1342,14 +1344,44 @@ class TestTheEyeLadder:
         for amount in (0.15, 0.3, 0.45, 0.6, 0.75):
             assert len(_nearest_rung(self.LADDER, amount, _EYES_LADDER_START)) <= 1
 
-    def test_the_amount_rises_as_the_lids_come_down(self):
+    def settled(self) -> _Neutral:
+        """A resting eye the estimate has had time to learn — see
+        :data:`_LEVEL_WARMUP_FRAMES`."""
         neutral = _Neutral()
-        _eye_amount(expressive_tracking(blink=(0.0, 0.0)), neutral)  # learns the open eye
+        for _ in range(_LEVEL_WARMUP_FRAMES + 1):
+            _eye_amount(expressive_tracking(blink=(0.0, 0.0)), neutral)
+            neutral.relative_rise("eyeOpen", _eye_opening(expressive_tracking(blink=(0.0, 0.0))))
+        return neutral
+
+    def test_the_amount_rises_as_the_lids_come_down(self):
+        neutral = self.settled()
 
         half = _eye_amount(expressive_tracking(blink=(0.5, 0.5)), neutral)
         shut = _eye_amount(expressive_tracking(blink=(1.0, 1.0)), neutral)
 
         assert shut > half > 0.0
+
+    def test_the_lids_say_nothing_until_the_resting_eye_is_learned(self):
+        """The owner: *"I switched it on with my eyes open and it was showing
+        closed eyes."*
+
+        Measured on their own recording, inside one "sit still and relax"
+        instruction: the tracker's eyelid reading climbs **36%** over the first
+        second and a half while the face does not move. An estimate chasing that
+        is always behind it, and the gap between the two reads as a lid coming
+        down — a shut rung on 44 of the first 60 frames. There is no rate that
+        wins a race against the thing it is estimating, so the lids say nothing
+        until the estimate has stopped being new.
+        """
+        neutral = _Neutral()
+        shut = expressive_tracking(blink=(1.0, 1.0))
+
+        early = [_eye_amount(shut, neutral) for _ in range(_LEVEL_WARMUP_FRAMES)]
+
+        assert early == [0.0] * _LEVEL_WARMUP_FRAMES
+
+    def test_and_speaks_once_it_is_not(self):
+        assert _eye_amount(expressive_tracking(blink=(1.0, 1.0)), self.settled()) > 0.0
 
     def test_a_blink_is_faster_than_the_rest_of_the_face(self):
         """A blink is 100-150 ms — three or four frames. At the mouth's rate the

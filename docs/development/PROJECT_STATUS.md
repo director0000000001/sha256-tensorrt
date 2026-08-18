@@ -3,7 +3,7 @@
 **Living document.** Update it at the end of each working day. For the frozen
 record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
-**Last updated:** 2026-08-19 · **Day 11 — three passes at one shut eye**
+**Last updated:** 2026-08-19 · **Day 11 — four passes at one shut eye**
 
 ---
 
@@ -810,6 +810,67 @@ each found a real defect by measurement and none has been confirmed against the
 thing the owner is actually looking at — **the next step is a driving clip
 recorded in the pose that shows it**, not a fourth guess.
 
+## Day 11, fourth pass — the lids say nothing until they know what rest is
+
+**The owner, on switching the application on:** *"my eyes were open and it was
+still showing closed eyes."* Reproduced without a camera by starting the engine
+at six moments of the recording, all of them with the eyes open: a shut rung on
+**44 of the first 60 frames** from one, 41 from another, 52 of a *wide* rung
+from a third.
+
+**The eye is not what changed.** Measured on the owner's clip, inside a single
+"sit still and relax" instruction:
+
+| frames | eyelid opening |
+|---|---|
+| 0–40 | **0.0418** |
+| 41–116 | **0.0652** |
+| 1757–1846 | 0.0593 |
+
+A 36% climb over the first second and a half while the person sat still — the
+tracker converging, not a face opening its eyes. The resting level is seeded
+from one frame and then moves at a seventeen-second time constant, so it kept
+frame 0's answer while the readings walked away from it, and a quarter of a
+closing puts a fully shut rung on the screen.
+
+**This morning's own change made it worse rather than causing it**: a rung is
+now shown whole from the frame it is chosen, so a spurious reading arrives at
+full strength instead of fading in over three frames and being gone before it
+finished. The fade was hiding it.
+
+Fixed in two places, and the first was not enough on its own — a warm-up on the
+resting level, upward only so the asymmetry that keeps blinks out of it
+survives; and then **the lids say nothing at all until the estimate has stopped
+being new**, because there is no rate that wins a race against the thing it is
+estimating.
+
+| | before | after |
+|---|---|---|
+| shut rung in the first 45 frames, worst start | 44 of 60 | **0** |
+| lid reading over the first 45 frames | up to +0.29 | **0.00 everywhere** |
+| lid at rest, p90 | 0.224 | **0.078** |
+| region turned on or off, whole clip | 54 | 52 |
+| `animate` mean / p95 | 21.5 / 24.6 ms | **20.2 / 23.0 ms** |
+
+The cost is named: a blink in the first second and a half of a session is not
+shown. **568 tests.**
+
+### Still open, and deliberately not guessed at
+
+The owner also reports the flat sliver with the eyes shut and the head turned
+slightly. The mechanism is in the code and it is the one fixed twice already
+today, by a third road: at a turn the eye photograph cannot be placed on the
+moved head, `_trust` falls, and `share *= trust` paints it at **part strength
+over a base whose eyes are open** — a cross-fade, which is what a translucent eye
+is.
+
+It is not fixed because it cannot be checked. `driving.mkv` contains no frame
+with the head turned and the lids down: of 1847 frames only 42 lose any carry at
+all, their |yaw| runs 0.9° to 4.5°, and none of them is a blink. Four passes
+today have each found something real by measurement; the one thing that has not
+happened is a measurement of what the owner is actually looking at. **A clip with
+that one thing in it is worth more than a fifth guess.**
+
 ### Where day 11 leaves off
 
 **Waiting on the owner, and it blocks the largest open item:** two head-turn
@@ -1163,7 +1224,7 @@ when the quality work that needs it is done.**
 | 6 | Quality: neutral baseline, eyes, teeth | ✅ Done — backlog 8, 9, 10 |
 | **7** | **Neural engine evaluated and closed; gaze as geometry; replay harness** | **✅ Done — B005** |
 | **8** | **Quality: the wedge above a blinking eye (backlog 15)** | **✅ Done** |
-| **9–11** | **Ladders: turn, smile, eyes, brows. Three passes at one shut eye (backlog 24, 25, 26)** | **✅ Done** |
+| **9–11** | **Ladders: turn, smile, eyes, brows. Four passes at one shut eye (backlog 24-27)** | **✅ Done** |
 
 The rows below this line are from the **14-day plan, superseded on 2026-08-15**.
 What replaces them is the four-week table at the top of this file; they are kept

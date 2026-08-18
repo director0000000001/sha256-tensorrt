@@ -252,6 +252,46 @@ _POSE_RATE = 0.002
 # photograph.
 _POSE_WARMUP_FRAMES = 120
 
+# The same argument for the eye's resting opening, and the number is its own
+# because the thing it is waiting for is different.
+#
+# The owner: *"I switched it on with my eyes open and it was showing closed
+# eyes."* Reproduced from the recording by starting the engine at six different
+# moments, every one of them with the eyes open: a shut rung on **44 of the
+# first 60 frames** from a standing start, 41 from another, 52 of a wide rung
+# from a third.
+#
+# The cause is not the eye. Measured on the owner's own clip, inside a single
+# "sit still and relax" instruction:
+#
+#   ================  ==================
+#   frames            eyelid opening
+#   ================  ==================
+#   0-40                          0.0418
+#   41-116                        0.0652
+#   1757-1846                     0.0593
+#   ================  ==================
+#
+# **A 36% climb over the first second and a half, while the person was sitting
+# still** — that is the tracker converging, not a face opening its eyes. The
+# resting level was seeded from frame 0 and then moved at a seventeen-second
+# time constant, so it kept the first frame's answer while the readings walked
+# away from it, and a quarter of a closing is enough to put a fully shut rung on
+# the screen.
+#
+# Forty-five frames is a second and a half, which is where the climb ends.
+_LEVEL_WARMUP_FRAMES = 45
+
+# And how far back the warm-up's own mean looks, in frames.
+#
+# A running mean over *everything seen so far* is the right estimator when the
+# thing being estimated is steady, and the wrong one here: the reading climbs
+# through the whole warm-up, so an average of it is an average of a journey and
+# ends the warm-up sitting well below where the face actually is — which reads
+# as an eye held **wide**, the same defect mirrored. Holding the rate at a
+# short window instead keeps the estimate on the reading rather than behind it.
+_LEVEL_WINDOW_FRAMES = 12
+
 # The seed counts for this many frames, so that a running mean over very few
 # readings is not thrown by one of them. Without it the second frame of a
 # session would move the resting angle halfway to wherever that frame happened
@@ -1107,7 +1147,15 @@ class _Neutral:
     its own photograph.
     """
 
-    __slots__ = ("_ceilings", "_floors", "_means", "_pose", "_pose_seen", "_smoothed")
+    __slots__ = (
+        "_ceilings",
+        "_floors",
+        "_level_seen",
+        "_means",
+        "_pose",
+        "_pose_seen",
+        "_smoothed",
+    )
 
     def __init__(self) -> None:
         self._floors: dict[str, float] = {}
@@ -1118,6 +1166,9 @@ class _Neutral:
         # How many readings each pose estimate is built from. What separates
         # "this is all I have seen" from "this is where they sit".
         self._pose_seen: dict[str, int] = {}
+        # And the same for the levels, which need it for the same reason — see
+        # :data:`_LEVEL_WARMUP_FRAMES`.
+        self._level_seen: dict[str, int] = {}
 
     def relative_expression(self, name: str, value: float) -> float:
         """``value`` above this signal's learned resting floor, never below zero."""
@@ -1167,6 +1218,7 @@ class _Neutral:
         rest = self._means.get(name)
         if rest is None or rest <= 1e-6:
             self._means[name] = value
+            self._level_seen[name] = 1
             return 0.0
 
         # Asymmetric, and the symmetric version was visibly wrong. A plain slow
@@ -1178,10 +1230,33 @@ class _Neutral:
         # So it follows an opening eye at the ordinary slow rate and a closing
         # one ten times slower still. What it estimates is "how open this eye is
         # when it is open", which is the thing being compared against.
+        #
+        # **Except while it is new**, and that exception is the whole of why an
+        # avatar used to open a session with its eyes shut. An estimate built
+        # from one frame should move freely and one built from a thousand should
+        # not — the same argument :meth:`relative_pose` makes, and the same
+        # remedy: a plain running mean with a prior for the first
+        # :data:`_LEVEL_WARMUP_FRAMES` readings. Both directions, because the
+        # reading it has to escape from can be on either side of the truth: a
+        # session opened mid-blink seeds it low and everything after reads wide.
+        seen = self._level_seen.get(name, 1) + 1
+        self._level_seen[name] = seen
         rate = _POSE_RATE if value > rest else _POSE_RATE * 0.1
+        if seen <= _LEVEL_WARMUP_FRAMES and value > rest:
+            # Fast, but only upward, so the asymmetry that keeps blinks out of
+            # the estimate survives the warm-up. What a new estimate has to
+            # escape is a seed taken from one frame, and every way of being
+            # wrong that matters here — a session opened mid-blink, a tracker
+            # still converging — leaves it sitting *below* the eye it is meant
+            # to describe.
+            rate = max(rate, 1.0 / (min(seen, _LEVEL_WINDOW_FRAMES) + _POSE_PRIOR_FRAMES))
         rest += rate * (value - rest)
         self._means[name] = rest
         return max((value - rest) / max(rest, 1e-6), 0.0)
+
+    def level_seen(self, name: str) -> int:
+        """How many readings this level is built from. Zero if it has none."""
+        return self._level_seen.get(name, 0)
 
     def level_of(self, name: str) -> float | None:
         """The resting level of a signal, without learning from this reading.
@@ -1290,6 +1365,7 @@ class _Neutral:
         made._means = dict(self._means)
         made._pose = dict(self._pose)
         made._pose_seen = dict(self._pose_seen)
+        made._level_seen = dict(self._level_seen)
         made._smoothed = dict(self._smoothed)
         return made
 
@@ -2655,6 +2731,19 @@ def _eye_amount(tracking: FaceTrackingResult, neutral: _Neutral) -> float:
         neutral.relative_rise("eyeOpen", lids)
         return 0.0
     if rest <= 1e-6:
+        return 0.0
+    if neutral.level_seen("eyeOpen") < _LEVEL_WARMUP_FRAMES:
+        # **Nothing, until there is something to compare against.** The owner:
+        # *"I switched it on with my eyes open and it was showing closed eyes."*
+        #
+        # A faster-learning rest was not enough on its own, and the measurement
+        # says why: over the first second and a half the tracker's own reading
+        # walks 36% while the face sits still, so an estimate chasing it is
+        # always behind and the difference between the two is read as a lid
+        # coming down. There is no rate that wins a race against the thing it is
+        # estimating. So for as long as the estimate is young the answer is
+        # zero, the eyes are the portrait's own, and the cost is that a blink in
+        # the first second and a half is not shown.
         return 0.0
     return (rest - lids) / rest
 

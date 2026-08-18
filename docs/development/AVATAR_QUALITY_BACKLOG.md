@@ -1730,3 +1730,93 @@ weighted there, and the visible difference before and after is confined to the
 upper lid arc. **Whether this is the whole of what they are seeing is not
 established**, and the way to establish it is a driving clip recorded in the
 pose that shows it, not another guess.
+
+---
+
+## 27. Switched on with the eyes open, and it showed them shut — FIXED 2026-08-19
+
+**Seen:** *"I just switched it on, my eyes were open, and it was still showing
+closed eyes."*
+
+Reproduced from the recording without a camera, by starting the engine at six
+different moments, every one of them with the eyes open:
+
+| started at frame | a rung on screen in the first 60 frames |
+|---|---|
+| 0 | **44**, a shut one |
+| 100 | 0 |
+| 300 | **41**, a shut one |
+| 1120 | **52**, a wide one |
+| 1200 | 16 |
+| 1800 | 0 |
+
+### The eye is not what changed
+
+`_eye_amount` reads the lids against a resting level the engine learns, seeded
+from one frame and then moved at a seventeen-second time constant. Measured on
+the owner's own clip, **inside a single "sit still and relax" instruction**:
+
+| frames | eyelid opening |
+|---|---|
+| 0–40 | **0.0418** |
+| 41–116 | **0.0652** |
+| 1757–1846 | 0.0593 |
+
+A **36% climb over the first second and a half while the person sat still.**
+That is the tracker converging, not a face opening its eyes. The resting level
+kept the first frame's answer while the readings walked away from it, and a
+quarter of a closing is enough to put a fully shut rung on screen.
+
+**Yesterday's own change made it worse rather than causing it.** A rung is now
+shown whole from the frame it is chosen, so a spurious reading arrives at full
+strength instead of fading in over three frames and being gone before it
+finished. The defect was always there; the fade was hiding it.
+
+### Fixed in two places, and one of them was not enough
+
+**A warm-up on the resting level**, the same remedy `relative_pose` already has
+for the head angle: for the first 45 frames the estimate moves at a rate set by
+how little it has seen rather than at the long-run crawl. **Upward only**, so
+the asymmetry that keeps blinks out of it survives — and every way of being
+wrong that matters here leaves the estimate sitting *below* the eye it describes.
+
+That alone took the worst case from 44 frames to 35, and no faster rate does
+better: **there is no rate that wins a race against the thing it is
+estimating.** So, second:
+
+**The lids say nothing until the estimate has stopped being new.** For 45
+frames `_eye_amount` returns zero, the eyes are the portrait's own, and the cost
+is that a blink in the first second and a half is not shown.
+
+### Measured after
+
+| | before | after |
+|---|---|---|
+| shut rung in the first 45 frames, worst start | 44 of 60 | **0** |
+| the lid reading over the first 45 frames | up to +0.29 | **0.00 at every start point** |
+| lid at rest, p90 | 0.224 | **0.078** |
+| frames with an eye rung on, whole clip | 992 | 955 |
+| region turned on or off | 54 | 52 |
+| shortest run of a rung | 3 frames | 3 frames |
+| `animate` mean / p95 | 21.5 / 24.6 ms | **20.2 / 23.0 ms** |
+
+A plain running mean during the warm-up was tried first and rejected on the
+measurement: it ends the warm-up below the face, which reads as an eye held
+**wide**, and it put one- and two-frame flickers into the clip that the
+asymmetric version does not have.
+
+### Still open: the same defect at a turn, and it is not verified
+
+The owner also reports the flat sliver with the eyes shut and the head turned
+slightly. The mechanism is visible in the code and is the one already fixed
+twice today, arriving by a third road: at a turn the eye photograph cannot be
+placed on the moved head, `_trust` falls, and `share *= trust` paints it at
+**part strength over a base whose eyes are open**. That is a cross-fade, which is
+what a translucent eye is.
+
+**It is not fixed, because it cannot be checked.** `driving.mkv` has no frame
+where the head is turned and the eyes are shut: over 1847 frames only 42 lose
+any carry at all, their |yaw| runs 0.9° to 4.5°, and not one of them has the
+lids down. Shipping a hard cut into the carry on reasoning alone is what the
+last three passes have each shown to be a bad trade. **It needs a clip with that
+one thing in it.**
