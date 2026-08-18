@@ -3735,6 +3735,39 @@ def _nearest_rung(
     return {nearest[1]: min(abs(amount), 1.0)}
 
 
+def _carried_share(region: str, share: float, trust: float) -> float:
+    """How much of a photograph is applied once the head has moved under it.
+
+    For a mouth, fading it out as the head turns away is right: a hard threshold
+    would make an expression vanish mid-sentence, and a mouth photograph differs
+    from what is under it mostly in *texture*.
+
+    **The lids are shown whole or not at all**, here as everywhere else. An eye
+    photograph differs from what is under it in whether the eye is *open*, so
+    any share between nought and one is a shut lid laid over an open eye — the
+    same double exposure this file has now removed twice, arriving by a third
+    road.
+
+    The owner could not have described it better: *"eyes shut, head turned
+    slightly, and it is still there."* Reproduced from their own recording,
+    which contains the pair `driving.mkv` never does — the head past 20 degrees
+    with the lids down. Over its 4006 frames the eyes region is carried on 2668
+    and **1572 of those, 59%, were painted at part strength**, down to 0.62.
+    Through the turn they marked it runs 1.00 at 19 degrees to **0.82 at 28**,
+    so a fifth of an open eye was showing through a shut lid. Rendered three
+    ways at those frames, the thin dark line inside the lid is in the scaled one
+    and in neither of the others.
+
+    Keeping it whole costs little: 0.82 of trust is a misfit of **4.8 px on a
+    400 px face**, a bad number for a mouth and a small one for a lid that is
+    shut. Past ``_CARRY_LOST`` — 12 px on that face — the photograph is dropped,
+    as it always was.
+    """
+    if region in _ARRIVES_WHOLE:
+        return share if trust > 0.0 else 0.0
+    return share * trust
+
+
 def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.ndarray:
     """The source photograph for this frame: the base, plus whatever applies.
 
@@ -3954,7 +3987,7 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
                     avatar.eye_follow = _EYE_FOLLOW + lost * (_EYE_FOLLOW_ALONE - _EYE_FOLLOW)
                 if trust <= 0.0:
                     continue
-                share *= trust
+                share = _carried_share(region.name, share, trust)
                 carried = _carry_region(mixed, mask, carry, box, width, height)
                 if carried is None:
                     continue

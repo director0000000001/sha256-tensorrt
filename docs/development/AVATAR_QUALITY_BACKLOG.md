@@ -1820,3 +1820,70 @@ any carry at all, their |yaw| runs 0.9° to 4.5°, and not one of them has the
 lids down. Shipping a hard cut into the carry on reasoning alone is what the
 last three passes have each shown to be a bad trade. **It needs a clip with that
 one thing in it.**
+
+---
+
+## 28. A lid faded out by a turn — FIXED 2026-08-19
+
+**Seen:** *"eyes shut, head turned slightly, and it is still there."* Marked by
+the owner with a red arrow on each eye: a thin dark line inside the upper lid,
+separate from the lash line below it.
+
+**Found because the owner recorded the one thing the library was missing.**
+`testvid.mkv` is a screen recording of the application's own preview, which
+makes it useless as a driving clip and ideal as evidence: 4006 frames, and among
+them **276 with the lids past 0.30 of a closing and the head past 8 degrees** —
+a pair `driving.mkv` does not contain at all. Fed back through the pipeline it
+reproduces the defect here, because what reaches the engine is a head angle and
+a lid state and this clip has both.
+
+### The cause: the third road to the same double exposure
+
+Every eye photograph is of a face looking straight ahead. At a turn the carry
+has to place one on a head it was not taken on, `_trust` says how well it
+managed, and `share *= trust` scales the photograph down by it.
+
+That is right for a mouth, which differs from what is under it mostly in
+*texture*. **It is wrong for a lid, which differs from what is under it in
+whether the eye is open.** Any share between nought and one is a shut lid laid
+over an open eye.
+
+Measured on the owner's recording, through the turn they marked:
+
+| yaw | the eyes region's trust |
+|---|---|
+| 19° | 1.00 |
+| 21° | 0.97 |
+| 23° | 0.94 |
+| 25° | 0.87 |
+| 27° | 0.85 |
+| 28° | **0.82** |
+
+Over the whole recording the eyes region is carried on 2668 frames and **1572 of
+them — 59% — were painted at part strength**, the worst at 0.62. A fifth of an
+open eye showing through a shut lid is exactly a thin dark line inside it.
+
+This is the same defect as backlog 24, which was the arrival fade, and as the
+part of 26 that let another photograph into the eye. Three roads, one rule
+missing at the end of each.
+
+### Fixed
+
+`_carried_share`: for a region that is shown whole, the carry either applies the
+photograph or drops it, and never scales it. Past `_CARRY_LOST` it is dropped as
+it always was. The mouth and the brows keep their fade.
+
+**The price is named:** at 0.82 of trust the photograph is misplaced by **4.8 px
+on a 400 px face**. That is a bad number for a mouth and a small one for a lid
+that is shut, and it buys the removal of an artefact the owner has now reported
+four times.
+
+| | before | after |
+|---|---|---|
+| the thin dark line at a turn | present from 20° | **gone** |
+| eyes carried at part strength, owner's recording | 1572 of 2668 | **0** |
+| `driving.mkv`: frames with an eye rung, transitions, run lengths | 955 / 52 / min 3 | unchanged |
+| `animate` mean | 21.4 ms | 21.4 ms |
+
+`driving.mkv` is unchanged in every respect, which is the point: it never had
+the frames this is about.

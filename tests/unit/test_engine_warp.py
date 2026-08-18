@@ -50,6 +50,7 @@ from sha256.avatar.engine_warp import (
     _blend_sources,
     _brow_amount,
     _build_regions,
+    _carried_share,
     _commit,
     _contain_irises,
     _destination_mask,
@@ -1771,6 +1772,43 @@ class TestAShutEyesIrisIsTuckedOutOfTheWay:
         _contain_irises(points)
 
         assert self.spread(points, _EYE_PAIRS[0][1]) == pytest.approx(before, rel=0.01)
+
+
+class TestALidIsNotFadedOutByATurn:
+    """The owner: *"eyes shut, head turned slightly, and it is still there."*
+
+    Every eye photograph is of a face looking straight ahead, so at a turn the
+    carry has to place one on a head it was not taken on and `_trust` says how
+    well it managed. Scaling the photograph by that is right for a mouth, which
+    differs from what is under it mostly in texture, and wrong for a lid, which
+    differs from what is under it in whether the eye is **open**.
+
+    Reproduced from the owner's own recording, which contains the pair
+    `driving.mkv` never does — the head past 20 degrees with the lids down. The
+    eye rung was applied at 1.00 at 19 degrees falling to 0.82 at 28, and over
+    the whole recording on 1572 of the 2668 frames the region was carried at
+    all. A shut lid at four fifths of an opacity leaves a fifth of an open eye
+    showing, which is the thin dark line inside the lid that they marked with an
+    arrow.
+    """
+
+    def test_a_mouth_photograph_still_fades_as_the_head_turns_from_it(self):
+        assert _carried_share("mouth", 1.0, 0.4) == pytest.approx(0.4)
+
+    def test_a_lid_does_not(self):
+        assert _carried_share("eyes", 1.0, 0.4) == 1.0
+
+    def test_nor_at_the_worst_fit_that_is_still_a_fit(self):
+        assert _carried_share("eyes", 1.0, 0.01) == 1.0
+
+    def test_and_is_gone_once_there_is_no_fit_at_all(self):
+        """Past ``_CARRY_LOST``, where it always was."""
+        assert _carried_share("eyes", 1.0, 0.0) == 0.0
+
+    def test_the_region_s_own_share_is_still_what_is_being_scaled(self):
+        """A photograph half way through arriving does not become whole because
+        the head turned."""
+        assert _carried_share("eyes", 0.5, 0.4) == pytest.approx(0.5)
 
 
 class TestTheBuildersCanAskTheSameQuestion:

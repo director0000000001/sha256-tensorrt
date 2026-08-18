@@ -3,7 +3,7 @@
 **Living document.** Update it at the end of each working day. For the frozen
 record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
-**Last updated:** 2026-08-19 · **Day 11 — four passes at one shut eye**
+**Last updated:** 2026-08-19 · **Day 11 — five passes at one shut eye**
 
 ---
 
@@ -871,6 +871,57 @@ today have each found something real by measurement; the one thing that has not
 happened is a measurement of what the owner is actually looking at. **A clip with
 that one thing in it is worth more than a fifth guess.**
 
+## Day 11, fifth pass — a lid is not faded out by a turn
+
+**The owner recorded the one thing the library was missing**, and it settled it
+in an afternoon rather than a guess. `testvid.mkv` is a screen recording of the
+application's own preview — useless as a driving clip and ideal as evidence:
+4006 frames, and among them **276 with the lids past 0.30 of a closing and the
+head past 8 degrees**, a pair `driving.mkv` does not contain at all. Fed back
+through the pipeline it reproduces the defect here, because what reaches the
+engine is a head angle and a lid state and this clip has both.
+
+**The cause is the third road to the same double exposure.** Every eye
+photograph is of a face looking straight ahead, so at a turn the carry places
+one on a head it was not taken on, `_trust` says how well it managed, and
+`share *= trust` scales the photograph down by it. Right for a mouth, which
+differs from what is under it mostly in texture; **wrong for a lid, which differs
+from what is under it in whether the eye is open.** Any share between nought and
+one is a shut lid laid over an open eye.
+
+| yaw | the eyes region's trust |
+|---|---|
+| 19° | 1.00 |
+| 23° | 0.94 |
+| 25° | 0.87 |
+| 28° | **0.82** |
+
+Over the whole recording the eyes region is carried on 2668 frames and **1572 of
+them — 59% — were painted at part strength**, the worst at 0.62. A fifth of an
+open eye showing through a shut lid is exactly the thin dark line the owner
+marked with an arrow.
+
+**Fixed** in `_carried_share`: a region that is shown whole is either applied or
+dropped by the carry, never scaled. Past `_CARRY_LOST` it is dropped as before.
+The price is named — at 0.82 of trust the photograph is misplaced by **4.8 px on
+a 400 px face**, a bad number for a mouth and a small one for a shut lid.
+
+| | before | after |
+|---|---|---|
+| the thin dark line at a turn | present from 20° | **gone** |
+| eyes carried at part strength, owner's recording | 1572 of 2668 | **0** |
+| `driving.mkv`: rung frames / transitions / shortest run | 955 / 52 / 3 | unchanged |
+| `animate` mean | 21.4 ms | 21.4 ms |
+
+`driving.mkv` is unchanged in every respect, which is the point: it never had the
+frames this was about. **573 tests.**
+
+**What day 11 was, in one line:** five passes at one shut eye — the arrival fade,
+the iris fan, the fence around the opening, the resting eye at startup, and the
+carry — each a different way of ending up with two photographs on screen at
+once, and the last two found only because the owner recorded what he was
+actually looking at.
+
 ### Where day 11 leaves off
 
 **Waiting on the owner, and it blocks the largest open item:** two head-turn
@@ -1224,7 +1275,7 @@ when the quality work that needs it is done.**
 | 6 | Quality: neutral baseline, eyes, teeth | ✅ Done — backlog 8, 9, 10 |
 | **7** | **Neural engine evaluated and closed; gaze as geometry; replay harness** | **✅ Done — B005** |
 | **8** | **Quality: the wedge above a blinking eye (backlog 15)** | **✅ Done** |
-| **9–11** | **Ladders: turn, smile, eyes, brows. Four passes at one shut eye (backlog 24-27)** | **✅ Done** |
+| **9–11** | **Ladders: turn, smile, eyes, brows. Five passes at one shut eye (backlog 24-28)** | **✅ Done** |
 
 The rows below this line are from the **14-day plan, superseded on 2026-08-15**.
 What replaces them is the four-week table at the top of this file; they are kept
