@@ -1488,10 +1488,12 @@ running from a wide open eye at 0.0 straight to a **fully shut** photograph at
 |---|---|---|
 | frames that are a mix of two eye photographs | **107 of 1847** | **0** |
 | eye rungs on the closing side | 4, none of them partly shut | 6 |
-| `animate` mean / p95 | 34.3 / 43.4 ms | 34.7 / 45.6 ms |
+| `animate` mean / p95 | 21.20 / 23.93 ms | 20.91 / 23.91 ms |
 
-The frame cost is unchanged — both figures are from the same machine on the same
-afternoon, and the difference is inside the run-to-run spread.
+The frame cost is unchanged. **Those two figures replace a pair first
+reported at 34 ms**, which were taken while this machine was running six
+other measurements at once; re-run on a quiet one they are the 20.4 / 22.5
+the budget section already records. No frame-rate problem was found.
 
 ### Two things measured and deliberately not done
 
@@ -1530,3 +1532,91 @@ anyway. A blink is therefore a two-state cut, open to nearly shut. At 30 fps a
 real lid closes in one or two frames, so this is close to honest; but if the
 half-closed eye is wanted it needs a clip that closes *slowly*, and a finer band
 near zero to file it under.
+
+---
+
+## 25. There is no iris in a shut eye — FIXED 2026-08-19
+
+**Seen**, by the owner, after item 24 removed the cross-fade: *"still slightly
+visible. It is the pupils, but very thin — low in height, a bit long in width. A
+flat, oval shape, for a very short time."*
+
+Item 24's note said the containment was wrong but that it cost only a nick.
+That was the right diagnosis and the wrong size.
+
+### Found by removal, not by argument
+
+Three renders of the same frames, side by side: as shipped, with the target lid
+ring and iris ring drawn on, and with **every triangle touching an iris taken
+out of the mesh**.
+
+* The dark flat shape is on the lash line, toward the inner corner.
+* The iris ring is drawn exactly over it.
+* With the fan removed it is gone, and the lash line is continuous. No hole
+  appears — the area is a few pixels tall and the rigid backdrop layer under the
+  mesh is the composite's own shut lid.
+
+Drawn on the frame, the lid ring at full closure **crosses itself**: the upper
+and lower contours swap over near the corners. So "inside the lid" is not even
+well defined there, which is why containment against the ring's *bounding box*
+let three or four of the five iris points sit outside it.
+
+**What the fan draws, once there is no eye to draw in, is the lash line squeezed
+flat** — the darkest thing in the picture, compressed into a wide, low ellipse.
+That is the owner's flat oval, and it lasts exactly as long as the lid is down.
+
+### The line, measured on this face
+
+The lid ring's height over its own width — a ratio, so it says the same thing in
+the avatar's pixels and in the live frame's, at any distance from the camera:
+
+| the eye | height / width |
+|---|---|
+| base portrait | 0.323 |
+| the four wide rungs | 0.403–0.448 |
+| every frame of the recording with the eye open | 0.298–0.450 |
+| every shut rung | 0.106–0.128 |
+| every frame with the eye shut | 0.106–0.123 |
+
+**Nothing lies between 0.128 and 0.298**, on either side of the warp, so the
+line goes in the middle of the empty band — written as **three fifths of this
+portrait's own resting lid**, not as a number, because a fraction of *this* face
+is the only kind of threshold this file has been able to trust.
+
+Over 1847 frames it never misfires:
+
+* dropped while the lid reading was below 0.10: **0 frames**
+* kept while the lid reading was above 0.30: **0 frames**
+* closest an open frame came to the line: **0.298**, against a line at 0.194
+* closest a shut frame came: **0.191**
+
+### Two details that are not incidental
+
+**Each eye is decided on its own.** A wink is a face doing two different things
+at once, so there are four triangle arrays — the mesh, and the mesh without
+either fan, and without both — built once at load and chosen per frame.
+
+**Either mesh shutting is enough.** A shut source over an open destination
+stretches a closed lid across an open socket. The other way round is worse:
+what it squeezes into the slit is a real, round, dark pupil, because the source
+is the portrait's own open eye. That is exactly what the mesh does **at a turn**,
+where no eye photograph can be placed (item 20's carry) and the lids are left to
+`_EYE_FOLLOW_ALONE`. It is the same defect on a face the clip barely contains,
+and it is closed by the same rule.
+
+### Measured after
+
+| | before | after |
+|---|---|---|
+| `animate` mean | 21.20 ms | **20.91 ms** |
+| p95 | 23.93 ms | **23.91 ms** |
+| triangles while an eye is shut | 229 | 189 |
+
+**And a correction to item 24.** That entry reported `animate` at 34 ms and
+called it the largest open number in the project. It was not the engine — it was
+this machine, running six other measurements while the figure was taken. Re-run
+on a quiet one, before and after, the engine is at the 20.4 / 22.5 the budget
+section already records. There was no frame-rate regression to find. The lesson
+is the one the project already had on its list and had not yet done: **a quality
+measure has to be a committed tool that reports its own conditions**, or a
+number taken in passing ends up in a commit message.

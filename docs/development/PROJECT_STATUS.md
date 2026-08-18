@@ -3,7 +3,7 @@
 **Living document.** Update it at the end of each working day. For the frozen
 record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
-**Last updated:** 2026-08-18 · **Day 11 — a blink stops being a cross-fade**
+**Last updated:** 2026-08-19 · **Day 11 — a blink stops being a cross-fade, and a shut eye has no iris**
 
 ---
 
@@ -649,7 +649,7 @@ against 102.
 |---|---|---|
 | frames that are a mix of two eye photographs | **107 of 1847** | **0** |
 | eye rungs on the closing side | 4, none of them partly shut | 6 |
-| `animate` mean / p95 | 34.3 / 43.4 ms | 34.7 / 45.6 ms |
+| `animate` mean / p95 | 21.20 / 23.93 ms | 20.91 / 23.91 ms |
 
 **Two things measured and deliberately not done**, both in backlog 24: a hold at
 the foot of the ladder, which more than doubles how long a closed eye is held
@@ -664,13 +664,66 @@ half-closed frame to make a rung from: measured on `video-07`, the lid goes from
 therefore a two-state cut. At 30 fps that is close to what a real lid does, but
 a slow-closing clip would let it be a movement.
 
-**`animate` is measuring 34 ms**, against the 20.4 ms in this file's budget
-section. Both numbers above were taken this afternoon on the same machine, so the
-change is not the cause — but the avatar now carries **81 sources** where that
-budget was measured with 20, and the frame is over the 33.3 ms the camera
-delivers. This needs its own measurement before the `.exe`.
-
 **554 tests.**
+
+## Day 11, second pass — there is no iris in a shut eye
+
+**The owner looked again and it was still there, smaller**: *"the pupils, very
+thin, low in height and long in width — a flat oval, for a very short time."*
+That is a different defect from the cross-fade, and this time the night-before
+note had named the right function for the wrong reason.
+
+**Found by removal rather than by argument.** Rendering the same frames with
+every triangle that touches an iris taken out of the mesh, the flat dark shape
+goes and the lash line is continuous. Drawn on the frame, the iris ring sits
+exactly on it, straddling the lash line, inside a lid ring that at full closure
+crosses itself.
+
+So: **containment shrinks the iris to fit the lid, and never stops drawing it.**
+Past a closure there is nothing left for an iris to be, and what the fan draws
+instead is the lash line squeezed flat — which is a dark, wide, low oval, for
+exactly as long as the lid is down.
+
+**The line is measured, not chosen**, and it is written against this portrait's
+own resting lid because that is the only kind of threshold this file has been
+able to trust. The lid ring's height over its own width:
+
+| the eye | height / width |
+|---|---|
+| base portrait | 0.323 |
+| the four wide rungs | 0.403–0.448 |
+| every frame with the eye open | 0.298–0.450 |
+| every shut rung | 0.106–0.128 |
+| every frame with the eye shut | 0.106–0.123 |
+
+Nothing lies between 0.128 and 0.298, on either side of the warp, so the line
+goes in the middle of the empty band: **three fifths of the portrait's own**.
+Over the recording it never once misfires — 0 frames dropped with the lid
+reading below 0.10, 0 kept above 0.30, and the closest an open frame came to the
+line was 0.298 against a line at 0.194.
+
+Each eye is decided on its own, because a wink is a face doing two different
+things at once, and **either mesh shutting is enough**: an open source over a
+shut destination is the worse of the two, since what it squeezes into the slit
+is a real, round, dark pupil. That is what the mesh does at a turn, where no eye
+photograph can be placed and the lids are left to the warp alone.
+
+**Correcting yesterday's own number.** The first pass reported `animate` at
+34 ms and called it the largest open item. It was not the engine — it was this
+machine, running six other measurements at the time. Re-measured on a quiet
+one, from the same recording:
+
+| | before this change | after |
+|---|---|---|
+| `animate` mean | 21.20 ms | **20.91 ms** |
+| p95 | 23.93 ms | **23.91 ms** |
+
+Which is the 20.42 / 22.51 the budget section already records. **No frame-rate
+problem was found**, and the 34 ms line has been struck from the list below.
+Dropping the fan removes 40 of 229 triangles while an eye is shut, so if
+anything it costs slightly less.
+
+**562 tests.**
 
 ### Where day 11 leaves off
 
@@ -691,21 +744,19 @@ blurred rung is chosen by angle exactly like a sharp one.
 
 **Next in code, in order:**
 
-1. **`animate` is measuring 34 ms**, mean, against 20.4 in the budget below and
-   against the 33.3 ms the camera delivers. Measured twice this afternoon, before
-   and after the day's change, so it is not the change — the avatar carries 81
-   sources where the budget was taken with 20. Everything the owner sees as frame
-   rate is downstream of this, and it is now the largest number on the page.
-2. Item 2 below — the quality measure, as a committed tool rather than a scratch
-   script. Everything since has been reported through it.
-3. The lips: still an average of five photographs, `source_mouth_o` active on
+1. Item 2 below — the quality measure, as a committed tool rather than a scratch
+   script. Everything since has been reported through it. **This is now the
+   first item for a reason:** the day's own frame-cost figure was wrong because
+   it was taken on a loaded machine, and a committed tool that reports its
+   conditions would not have let that reach a commit message.
+2. The lips: still an average of five photographs, `source_mouth_o` active on
    84% of the recording. The mouth is the last family that averages rather than
    chooses.
-4. Two defects the owner reported that cannot be reproduced here — teeth
+3. Two defects the owner reported that cannot be reproduced here — teeth
    doubling now and then, and a delay before the avatar recovers from a big turn.
    Both need a driving clip that turns both ways; `driving.mkv` holds |yaw| > 5°
    on 2.3% of its frames and never turns left at all.
-5. **The same silent loss is latent in the brow ladder's builder.** No brow rung
+4. **The same silent loss is latent in the brow ladder's builder.** No brow rung
    is refused at load today, so nothing is missing — but `build_brow_ladder` also
    chooses on sharpness alone, and would lose a band the same way. It gets
    `refused_as_rung` the next time it is rebuilt.
@@ -1027,7 +1078,7 @@ when the quality work that needs it is done.**
 | 6 | Quality: neutral baseline, eyes, teeth | ✅ Done — backlog 8, 9, 10 |
 | **7** | **Neural engine evaluated and closed; gaze as geometry; replay harness** | **✅ Done — B005** |
 | **8** | **Quality: the wedge above a blinking eye (backlog 15)** | **✅ Done** |
-| **9–11** | **Ladders: turn, smile, eyes, brows. A blink stops being a cross-fade (backlog 24)** | **✅ Done** |
+| **9–11** | **Ladders: turn, smile, eyes, brows. A blink stops being a cross-fade, and a shut eye has no iris (backlog 24, 25)** | **✅ Done** |
 
 The rows below this line are from the **14-day plan, superseded on 2026-08-15**.
 What replaces them is the four-week table at the top of this file; they are kept
