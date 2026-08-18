@@ -16,7 +16,6 @@ from __future__ import annotations
 import json
 from itertools import pairwise
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -51,11 +50,10 @@ from sha256.avatar.engine_warp import (
     _brow_amount,
     _build_regions,
     _commit,
+    _contain_irises,
     _destination_mask,
     _eased,
     _eye_amount,
-    _iris_drawn,
-    _iris_fans,
     _ladder_weights,
     _lid_aspect,
     _misplaced,
@@ -1589,19 +1587,30 @@ class TestARungWhoseFeaturesLandInAnotherRegion:
         assert "10 px" in str(_misplaced(_EYES_PREFIX, rung, base))
 
 
-class TestThereIsNoIrisInAShutEye:
-    """The owner, on the second look: *"the pupils, very thin, low in height and
-    long in width — a flat oval, for a very short time."*
+class TestAShutEyesIrisIsTuckedOutOfTheWay:
+    """The owner: *"the pupils, very thin, low in height and long in width — a
+    flat oval, for a very short time."*
 
-    Containment shrinks the iris to fit the lid and never stops drawing it, so
-    at a shut lid the fan is a wide, flat sliver lying along the lash line —
-    and what it drags across is the darkest thing in the picture. Rendered with
-    those triangles removed, the whole of it goes.
+    Containment shrinks the iris to fit the lid and never puts it anywhere else,
+    so at a shut lid the fan is a wide flat sliver lying along the lash line —
+    and the lash line is the darkest thing in the picture.
 
-    The line is drawn against this portrait's own resting lid rather than as a
-    number, and there is room for it: measured over the library and 1847 frames,
-    an open lid's height is 0.298 to 0.450 of its own width and a shut one's is
-    0.106 to 0.128. Nothing in between.
+    **Taking the fan out of the mesh was the first answer and it was wrong.**
+    The render was clean where the artefact had been, but those were the only
+    triangles covering the inside of the lid, and the rigid backdrop showed
+    through the hole: the composite placed by one similarity transform carries
+    its own lash line a few pixels off the mesh's, so a second, thinner, darker
+    line appeared inside the shut lid. The owner marked it with an arrow on both
+    eyes. Measured after: 27 to 252 pixels of every shut eye were painted by no
+    triangle at all.
+
+    So the ring is tucked in toward the middle of the lid instead. The fan stays,
+    the hole never opens, and what it paints is the lid's own pixels.
+
+    The line between open and shut is drawn against this portrait's own resting
+    lid rather than as a number, and there is room for it: measured over the
+    library and 1847 frames, an open lid's height is 0.298 to 0.450 of its own
+    width and a shut one's is 0.106 to 0.128. Nothing in between.
     """
 
     def mesh(self, left: float, right: float) -> np.ndarray:
@@ -1613,23 +1622,21 @@ class TestThereIsNoIrisInAShutEye:
             ring[: len(eye) // 2, 1] = 0.0
             ring[len(eye) // 2 :, 1] = 100.0 * aspect
             points[eye] = ring
-            points[iris, 0] = 50.0
+            points[iris, 0] = np.linspace(35.0, 65.0, len(iris))
             points[iris, 1] = 50.0 * aspect
         return points
 
-    def avatar(self, resting: float = 0.32) -> Any:
-        return SimpleNamespace(
-            lid_aspect=(resting, resting),
-            iris_fans=_iris_fans(np.array([[0, 1, 2]] + [[p, 0, 1] for p in _IRIS_POSITIONS])),
-        )
+    def spread(self, points: np.ndarray, iris: list[int]) -> float:
+        ring = points[iris]
+        return float(np.linalg.norm(ring - ring.mean(axis=0), axis=1).max())
 
     def test_an_open_lid_measures_about_a_third_of_its_own_width(self):
         assert _lid_aspect(self.mesh(0.32, 0.32), _EYE_PAIRS[0][0]) == pytest.approx(0.32)
 
-    def test_an_open_eye_keeps_its_iris(self):
+    def test_an_open_eye_is_not_shut(self):
         assert not _shut(self.mesh(0.32, 0.32), _EYE_PAIRS[0][0], 0.32)
 
-    def test_a_shut_one_does_not(self):
+    def test_a_closed_one_is(self):
         assert _shut(self.mesh(0.11, 0.11), _EYE_PAIRS[0][0], 0.32)
 
     def test_a_lid_with_no_width_at_all_counts_as_shut(self):
@@ -1638,41 +1645,71 @@ class TestThereIsNoIrisInAShutEye:
 
         assert _shut(points, _EYE_PAIRS[0][0], 0.32)
 
-    def test_the_fan_is_dropped_for_the_shut_eye_only(self):
+    def test_the_rule_is_a_ratio_so_scale_does_not_enter_it(self):
+        """A face filling the frame and a face across the room answer it the
+        same way."""
+        far = self.mesh(0.32, 0.32)
+
+        assert not _shut(far * 7.0, _EYE_PAIRS[0][0], 0.32)
+
+    def test_a_shut_eye_has_its_iris_pulled_in(self):
+        points = self.mesh(0.11, 0.11)
+        before = self.spread(points, _EYE_PAIRS[0][1])
+
+        _contain_irises(points, (0.32, 0.32))
+
+        assert self.spread(points, _EYE_PAIRS[0][1]) < before * 0.5
+
+    def test_an_open_one_keeps_its_iris_where_it_was(self):
+        points = self.mesh(0.32, 0.32)
+        before = self.spread(points, _EYE_PAIRS[0][1])
+
+        _contain_irises(points, (0.32, 0.32))
+
+        assert self.spread(points, _EYE_PAIRS[0][1]) == pytest.approx(before, rel=0.01)
+
+    def test_only_the_shut_eye_of_the_two(self):
         """A wink is a face doing two different things at once."""
-        avatar = self.avatar()
-        one_shut = self.mesh(0.11, 0.32)
+        points = self.mesh(0.11, 0.32)
+        before = [self.spread(points, iris) for _, iris in _EYE_PAIRS]
 
-        kept = _iris_drawn(avatar, one_shut, one_shut)
+        _contain_irises(points, (0.32, 0.32))
 
-        assert len(kept) == len(avatar.iris_fans[(True, False)])
-        assert len(kept) < len(avatar.iris_fans[(False, False)])
+        after = [self.spread(points, iris) for _, iris in _EYE_PAIRS]
+        assert after[0] < before[0] * 0.5
+        assert after[1] == pytest.approx(before[1], rel=0.01)
 
-    def test_a_dropped_fan_leaves_no_triangle_touching_that_iris(self):
-        avatar = self.avatar()
+    def test_the_tucked_ring_ends_up_inside_the_lid_holding_it(self):
+        points = self.mesh(0.11, 0.11)
 
-        kept = _iris_drawn(avatar, self.mesh(0.11, 0.11), self.mesh(0.11, 0.11))
+        _contain_irises(points, (0.32, 0.32))
 
-        assert not np.isin(kept, np.asarray(_IRIS_POSITIONS)).any()
+        eye, iris = _EYE_PAIRS[0]
+        ring, tucked = points[eye], points[iris]
+        assert tucked[:, 0].min() > ring[:, 0].min()
+        assert tucked[:, 0].max() < ring[:, 0].max()
+        assert tucked[:, 1].min() > ring[:, 1].min()
+        assert tucked[:, 1].max() < ring[:, 1].max()
 
-    def test_either_mesh_shutting_is_enough(self):
-        """An open source over a shut destination is the worse of the two: what
-        it squeezes into the slit is a real, round, dark pupil. That is what the
-        mesh does at a turn, where no eye photograph can be placed."""
-        avatar = self.avatar()
+    def test_it_keeps_some_size_rather_than_collapsing_to_a_point(self):
+        """The version that clipped the iris to the lid outline drove the fan's
+        triangles to no area, and an affine fitted to three nearly-collinear
+        points put a bright speck where the dark one had been."""
+        points = self.mesh(0.11, 0.11)
 
-        kept = _iris_drawn(avatar, self.mesh(0.32, 0.32), self.mesh(0.11, 0.11))
+        _contain_irises(points, (0.32, 0.32))
 
-        assert len(kept) == len(avatar.iris_fans[(True, True)])
+        assert self.spread(points, _EYE_PAIRS[0][1]) > 1.0
 
-    def test_an_open_eye_at_any_scale_keeps_its_iris(self):
-        """The rule is a ratio, so a face filling the frame and a face across the
-        room answer it the same way."""
-        avatar = self.avatar()
-        small = self.mesh(0.32, 0.32)
-        large = small * 7.0
+    def test_without_a_resting_lid_nothing_is_tucked(self):
+        """Which is what the load path wants: it is measuring the resting lid,
+        so it cannot yet be compared against it."""
+        points = self.mesh(0.11, 0.11)
+        before = self.spread(points, _EYE_PAIRS[0][1])
 
-        assert len(_iris_drawn(avatar, large, large)) == len(avatar.iris_fans[(False, False)])
+        _contain_irises(points)
+
+        assert self.spread(points, _EYE_PAIRS[0][1]) == pytest.approx(before, rel=0.01)
 
 
 class TestTheBuildersCanAskTheSameQuestion:

@@ -1535,7 +1535,7 @@ near zero to file it under.
 
 ---
 
-## 25. There is no iris in a shut eye — FIXED 2026-08-19
+## 25. A shut eye's iris is tucked out of the way — FIXED 2026-08-19
 
 **Seen**, by the owner, after item 24 removed the cross-fade: *"still slightly
 visible. It is the pupils, but very thin — low in height, a bit long in width. A
@@ -1590,27 +1590,64 @@ Over 1847 frames it never misfires:
 * closest an open frame came to the line: **0.298**, against a line at 0.194
 * closest a shut frame came: **0.191**
 
-### Two details that are not incidental
+### Taking the fan out was the first answer, and it was wrong
+
+That is what shipped first, and the owner came back with an arrow on each eye:
+*"the small thin blackness above the red arrows, that is the problem."*
+
+**The iris fan's triangles were the only ones covering the inside of the lid.**
+`warp_mesh` lays a rigid placement of the whole composite down before the mesh
+paints, so that no pixel is ever black — and with the fan gone, that backdrop
+was all there was inside a shut lid. It carries the photograph's *own* lash line,
+placed by a single similarity transform rather than by the mesh, so it lands a
+few pixels off: **a second, thinner, darker lash line inside the shut lid.**
+
+Measured by painting the backdrop a flat colour and counting what stayed:
+
+| frame | pixels in the eye crop painted by no triangle |
+|---|---|
+| 694 | 27 |
+| 695 | 37 |
+| 696 | 36 |
+| 702 | **252** |
+
+Every one of them along the lash line. That is the arrow.
+
+### So the ring is tucked, not removed
+
+`_tuck_iris` pulls a shut eye's iris ring in to **0.35 of its distance from the
+lid ring's own centroid**. The fan stays, the hole never opens, and what those
+triangles paint is the lid's own pixels.
+
+Scaling about the lid's centroid is what makes the two meshes agree: it is a
+linear function of the ring, so wherever the destination ring is near an affine
+image of the source's — which two descriptions of one shut eye are — the fan is
+near an identity and paints the lid back onto itself. And the triangles between
+the tucked ring and the lid *grow* rather than shrink, which is the other half:
+the earlier attempt that clipped the iris to the lid outline drove them to no
+area at all, and an affine fitted to three nearly-collinear points put a
+**bright** speck where the dark one had been.
+
+Rendered three ways on the same frames — containment only, fan dropped, ring
+tucked — the third is the only one with neither the dark hook nor the thin line.
 
 **Each eye is decided on its own.** A wink is a face doing two different things
-at once, so there are four triangle arrays — the mesh, and the mesh without
-either fan, and without both — built once at load and chosen per frame.
-
-**Either mesh shutting is enough.** A shut source over an open destination
-stretches a closed lid across an open socket. The other way round is worse:
-what it squeezes into the slit is a real, round, dark pupil, because the source
-is the portrait's own open eye. That is exactly what the mesh does **at a turn**,
-where no eye photograph can be placed (item 20's carry) and the lids are left to
-`_EYE_FOLLOW_ALONE`. It is the same defect on a face the clip barely contains,
-and it is closed by the same rule.
+at once, and the tuck is per eye by construction.
 
 ### Measured after
 
-| | before | after |
-|---|---|---|
-| `animate` mean | 21.20 ms | **20.91 ms** |
-| p95 | 23.93 ms | **23.91 ms** |
-| triangles while an eye is shut | 229 | 189 |
+| | containment only | fan dropped | ring tucked |
+|---|---|---|---|
+| the flat dark oval | present | gone | gone |
+| the thin line inside the lid | — | **present** | gone |
+| pixels painted by no triangle | 0 | 27–252 | **0** |
+| `animate` mean | 21.20 ms | 21.48–21.51 ms | 21.79–21.91 ms |
+| p95 | 23.93 ms | 24.58–24.60 ms | 24.97–25.15 ms |
+
+Three runs each, same machine, same recording. The tuck costs about **0.3 ms of
+mean and 0.5 of p95** against dropping the fan, because the forty triangles it
+gives back are drawn again. That is the price of not having a hole, and there is
+room for it: the budget is 33.3 ms and the frame is at 22.
 
 **And a correction to item 24.** That entry reported `animate` at 34 ms and
 called it the largest open number in the project. It was not the engine — it was

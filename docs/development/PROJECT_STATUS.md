@@ -3,7 +3,7 @@
 **Living document.** Update it at the end of each working day. For the frozen
 record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
-**Last updated:** 2026-08-19 · **Day 11 — a blink stops being a cross-fade, and a shut eye has no iris**
+**Last updated:** 2026-08-19 · **Day 11 — a blink stops being a cross-fade, and a shut eye keeps its iris out of the way**
 
 ---
 
@@ -666,7 +666,7 @@ a slow-closing clip would let it be a movement.
 
 **554 tests.**
 
-## Day 11, second pass — there is no iris in a shut eye
+## Day 11, second pass — a shut eye's iris is tucked out of the way
 
 **The owner looked again and it was still there, smaller**: *"the pupils, very
 thin, low in height and long in width — a flat oval, for a very short time."*
@@ -675,11 +675,13 @@ note had named the right function for the wrong reason.
 
 **Found by removal rather than by argument.** Rendering the same frames with
 every triangle that touches an iris taken out of the mesh, the flat dark shape
-goes and the lash line is continuous. Drawn on the frame, the iris ring sits
+goes and the lash line is continuous. That was the diagnosis; it was not, as it
+turned out, the fix. Drawn on the frame, the iris ring sits
 exactly on it, straddling the lash line, inside a lid ring that at full closure
 crosses itself.
 
-So: **containment shrinks the iris to fit the lid, and never stops drawing it.**
+So: **containment shrinks the iris to fit the lid, and never puts it anywhere
+else.**
 Past a closure there is nothing left for an iris to be, and what the fan draws
 instead is the lash line squeezed flat — which is a dark, wide, low oval, for
 exactly as long as the lid is down.
@@ -703,27 +705,56 @@ reading below 0.10, 0 kept above 0.30, and the closest an open frame came to the
 line was 0.298 against a line at 0.194.
 
 Each eye is decided on its own, because a wink is a face doing two different
-things at once, and **either mesh shutting is enough**: an open source over a
-shut destination is the worse of the two, since what it squeezes into the slit
-is a real, round, dark pupil. That is what the mesh does at a turn, where no eye
-photograph can be placed and the lids are left to the warp alone.
+things at once.
 
-**Correcting yesterday's own number.** The first pass reported `animate` at
-34 ms and called it the largest open item. It was not the engine — it was this
-machine, running six other measurements at the time. Re-measured on a quiet
-one, from the same recording:
+### And the first answer to it was wrong
 
-| | before this change | after |
-|---|---|---|
-| `animate` mean | 21.20 ms | **20.91 ms** |
-| p95 | 23.93 ms | **23.91 ms** |
+**Taking the fan out of the mesh is what shipped first**, and the owner came
+back with an arrow on each eye: *"the small thin blackness above the red arrows,
+that is the problem."*
 
-Which is the 20.42 / 22.51 the budget section already records. **No frame-rate
-problem was found**, and the 34 ms line has been struck from the list below.
-Dropping the fan removes 40 of 229 triangles while an eye is shut, so if
-anything it costs slightly less.
+Those triangles were the only ones covering the inside of the lid. `warp_mesh`
+lays a rigid placement of the whole composite down before the mesh paints, so
+that no pixel is ever black — and with the fan gone that backdrop was all there
+was inside a shut lid. It carries the photograph's own lash line, placed by one
+similarity transform rather than by the mesh, so it lands a few pixels off:
+**a second, thinner, darker lash line inside the shut lid.**
 
-**562 tests.**
+Painting the backdrop a flat colour and counting what stayed: **27 to 252 pixels
+of every shut eye were painted by no triangle at all**, every one of them along
+the lash line. That is the arrow, and it was mine.
+
+**So the ring is tucked instead of removed.** A shut eye's iris ring is pulled
+in to 0.35 of its distance from the lid ring's own centroid. The fan stays, the
+hole never opens, and what those triangles paint is the lid's own pixels.
+Scaling about the lid's centroid is what makes the two meshes agree — it is a
+linear function of the ring, so the fan comes out near an identity — and the
+triangles between the tucked ring and the lid *grow* rather than shrink, which
+is what the earlier attempt at clipping the iris to the lid outline got wrong:
+it drove them to no area, and an affine fitted to three nearly-collinear points
+put a **bright** speck where the dark one had been.
+
+| | containment only | fan dropped | ring tucked |
+|---|---|---|---|
+| the flat dark oval | present | gone | gone |
+| the thin line inside the lid | — | **present** | gone |
+| pixels painted by no triangle | 0 | 27–252 | **0** |
+| `animate` mean | 21.20 ms | 21.48–21.51 ms | 21.79–21.91 ms |
+| p95 | 23.93 ms | 24.58–24.60 ms | 24.97–25.15 ms |
+
+Three runs each, same machine, same recording. The tuck costs **0.3 ms of mean
+and 0.5 of p95** against dropping the fan, because the forty triangles it gives
+back are drawn again. The budget is 33.3 ms and the frame is at 22.
+
+**Correcting the first pass's own number.** It reported `animate` at 34 ms and
+called it the largest open item in the project. It was not the engine — it was
+this machine, running six other measurements while the figure was taken.
+Re-measured on a quiet one it is the 20.4 / 22.5 the budget section already
+records. **No frame-rate problem was found**, and the 34 ms line has been struck
+from the list below. Two wrong numbers in one day, both from measuring in
+passing, is the argument for item 1 below.
+
+**565 tests.**
 
 ### Where day 11 leaves off
 

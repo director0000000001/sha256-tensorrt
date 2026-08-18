@@ -498,15 +498,24 @@ _GAZE_LIMIT_UP, _GAZE_LIMIT_DOWN = 0.035, 0.012
 # an affine transform fitted to three collinear points is singular.
 _IRIS_OF_OPENING = 0.85
 
-# How flat the lid ring has to get before the iris stops being drawn at all, as
-# a fraction of **this portrait's own** resting lid — see :func:`_shut`.
+# How far in a shut eye's iris ring is tucked, as a fraction of its distance
+# from the lid ring's centroid. See :func:`_tuck_iris`.
 #
-# Containment shrinks the iris to fit the lid; it never stops drawing it. Past a
-# certain closure there is nothing left for an iris to be, and what the fan
-# draws instead is the lash line squeezed flat: the owner, on the second
-# attempt, *"the pupils, very thin, low in height and long in width — a flat
-# oval, for a very short time."* Rendered with the fan removed, the whole of
-# that goes and the lid is clean.
+# Small enough that the ring is well clear of the lash line whatever the lid is
+# doing — that line is the darkest thing in the picture and the whole defect was
+# it being dragged flat — and large enough that the fan's own triangles keep
+# some area, because the version that took the ring to nothing put a bright
+# speck where the dark one had been.
+_IRIS_TUCKED = 0.35
+
+# How flat the lid ring has to get before the iris is tucked away, as a
+# fraction of **this portrait's own** resting lid — see :func:`_shut`.
+#
+# Containment shrinks the iris to fit the lid; it never puts it anywhere else.
+# Past a certain closure there is nothing left for an iris to be, and what the
+# fan draws instead is the lash line squeezed flat: the owner, *"the pupils,
+# very thin, low in height and long in width — a flat oval, for a very short
+# time."* Rendered with the fan taken out of the mesh, all of that goes.
 #
 # Measured rather than chosen. The lid ring's height over its own width, on this
 # avatar's own library and on 1847 frames of the recording:
@@ -1334,7 +1343,6 @@ class _LoadedAvatar:
         "holding",
         "image",
         "interior_role",
-        "iris_fans",
         "ladder",
         "last_seen",
         "lid_aspect",
@@ -1423,7 +1431,6 @@ class _LoadedAvatar:
         # frame decides there is no eye left to draw an iris in — see
         # :func:`_shut`, and :data:`_IRIS_HIDDEN_BELOW` for the measurement.
         self.lid_aspect = tuple(_lid_aspect(points, eye) for eye, _ in _EYE_PAIRS)
-        self.iris_fans = _iris_fans(triangles)
 
         # Where each source's own landmarks ended up once it was placed. They
         # differ from the base's, and the difference *is* what the photograph
@@ -2040,29 +2047,6 @@ def _without_mouth_interior(triangles: np.ndarray, points: np.ndarray) -> np.nda
     return kept
 
 
-def _without_iris(triangles: np.ndarray, positions: Sequence[int]) -> np.ndarray:
-    """Drop every triangle that has a corner on one of these iris points."""
-    keep = ~np.isin(triangles, np.asarray(positions)).any(axis=1)
-    dropped: np.ndarray = np.ascontiguousarray(triangles[keep])
-    return dropped
-
-
-def _iris_fans(triangles: np.ndarray) -> dict[tuple[bool, bool], np.ndarray]:
-    """The mesh, and the same mesh with either iris fan taken out of it.
-
-    Four arrays, built once. Which one a frame uses is decided by
-    :func:`_shut`, per eye, and the two eyes are decided separately because a
-    wink is a face doing two different things at once.
-    """
-    left, right = (iris for _, iris in _EYE_PAIRS)
-    return {
-        (False, False): triangles,
-        (True, False): _without_iris(triangles, left),
-        (False, True): _without_iris(triangles, right),
-        (True, True): _without_iris(triangles, left + right),
-    }
-
-
 def _warp_onto(
     avatar: _LoadedAvatar,
     target: np.ndarray,
@@ -2118,12 +2102,11 @@ def _warp_onto(
     # mouth, a closed eyelid — and warping from the base's mesh instead was what
     # crushed the teeth into a sliver and stretched the eyelids into streaks.
     source_mesh = avatar.blend_points
-    destination = _damp_brows(source_mesh, local, avatar.eye_follow)
     canvas = warp_mesh(
         blended,
         source_mesh,
-        destination,
-        _iris_drawn(avatar, source_mesh, destination),
+        _damp_brows(source_mesh, local, avatar.eye_follow, avatar.lid_aspect),
+        avatar.triangles,
         box_w,
         box_h,
     )
@@ -2269,7 +2252,10 @@ def _paint_mouth_interior(
 
 
 def _damp_brows(
-    source: np.ndarray, target: np.ndarray, eye_follow: float = _EYE_FOLLOW
+    source: np.ndarray,
+    target: np.ndarray,
+    eye_follow: float = _EYE_FOLLOW,
+    resting: tuple[float, ...] | None = None,
 ) -> np.ndarray:
     """Pull the brow and eye landmarks back toward the avatar's own proportions.
 
@@ -2308,11 +2294,16 @@ def _damp_brows(
         anchor = rigid[where]
         damped[where] = anchor + (damped[where] - anchor) * follow
 
-    _place_irises(damped, target, rigid)
+    _place_irises(damped, target, rigid, resting)
     return damped
 
 
-def _place_irises(damped: np.ndarray, target: np.ndarray, rigid: np.ndarray) -> None:
+def _place_irises(
+    damped: np.ndarray,
+    target: np.ndarray,
+    rigid: np.ndarray,
+    resting: tuple[float, ...] | None = None,
+) -> None:
     """Put the avatar's own iris where the user's is looking. In place.
 
     Gaze is a *direction*, not a shape, so what transfers is the iris's position
@@ -2326,7 +2317,7 @@ def _place_irises(damped: np.ndarray, target: np.ndarray, rigid: np.ndarray) -> 
     consistent — an iris placed in a socket it does not belong to would sit on
     the eyelid.
     """
-    for eye, iris in _EYE_PAIRS:
+    for index, (eye, iris) in enumerate(_EYE_PAIRS):
         user_socket = target[eye]
         user_width = float(user_socket[:, 0].max() - user_socket[:, 0].min())
         if user_width < 1.0:
@@ -2348,12 +2339,51 @@ def _place_irises(damped: np.ndarray, target: np.ndarray, rigid: np.ndarray) -> 
         wanted = own_socket.mean(axis=0) + gaze * own_width
         damped[iris] = (rigid[iris] - rigid[iris].mean(axis=0)) + wanted
         _contain_iris(damped, eye, iris)
+        if resting is not None and _shut(damped, eye, resting[index]):
+            _tuck_iris(damped, eye, iris)
 
 
-def _contain_irises(points: np.ndarray) -> None:
-    """Hold both irises inside the eyelids that are supposed to contain them."""
-    for eye, iris in _EYE_PAIRS:
+def _contain_irises(points: np.ndarray, resting: tuple[float, ...] | None = None) -> None:
+    """Hold both irises inside the eyelids that are supposed to contain them.
+
+    ``resting`` is this portrait's own lid aspect per eye. Given it, an eye that
+    has closed past having room for an iris has the ring tucked away instead —
+    see :func:`_tuck_iris`. Omitted, nothing is tucked, which is what the load
+    path wants: it is measuring the resting lid, so it cannot yet be compared
+    against it.
+    """
+    for index, (eye, iris) in enumerate(_EYE_PAIRS):
         _contain_iris(points, eye, iris)
+        if resting is not None and _shut(points, eye, resting[index]):
+            _tuck_iris(points, eye, iris)
+
+
+def _tuck_iris(points: np.ndarray, eye: Sequence[int], iris: Sequence[int]) -> None:
+    """Pull a shut eye's iris ring in to the middle of the lid holding it.
+
+    **Not removed — moved.** The first attempt at this dropped the iris fan from
+    the mesh outright, on the reasoning that a shut eye has no iris to draw. It
+    does not, and the render was clean where the artefact had been; but the
+    triangles it took out were the only ones covering the inside of the lid, and
+    what showed through the hole was the rigid backdrop layer. That layer is the
+    composite placed by a single similarity transform, so it carries the
+    photograph's *own* lash line a few pixels from where the mesh puts it: a
+    second, thinner, darker lash line inside the shut lid. The owner marked it
+    with an arrow on both eyes.
+
+    So the fan stays and the ring is tucked instead. Scaling about the lid
+    ring's own centroid is what makes the two meshes agree: it is a linear
+    function of the ring, so wherever the destination ring is close to an affine
+    image of the source's — which two descriptions of one shut eye are — the fan
+    is close to an identity, and it paints the lid's own pixels back onto
+    themselves. The triangles between the tucked ring and the lid grow rather
+    than shrink, which is the other half of it: the version that clipped the
+    iris to the lid outline drove them to no area at all, and an affine fitted
+    to three nearly-collinear points put a bright speck where the dark one was.
+    """
+    ring = points[eye]
+    centre = ring.mean(axis=0)
+    points[iris] = centre + (points[iris] - centre) * _IRIS_TUCKED
 
 
 def _lid_aspect(points: np.ndarray, eye: Sequence[int]) -> float:
@@ -2373,25 +2403,6 @@ def _lid_aspect(points: np.ndarray, eye: Sequence[int]) -> float:
 def _shut(points: np.ndarray, eye: Sequence[int], resting: float) -> bool:
     """Whether this lid has closed past the point of having an iris in it."""
     return _lid_aspect(points, eye) < resting * _IRIS_HIDDEN_BELOW
-
-
-def _iris_drawn(avatar: _LoadedAvatar, source: np.ndarray, destination: np.ndarray) -> np.ndarray:
-    """The triangles for this frame: no iris fan on an eye that is shut.
-
-    **Either mesh shutting is enough.** They can disagree, and each way of
-    disagreeing is its own artefact. A shut source over an open destination
-    stretches a closed lid across an open socket; an open source over a shut
-    destination is worse, because what it squeezes into the slit is a real,
-    round, dark pupil — which is what the mesh does at a turn, where no eye
-    photograph can be placed and the lids are left to the warp alone.
-    """
-    shut = (
-        _shut(source, _EYE_PAIRS[0][0], avatar.lid_aspect[0])
-        or _shut(destination, _EYE_PAIRS[0][0], avatar.lid_aspect[0]),
-        _shut(source, _EYE_PAIRS[1][0], avatar.lid_aspect[1])
-        or _shut(destination, _EYE_PAIRS[1][0], avatar.lid_aspect[1]),
-    )
-    return avatar.iris_fans[shut]
 
 
 def _contain_iris(points: np.ndarray, eye: list[int], iris: list[int]) -> None:
@@ -3839,7 +3850,7 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
     # region, because a gaze is geometry rather than a photograph. So the mesh
     # can now claim an iris larger than the eye holding it, which is exactly
     # what a closing lid produces.
-    _contain_irises(mesh)
+    _contain_irises(mesh, avatar.lid_aspect)
 
     avatar.cached_weights = quantised
     avatar.cached_blend = blended
