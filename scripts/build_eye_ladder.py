@@ -48,10 +48,16 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 from extract_avatar_frames import (  # noqa: E402
     Candidate,
     crop_around_face,
+    portrait_points,
     sharpness_of,
 )
 
-from sha256.avatar.engine_warp import _eye_opening  # noqa: E402
+from sha256.avatar.engine_warp import (  # noqa: E402
+    _EYES_PREFIX,
+    _eye_opening,
+    _pixel_points,
+    refused_as_rung,
+)
 from sha256.core.enums import PixelFormat  # noqa: E402
 from sha256.core.types import FrameMetadata, VideoFrame  # noqa: E402
 from sha256.tracking.mediapipe_tracker import (  # noqa: E402
@@ -79,10 +85,18 @@ class Step:
     opening: float
     sharpness: float
     candidate: Candidate
+    refused: str | None = None
 
 
-def measure(path: Path, tracker: MediaPipeFaceTracker) -> tuple[Step, float] | None:
-    """One frame's eyelid opening and sharpness, with its yaw."""
+def measure(
+    path: Path, tracker: MediaPipeFaceTracker, base_points: np.ndarray | None = None
+) -> tuple[Step, float] | None:
+    """One frame's eyelid opening and sharpness, with its yaw.
+
+    And whether the engine would refuse it. That question is asked here rather
+    than at install because the answer decides which frame wins its band — see
+    :func:`best_per_band`.
+    """
     import cv2
 
     image = cv2.imread(str(path))
@@ -108,11 +122,21 @@ def measure(path: Path, tracker: MediaPipeFaceTracker) -> tuple[Step, float] | N
         sharpness=sharpness_of(image, points),
         identity_drift=0.0,
     )
+    refused = None
+    if base_points is not None:
+        mesh = _pixel_points(points, image.shape[1], image.shape[0])
+        refused = (
+            "its landmarks could not be read"
+            if mesh is None
+            else refused_as_rung(_EYES_PREFIX, mesh, base_points)
+        )
+
     step = Step(
         path=path,
         opening=_eye_opening(result),
         sharpness=candidate.sharpness,
         candidate=candidate,
+        refused=refused,
     )
     return step, float(result.head_pose.yaw)
 
@@ -136,13 +160,37 @@ def amounts(steps: list[Step]) -> list[tuple[Step, float]]:
 
 
 def best_per_band(placed: list[tuple[Step, float]], step_size: float) -> list[tuple[Step, float]]:
-    """The sharpest frame in each band of closing, ordered along it."""
+    """The sharpest **usable** frame in each band of closing, ordered along it.
+
+    Sharpest alone was the rule until a band was lost by it. The engine refuses,
+    at load, a rung whose features land in another region — and both of the
+    owner's shallow rungs were refused that way, so the ladder ran from a wide
+    open eye straight to a shut one with nothing between. A blink then had to be
+    rendered by fading the shut photograph in over the open portrait, which puts
+    both pictures on screen together: the iris seen through a closed eyelid.
+
+    So a frame the engine will not accept is not a candidate for its band, and
+    the band goes to the sharpest one that is left. A softer rung that can be
+    placed is worth more than a sharp one that is thrown away.
+    """
     held: dict[int, tuple[Step, float]] = {}
     for step, amount in placed:
+        if step.refused is not None:
+            continue
         band = round(amount / step_size)
         if band not in held or step.sharpness > held[band][0].sharpness:
             held[band] = (step, amount)
     return sorted(held.values(), key=lambda pair: pair[1])
+
+
+def _by_band(
+    placed: list[tuple[Step, float]], step_size: float
+) -> dict[int, list[tuple[Step, float]]]:
+    """Every frame grouped by its band, refused ones included. For reporting."""
+    grouped: dict[int, list[tuple[Step, float]]] = {}
+    for step, amount in placed:
+        grouped.setdefault(round(amount / step_size), []).append((step, amount))
+    return grouped
 
 
 def rung_name(amount: float) -> str:
@@ -198,6 +246,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("folders", type=Path, nargs="+")
     parser.add_argument("--avatar", type=Path, default=REPO_ROOT / "avatars" / "my_avatar")
+    parser.add_argument(
+        "--base",
+        type=Path,
+        default=None,
+        help="The portrait each rung is checked against. Defaults to the avatar's own.",
+    )
     parser.add_argument("--step", type=float, default=DEFAULT_STEP)
     parser.add_argument("--min-moved", type=float, default=DEFAULT_MIN_MOVED)
     parser.add_argument("--max-yaw", type=float, default=DEFAULT_MAX_YAW)
@@ -210,19 +264,37 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Model bundle missing: {model}")
         return 1
 
+    base_path = args.base or args.avatar / "portrait.png"
+
+    # A tracker of its own for the portrait: it is an unrelated still and the
+    # tracker carries a prior between the frames it is given.
+    portrait = MediaPipeFaceTracker(model_path=model)
+    portrait.start()
+    try:
+        base_points = portrait_points(base_path, portrait)
+    finally:
+        portrait.stop()
+    if base_points is None:
+        print(f"No face found in the base portrait {base_path}.")
+        return 1
+
     tracker = MediaPipeFaceTracker(model_path=model)
     tracker.start()
     try:
         found: list[Step] = []
         for folder in args.folders:
             frames = sorted(folder.glob("*.jpg")) + sorted(folder.glob("*.png"))
-            measured = [measure(path, tracker) for path in frames]
+            measured = [measure(path, tracker, base_points) for path in frames]
             usable = [
                 step
                 for step, yaw in (m for m in measured if m is not None)
                 if abs(yaw) <= args.max_yaw and step.candidate.face_width >= args.min_face
             ]
-            print(f"{folder.name:<12} {len(frames):>4} frames  {len(usable):>4} frontal")
+            refused = sum(1 for step in usable if step.refused is not None)
+            print(
+                f"{folder.name:<12} {len(frames):>4} frames  {len(usable):>4} frontal"
+                f"  {refused:>4} the engine would refuse"
+            )
             found.extend(usable)
 
         if not found:
@@ -237,12 +309,29 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
         chosen = best_per_band(placed, args.step)
+        if not chosen:
+            print("\nEvery frame with the eyes moved is one the engine would refuse.")
+            return 1
+
         print(f"\n{len(chosen)} rung(s), one per {args.step:g} of the closing")
         print(f"{'closed':>7}{'lid':>9}{'sharp':>8}  frame")
         for step, amount in chosen:
             print(
                 f"{amount:>7.2f}{step.opening:>9.3f}{step.sharpness:>8.0f}  "
                 f"{step.path.parent.name}/{step.path.name}"
+            )
+
+        # What sharpness alone would have taken, and why it was passed over.
+        # Silently is how the ladder lost two rungs the first time.
+        taken = {id(step) for step, _ in chosen}
+        for band, group in sorted(_by_band(placed, args.step).items()):
+            top = max(group, key=lambda pair: pair[0].sharpness)
+            if top[0].refused is None or id(top[0]) in taken:
+                continue
+            print(
+                f"\npassed over at {band * args.step:+.2f}: "
+                f"{top[0].path.parent.name}/{top[0].path.name} "
+                f"(sharpness {top[0].sharpness:.0f}) — {top[0].refused}"
             )
 
         if args.install:

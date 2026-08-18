@@ -18,6 +18,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
+import build_eye_ladder as eye_ladder  # noqa: E402
 import build_turn_ladder as ladder  # noqa: E402
 import generate_avatar_clips as gen  # noqa: E402
 
@@ -438,3 +439,51 @@ class TestBuildingTheLadderFromFrames:
     def test_the_name_carries_the_angle_and_its_sign(self):
         assert ladder.rung_name(-43.04) == "turn_m43_0.png"
         assert ladder.rung_name(6.0) == "turn_p06_0.png"
+
+
+class TestABandIsNotLostToAFrameTheEngineWillRefuse:
+    """The eye ladder had two holes in it and neither was reported.
+
+    The builder took the sharpest frame in each band; the engine refused two of
+    them at load, for carrying their own brows down inside the portrait's eye.
+    So the ladder ran from a wide open eye straight to a shut one with nothing
+    between, and every blink had to be drawn by fading the shut photograph in
+    over the open portrait — both pictures on screen at once, which is the iris
+    the owner saw through a closed eyelid.
+    """
+
+    def step(self, sharpness: float, refused: str | None = None) -> Any:
+        return eye_ladder.Step(
+            path=Path(f"{sharpness}.jpg"),
+            opening=0.04,
+            sharpness=sharpness,
+            candidate=None,
+            refused=refused,
+        )
+
+    def test_the_band_goes_to_the_sharpest_frame_the_engine_will_take(self):
+        chosen = eye_ladder.best_per_band(
+            [
+                (self.step(500.0, "its brows sit 16 px inside the portrait's eye"), 0.12),
+                (self.step(90.0), 0.13),
+                (self.step(70.0), 0.11),
+            ],
+            0.1,
+        )
+
+        assert [step.sharpness for step, _ in chosen] == [90.0]
+
+    def test_a_band_with_nothing_usable_is_left_empty_rather_than_filled_badly(self):
+        """An empty rung is a gap the ladder's neighbours span. A refused one is
+        a photograph that never reaches the screen, which is the same gap with
+        nobody told about it."""
+        chosen = eye_ladder.best_per_band([(self.step(500.0, "posed differently"), 0.12)], 0.1)
+
+        assert chosen == []
+
+    def test_an_unrefused_ladder_is_unchanged(self):
+        chosen = eye_ladder.best_per_band(
+            [(self.step(10.0), 0.12), (self.step(80.0), 0.13), (self.step(20.0), 0.24)], 0.1
+        )
+
+        assert [step.sharpness for step, _ in chosen] == [80.0, 20.0]

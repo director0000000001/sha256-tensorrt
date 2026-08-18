@@ -41,6 +41,7 @@ from sha256.avatar.engine_warp import (
     _PROFILE_POSITIONS,
     _ROLE_REGION,
     _SMILE_LADDER_START,
+    _STABLE_POSITIONS,
     _SWITCH_MARGIN,
     MESH_INDICES,
     WarpAvatarEngine,
@@ -62,6 +63,7 @@ from sha256.avatar.engine_warp import (
     _source_weights,
     _trim_forehead,
     _turn_bias,
+    refused_as_rung,
 )
 from sha256.avatar.engine_warp import _OVAL_SLICE as OVAL_COUNT_SLICE
 from sha256.core.avatar import AvatarDescriptor, AvatarManifest
@@ -1581,6 +1583,52 @@ class TestARungWhoseFeaturesLandInAnotherRegion:
         assert "10 px" in str(_misplaced(_EYES_PREFIX, rung, base))
 
 
+class TestTheBuildersCanAskTheSameQuestion:
+    """A refusal at load is a rung lost, and the builder that chose it never
+    hears about it.
+
+    Each ladder builder takes the sharpest frame in each band of the movement
+    and nothing else, so a band whose sharpest frame is one the engine will
+    refuse ends up empty. The owner's eye ladder had two such holes, at a tenth
+    and a fifth of a closing, and a blink therefore had to be drawn by fading a
+    shut photograph in over a wide-open portrait — which is the iris seen
+    through a closed eyelid. So the check is offered to the builders, and they
+    ask it before choosing rather than finding out afterwards.
+    """
+
+    def face(self, *, brow: float, eye: float, shift: float = 0.0) -> np.ndarray:
+        """A face whose stable landmarks are spread enough to fit a transform."""
+        points = np.zeros((len(MESH_INDICES), 2), dtype=np.float32)
+        spread = np.linspace(-60.0, 60.0, len(_STABLE_POSITIONS), dtype=np.float32)
+        points[_STABLE_POSITIONS, 0] = spread
+        points[_STABLE_POSITIONS, 1] = np.abs(spread) + shift
+        points[_BROW_POSITIONS, 1] = brow + shift
+        points[_EYE_POSITIONS, 1] = eye + shift
+        return points
+
+    def test_a_frame_that_would_be_refused_says_so_before_it_is_chosen(self):
+        base = self.face(brow=100.0, eye=140.0)
+        rung = self.face(brow=150.0, eye=170.0)
+
+        assert refused_as_rung(_EYES_PREFIX, rung, base) is not None
+
+    def test_an_ordinary_one_does_not(self):
+        base = self.face(brow=100.0, eye=140.0)
+        rung = self.face(brow=95.0, eye=145.0)
+
+        assert refused_as_rung(_EYES_PREFIX, rung, base) is None
+
+    def test_it_is_asked_of_the_frame_where_the_placement_puts_it(self):
+        """Not where it was photographed. The whole point of the check is where
+        the features *land* once the photograph is on the portrait's frame, so a
+        rung that is merely offset is fine and one that is posed differently is
+        not."""
+        base = self.face(brow=100.0, eye=140.0)
+        offset = self.face(brow=95.0, eye=145.0, shift=400.0)
+
+        assert refused_as_rung(_EYES_PREFIX, offset, base) is None
+
+
 class TestARungIsShownWhole:
     """The owner, after the eye ladder went in: *"while it closes, the open eye
     is still there over the closed one, at low opacity."*
@@ -1616,6 +1664,57 @@ class TestARungIsShownWhole:
         """Because for one of those the weight is the only thing that says how
         far into the expression this frame is."""
         assert self.settle({"source_mouth_o": 0.3})["source_mouth_o"] < 1.0
+
+
+class TestTheLidsArriveWhole:
+    """*"At a blink, a small piece of the iris shows through the closed eyelid."*
+
+    Shown whole answered how much of a rung is applied once it has settled; this
+    answers the frames on the way there. The lids ease at ten a second, so a rung
+    took three frames to arrive — and a blink is three or four frames, so the
+    fade lasted the whole blink and every one of them was a mix of a shut
+    photograph and the wide-open portrait underneath it.
+
+    Rendered frame by frame on the owner's recording, one blink: the closing
+    frames sit at 33% and 67% of the way in, and so do the opening ones. Four
+    frames of a translucent iris under a closed lid, per blink.
+    """
+
+    def frames(
+        self, weights: dict[str, float], count: int
+    ) -> tuple[list[dict[str, float]], dict[str, str], dict[str, float]]:
+        holding: dict[str, str] = {}
+        applied: dict[str, float] = {}
+        seen = [_one_per_region(dict(weights), holding, applied) for _ in range(count)]
+        return seen, holding, applied
+
+    def test_an_eye_rung_is_whole_on_its_very_first_frame(self):
+        seen, _, _ = self.frames({"eyes@shut": 0.6}, 1)
+
+        assert seen[0]["eyes@shut"] == 1.0
+
+    def test_and_gone_on_the_first_frame_it_is_not_wanted(self):
+        """A fade out is the same double exposure as a fade in, and the owner
+        saw the eye ghost on the way back up as well as on the way down."""
+        _, holding, applied = self.frames({"eyes@shut": 0.6}, 3)
+
+        gone = _one_per_region({}, holding, applied)
+
+        assert gone == {} and holding == {} and applied == {}
+
+    def test_a_smile_rung_still_arrives_over_a_third_of_a_second(self):
+        """Nothing else on a face moves inside the time a lid takes to fall, and
+        a smile that appeared in one frame would read as a cut."""
+        seen, _, _ = self.frames({"smile@wide": 0.6}, 1)
+
+        assert seen[0]["smile@wide"] < 1.0
+
+    def test_a_named_eye_photograph_still_fades(self):
+        """Which is what an avatar with no eye ladder falls back to: for one of
+        those the weight is the only thing saying how far shut the eye is."""
+        seen, _, _ = self.frames({"source_eyes_closed": 0.6}, 1)
+
+        assert seen[0]["source_eyes_closed"] < 1.0
 
 
 class TestTheEasingIsMeasuredInSeconds:

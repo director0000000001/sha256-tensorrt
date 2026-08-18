@@ -175,6 +175,16 @@ _EYES_LADDER_START = 0.12
 # the fallback, for a ladder too short to have a spacing.
 _RUNG_HOLD = 0.05
 
+# **No hold at the foot of the ladder**, and it was measured rather than
+# assumed. Now that the lids arrive whole, a reading sitting on the start
+# threshold turns the whole region on and off rather than fading it, so a hold
+# there looked obviously right. It is not: keeping the last rung until the
+# reading has fallen three fifths of the way back through the threshold more
+# than doubles how long the lids stay down — the median run of a closed eye goes
+# from 18 frames to 41 over the owner's recording, half a second of held blink —
+# and it buys eight fewer changes a minute. The shortest run without it is three
+# frames, which is a blink and not a flicker, so there was nothing to buy.
+
 # How wide the change from one rung to the next may be, in degrees of yaw.
 #
 # See :func:`_ladder_weights`. A ladder cut from a real clip has gaps wherever
@@ -591,6 +601,38 @@ def _misplaced(prefix: str, points: np.ndarray, base: np.ndarray) -> str | None:
     return None
 
 
+def refused_as_rung(prefix: str, points: np.ndarray, base_points: np.ndarray) -> str | None:
+    """Why the engine would refuse this frame as a rung, or ``None`` if it would not.
+
+    The load-time check, offered to the tools that build ladders, because a
+    builder that does not run it loses a rung *silently*. Each one takes the
+    sharpest frame in each band of the movement and nothing else, so a band
+    whose sharpest frame is one the engine will refuse ends up with no rung at
+    all — and the ladder acquires a hole nobody was told about.
+
+    That is not hypothetical. The owner's eye ladder had exactly two holes, at
+    a tenth and a fifth of a closing, and a blink therefore had to be rendered
+    by fading a **shut** photograph in over a wide-open portrait. Both pictures
+    were on screen at once while it faded, which is the iris seen through a
+    closed eyelid.
+
+    ``points`` are the frame's own landmarks in its own pixels; they are placed
+    on the portrait's frame here, by the same fit the loader uses, because the
+    check is about where the features *land*.
+    """
+    import cv2
+
+    matrix = _similarity_onto(points, base_points)
+    if matrix is None:
+        return "it could not be placed on the portrait at all"
+
+    placed = points.copy()
+    placed[:, :2] = cv2.transform(
+        points[:, :2].reshape(-1, 1, 2).astype(np.float32), matrix
+    ).reshape(-1, 2)
+    return _misplaced(prefix, placed, base_points)
+
+
 def _region_of(role: str) -> str | None:
     """Which part of the face a source may act on, or ``None`` for the whole head.
 
@@ -955,6 +997,31 @@ _EASE_PER_SECOND = 3.7
 #
 # The rest of the face keeps the slower rate. Nothing else moves like a lid.
 _EASE_PER_SECOND_BY_REGION: dict[str, float] = {"eyes": 10.0}
+
+# Regions whose rungs are not faded in at all, but shown from the frame they are
+# chosen. **The lids, and only the lids.**
+#
+# Raising their rate was not enough, and the reason is arithmetic rather than
+# taste: a blink is three or four frames, and a tenth of a second is three
+# frames, so the fade lasted the whole blink. Measured on the owner's recording,
+# frame by frame through one blink: the lids close over frames 692-693 and open
+# over 702-703, and on all four of those the eye region is a mix of a shut
+# photograph and the wide-open portrait underneath — 33% and 67% of the way in.
+# A translucent iris under a closed eyelid, up to 131 grey levels away from the
+# picture either side of it. **That is the iris the owner saw through the lid**,
+# and no threshold, mask or containment could have removed it, because the
+# offending pixels are a genuine average of two photographs that disagree.
+#
+# So the fade goes, for the eyes. It is the last of the fade that day 10's
+# eighth pass removed from the *amount*: a rung already says how far shut the
+# eye is, so there is nothing left for an opacity to express. What replaces it
+# is the ladder itself — the rungs are a tenth of a closing apart, so the step
+# from one to the next is smaller than the fade's own first frame.
+#
+# The mouth and the brows keep theirs. A smile takes a third of a second to
+# form and its photographs are on screen while it does; nothing there is asked
+# to arrive inside the time a lid takes to fall.
+_ARRIVES_WHOLE: frozenset[str] = frozenset({"eyes"})
 
 # The frame interval used when there is nothing to measure one from, and the
 # range a measured one is trusted in. A dropped frame or a paused debugger must
@@ -2809,6 +2876,18 @@ def _eased(
     return now
 
 
+def _arrives_whole(region: str, role: str) -> bool:
+    """Whether this photograph is shown at once rather than faded in.
+
+    Both halves have to hold. The region has to be one that moves faster than a
+    fade — see :data:`_ARRIVES_WHOLE` — and the photograph has to be a *rung*,
+    because only a rung already carries how far into the movement it is. A named
+    photograph on the same region still fades, which is what an avatar with no
+    eye ladder falls back to.
+    """
+    return region in _ARRIVES_WHOLE and _is_rung(role)
+
+
 def _one_per_region(
     weights: dict[str, float],
     holding: dict[str, str],
@@ -2861,7 +2940,10 @@ def _one_per_region(
         # lid at exactly the opacity the owner keeps reporting. The choosing has
         # already answered the question the fade was trying to answer.
         wanted = 1.0 if _is_rung(winner) else _commit(scores[winner], region)
-        share = _eased(region, wanted, applied, seconds)
+        if _arrives_whole(region, winner):
+            applied[region] = share = wanted
+        else:
+            share = _eased(region, wanted, applied, seconds)
         if share > 0.0:
             kept[winner] = share
 
@@ -2869,8 +2951,16 @@ def _one_per_region(
     # takes as many frames as arriving did. Only once it is gone does it stop
     # being a region with an incumbent — otherwise a photograph fading out would
     # have no name to be drawn under.
+    #
+    # Unless it is a region that arrives whole, which leaves the same way: a
+    # fade out is the same double exposure as a fade in, and the owner saw both
+    # — the eye ghosted on the way down and again on the way back up.
     for region in tuple(holding):
         if region in contenders:
+            continue
+        if _arrives_whole(region, holding[region]):
+            del holding[region]
+            applied.pop(region, None)
             continue
         share = _eased(region, 0.0, applied, seconds)
         if share > 0.0:
@@ -2903,13 +2993,7 @@ def _place_by_similarity(
     """
     import cv2
 
-    # Typed as Any: OpenCV's stubs declare a non-optional return, but the fit
-    # genuinely can fail and returns None when it does.
-    matrix: Any = cv2.estimateAffinePartial2D(
-        points[_STABLE_POSITIONS, :2].astype(np.float32),
-        base_points[_STABLE_POSITIONS, :2].astype(np.float32),
-        method=cv2.LMEDS,
-    )[0]
+    matrix = _similarity_onto(points, base_points)
     if matrix is None:
         return None
 
@@ -2925,6 +3009,26 @@ def _place_by_similarity(
         points[:, :2].reshape(-1, 1, 2).astype(np.float32), matrix
     ).reshape(-1, 2)
     return placed, moved
+
+
+def _similarity_onto(points: np.ndarray, base_points: np.ndarray) -> np.ndarray | None:
+    """The rotate-scale-translate that puts this face on the base's frame.
+
+    Fitted on the landmarks an expression does not move, so that the expression
+    the photograph was taken for cannot drag its own alignment. ``None`` when
+    the fit fails, which a face at an extreme angle can genuinely cause.
+    """
+    import cv2
+
+    # Typed as Any: OpenCV's stubs declare a non-optional return, but the fit
+    # genuinely can fail and returns None when it does.
+    matrix: Any = cv2.estimateAffinePartial2D(
+        points[_STABLE_POSITIONS, :2].astype(np.float32),
+        base_points[_STABLE_POSITIONS, :2].astype(np.float32),
+        method=cv2.LMEDS,
+    )[0]
+    result: np.ndarray | None = matrix
+    return result
 
 
 def _shrinks(matrix: np.ndarray) -> bool:

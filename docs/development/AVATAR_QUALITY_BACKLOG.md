@@ -1399,3 +1399,134 @@ The upper teeth hang from the skull and the jaw drops away from them, so the fit
 is now on the inner lip's **upper arc** alone. The teeth arrive at the size the
 mouth's width implies, stay under the lip they belong to, and opening wider
 reveals darkness below them — which is what opening a jaw does.
+
+---
+
+## 24. A sliver of iris through a closed eyelid — FIXED 2026-08-18
+
+**Seen**, by the owner, and it was the one defect they stopped the night on:
+*"at a blink, a small piece of the iris shows through the closed eyelid."*
+Screenshot 2026-08-17, eyes closed, the sliver at the outer corner of one eye.
+
+### Two candidates were written down the night before. Both were wrong
+
+The note left for the morning named the iris geometry: gaze is placed by
+`_place_irises` and held inside the lid ring by `_contain_irises`, so at full
+closure the iris is *fitted into a slit rather than hidden by it*, and what
+shows is the portrait's own iris squeezed but not covered. The second candidate
+was the eye region's mask failing to reach the outer corner.
+
+Both were measured on the recorded clip before anything was changed, and neither
+is the defect:
+
+| measured | result |
+|---|---|
+| eye mask over the closed rung's own lid | **1.000** mean, 0.996 worst, 1.000 at the outer corner |
+| composite at full closure | 100% the rung, no portrait underneath |
+| iris points outside the lid ring after containment | 3–4 of 5, worst 4.7 px |
+
+The mask is not the cause. The containment *is* wrong — it holds the iris inside
+the ring's **bounding box** rather than the ring itself, and a shut lid is a lens
+whose box is far taller than the lid is anywhere near the iris — but at full
+closure the pixels under those triangles are eyelid either way, so it costs a
+one-pixel nick in the lash line and not an iris. **Recorded here, not fixed:
+see the note at the end.**
+
+### What it actually is: the arrival fade, and a hole in the ladder
+
+Rendered frame by frame through one blink, with the share that produced each:
+
+```
+f691  lid +0.10  share 0.00  (no photograph)
+f692  lid +0.33  share 0.33  eyes@shut   <- 67% wide-open portrait underneath
+f693  lid +0.60  share 0.67  eyes@shut   <- 33%
+f694  lid +0.64  share 1.00  eyes@shut       clean
+...
+f702  lid +0.13  share 0.67  eyes@shut   <- and again on the way back up
+f703  lid +0.12  share 0.33  eyes@shut
+```
+
+Those four frames are a genuine average of two photographs that disagree — a
+shut lid over an open eye — which is a translucent iris under a closed eyelid,
+up to **131 grey levels** from the frames either side of it. Over the whole
+recording, **107 frames of 1847** were such a mix.
+
+Day 10's eighth pass had already removed this fade from the *amount* — "a rung
+is shown whole" — and left it in the *arrival*, where `_eased` ramps a region in
+over a tenth of a second. A tenth of a second is three frames and a blink is
+three or four, so for the lids the fade lasted the whole blink.
+
+**Why it appeared on 2026-08-17 and not before:** that afternoon's own fix. The
+two shallow rungs the ladder had, `eyes_c014` and `eyes_c017`, were refused at
+load for carrying their brows down inside the portrait's eye — correctly; the
+owner had picked both off the screen. That left the closing side of the ladder
+running from a wide open eye at 0.0 straight to a **fully shut** photograph at
+0.32, so the fade had the largest possible pair of pictures to average.
+
+### Fixed, in two places
+
+1. **The lids arrive whole.** `_ARRIVES_WHOLE` — the eyes region only, and only
+   for rungs. A rung already says how far shut the eye is, so there is nothing
+   left for an opacity to express. The mouth and the brows keep their fade;
+   nothing else on a face moves inside the time a lid takes to fall.
+2. **A band is no longer lost to a frame the engine will refuse.**
+   `refused_as_rung` is the load-time check, offered to the builders, and
+   `build_eye_ladder` now takes the sharpest frame in each band *that the engine
+   will accept*. Both holes filled, from the same clip:
+
+   | band | was | now |
+   |---|---|---|
+   | +0.1 | `video-08/0107` — refused, brows 16 px inside the eye | `video-07/0050` at +0.122 |
+   | +0.2 | `video-08/0110` — refused, brows 16 px inside the eye | `video-07/0051` at +0.221 |
+
+   The cost is sharpness: 99 against 101, and 76 against 102. A softer rung that
+   reaches the screen is worth more than a sharp one that is thrown away.
+
+### Measured after
+
+| | before | after |
+|---|---|---|
+| frames that are a mix of two eye photographs | **107 of 1847** | **0** |
+| eye rungs on the closing side | 4, none of them partly shut | 6 |
+| `animate` mean / p95 | 34.3 / 43.4 ms | 34.7 / 45.6 ms |
+
+The frame cost is unchanged — both figures are from the same machine on the same
+afternoon, and the difference is inside the run-to-run spread.
+
+### Two things measured and deliberately not done
+
+**A hold at the foot of the ladder.** Once the lids arrive whole, a reading
+sitting on the start threshold turns the region on and off rather than fading
+it, so a hold there looked obviously right. Measured, it is not: releasing at
+three fifths of the threshold **more than doubles how long a closed eye is
+held** — the median run goes from 18 frames to 41 — to buy eight fewer changes a
+minute. The shortest run without it is three frames, which is a blink and not a
+flicker, so there was nothing to buy.
+
+**Containing the iris by the lid outline** instead of its bounding box. Correct
+in principle, and it does remove the nick: rendered both ways, the change is a
+thin line along the lash line, mean 1.1 grey levels with local peaks near 100.
+But collapsing the iris into a shut lid makes those triangles near-degenerate,
+and the affine fitted to them pulls in a **bright speck** where the nick was.
+One artefact for another. Left open — the honest version clips the iris out
+rather than shrinking it, and a triangulated mesh cannot express that without a
+second triangulation for the closed eye.
+
+### Still open, and it is material rather than code
+
+The closing side of the ladder has no genuinely *half* closed rung, and the clip
+does not contain one. Measured on `video-07`, the eyes clip:
+
+```
+0048  amount -0.004   open
+0049  amount +0.037   half closed   <- the only frame in the gap
+0050  amount +0.130   nearly shut
+```
+
+The lid crosses from open to nearly shut in **two frames**, the dump is one
+frame per 50 ms, and `DEFAULT_MIN_MOVED = 0.08` discards frame 0049 before the
+bands are formed — and `_EYES_LADDER_START = 0.12` would refuse to choose it
+anyway. A blink is therefore a two-state cut, open to nearly shut. At 30 fps a
+real lid closes in one or two frames, so this is close to honest; but if the
+half-closed eye is wanted it needs a clip that closes *slowly*, and a finer band
+near zero to file it under.

@@ -3,7 +3,7 @@
 **Living document.** Update it at the end of each working day. For the frozen
 record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
-**Last updated:** 2026-08-17 · **Day 10 — one photograph per region**
+**Last updated:** 2026-08-18 · **Day 11 — a blink stops being a cross-fade**
 
 ---
 
@@ -604,34 +604,75 @@ at rest.
 
 **544 tests.**
 
-### First thing tomorrow — a sliver of iris through a closed lid
+## Day 11 — the sliver of iris, and the two candidates that were both wrong
 
-**The only defect left in the eyes**, in the owner's words, and they stopped for
-the night on it: at a blink, a small piece of the iris shows through the closed
-eyelid. Screenshot taken 2026-08-17, eyes fully closed, the sliver at the outer
-corner of one eye.
+**The defect the owner stopped the night on** — *"at a blink, a small piece of
+the iris shows through the closed eyelid"* — is **fixed**, and it was neither of
+the two things this file predicted the night before. Backlog 24 has the full
+account; the short version is that measuring first was the whole difference.
 
-**Where to look first.** The lid comes from a photograph and the iris does not:
-gaze is geometry, placed by `_place_irises` and then pulled inside the lid ring
-by `_contain_irises`, because a photograph cannot express where someone is
-looking. At full closure the ring is a slit a few pixels tall, and the iris is
-being contained into it rather than hidden by it — so what shows is the base
-portrait's own iris, squeezed but not covered.
+**Both candidates were measured and ruled out.** The eye mask covers the closed
+rung's own lid at **1.000**, worst pixel 0.996, and **1.000 at the outer corner**
+where the sliver was — so the mask was never the cause. At full closure the
+composite is 100% the rung with no portrait left underneath, so there is no
+portrait iris to see. The containment *is* genuinely wrong — it holds the iris
+inside the ring's bounding box rather than the ring, and 3 to 4 of every 5 iris
+points still sit outside the lid, up to 4.7 px — but the pixels under those
+triangles are eyelid either way, so it costs a one-pixel nick in the lash line.
 
-Two candidates, and the first is cheap to test:
+**What it is: the arrival fade.** `_eased` ramps a region in over a tenth of a
+second, and for the lids that rate was already ten a second — three frames. A
+blink is three or four frames. So on every blink the eye spent its first two
+frames as a **33% and 67% mix of a shut photograph over the wide-open portrait**,
+and again on the way back up. That mix is a translucent iris under a closed lid,
+up to **131 grey levels** from the frames either side. Over the recording,
+**107 frames of 1847** were such a mix. It is now **0**.
 
-1.  `_contain_irises` shrinks the iris to fit the lid; it does not stop drawing
-    it. Past a closure of about 0.8 there is nothing for an iris to be, and it
-    should be dropped rather than fitted.
-2.  The eye region's mask may not reach the outer corner of the lid, where the
-    sliver is, so the rung's own closed lid is not painted over the last few
-    pixels of the socket.
+Day 10's eighth pass removed exactly this fade from the *amount*. It survived in
+the *arrival*, which is the same double exposure spread over three frames.
 
-Measure before changing either: render the closed-eye frames from the driving
-clip and count how many live iris landmarks fall outside the lid ring, the way
-the mask coverage was counted.
+**And why it appeared on the 17th and not before: yesterday's own fix.** The two
+shallow rungs, `eyes_c014` and `eyes_c017`, were refused at load for carrying
+their brows inside the portrait's eye — correctly, the owner had named both. That
+left the closing side running from a wide open eye at 0.0 to a **fully shut**
+photograph at 0.32, which gave the fade the largest possible pair to average.
 
-### Where tomorrow starts
+**So the second fix is in the builder.** A ladder builder takes the sharpest
+frame per band and nothing else, so a band whose sharpest frame the engine will
+refuse is lost *silently*. `refused_as_rung` is the load-time check, offered to
+the builders; `build_eye_ladder` now takes the sharpest frame in each band **that
+the engine will accept**, and says out loud what it passed over. Both holes are
+filled from the same clip, at a cost in sharpness of 99 against 101 and 76
+against 102.
+
+| | before | after |
+|---|---|---|
+| frames that are a mix of two eye photographs | **107 of 1847** | **0** |
+| eye rungs on the closing side | 4, none of them partly shut | 6 |
+| `animate` mean / p95 | 34.3 / 43.4 ms | 34.7 / 45.6 ms |
+
+**Two things measured and deliberately not done**, both in backlog 24: a hold at
+the foot of the ladder, which more than doubles how long a closed eye is held
+(median run 18 frames to 41) to buy eight fewer changes a minute; and containing
+the iris by the lid outline, which removes the nick and puts a bright speck
+where it was — one artefact for another.
+
+**Still open, and it is material rather than code.** The clip has no genuinely
+half-closed frame to make a rung from: measured on `video-07`, the lid goes from
+`+0.004` open to `+0.130` nearly shut in **two frames**, with one frame at
+`+0.037` in between that `DEFAULT_MIN_MOVED = 0.08` discards. A blink is
+therefore a two-state cut. At 30 fps that is close to what a real lid does, but
+a slow-closing clip would let it be a movement.
+
+**`animate` is measuring 34 ms**, against the 20.4 ms in this file's budget
+section. Both numbers above were taken this afternoon on the same machine, so the
+change is not the cause — but the avatar now carries **81 sources** where that
+budget was measured with 20, and the frame is over the 33.3 ms the camera
+delivers. This needs its own measurement before the `.exe`.
+
+**554 tests.**
+
+### Where day 11 leaves off
 
 **Waiting on the owner, and it blocks the largest open item:** two head-turn
 clips, one per direction — now generated by the tool above from the catalogue
@@ -650,15 +691,24 @@ blurred rung is chosen by angle exactly like a sharp one.
 
 **Next in code, in order:**
 
-1. Item 2 below — the quality measure, as a committed tool rather than a scratch
+1. **`animate` is measuring 34 ms**, mean, against 20.4 in the budget below and
+   against the 33.3 ms the camera delivers. Measured twice this afternoon, before
+   and after the day's change, so it is not the change — the avatar carries 81
+   sources where the budget was taken with 20. Everything the owner sees as frame
+   rate is downstream of this, and it is now the largest number on the page.
+2. Item 2 below — the quality measure, as a committed tool rather than a scratch
    script. Everything since has been reported through it.
-2. The lips: still an average of five photographs, `source_mouth_o` active on
+3. The lips: still an average of five photographs, `source_mouth_o` active on
    84% of the recording. The mouth is the last family that averages rather than
    chooses.
-3. Two defects the owner reported that cannot be reproduced here — teeth
+4. Two defects the owner reported that cannot be reproduced here — teeth
    doubling now and then, and a delay before the avatar recovers from a big turn.
    Both need a driving clip that turns both ways; `driving.mkv` holds |yaw| > 5°
    on 2.3% of its frames and never turns left at all.
+5. **The same silent loss is latent in the brow ladder's builder.** No brow rung
+   is refused at load today, so nothing is missing — but `build_brow_ladder` also
+   chooses on sharpness alone, and would lose a band the same way. It gets
+   `refused_as_rung` the next time it is rebuilt.
 
 **Day 8, in commits:** the turn geometry (`5d8c750`), the mouth interior
 (`d3bdc3b`), the region fade and the blur diagnosis (`df18e8f`), the mask
@@ -977,9 +1027,17 @@ when the quality work that needs it is done.**
 | 6 | Quality: neutral baseline, eyes, teeth | ✅ Done — backlog 8, 9, 10 |
 | **7** | **Neural engine evaluated and closed; gaze as geometry; replay harness** | **✅ Done — B005** |
 | **8** | **Quality: the wedge above a blinking eye (backlog 15)** | **✅ Done** |
-| 9–10 | Quality iteration | |
-| 11–12 | UI, avatar gallery, kill switch, `.exe` | |
-| 13–14 | Bugs, buffer | |
+| **9–11** | **Ladders: turn, smile, eyes, brows. A blink stops being a cross-fade (backlog 24)** | **✅ Done** |
+
+The rows below this line are from the **14-day plan, superseded on 2026-08-15**.
+What replaces them is the four-week table at the top of this file; they are kept
+because the work in them still has to happen, not because the dates hold.
+
+| Day | Work | State |
+|---|---|---|
+| 9–10 | Quality iteration | Now weeks 1–3 |
+| 11–12 | UI, avatar gallery, kill switch, `.exe` | Now week 4 |
+| 13–14 | Bugs, buffer | Now week 4 |
 
 **Day 7 in one line:** LivePortrait was measured and rejected on speed (B005),
 the licence question that had blocked it since the evaluation turned out to be

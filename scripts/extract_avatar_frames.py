@@ -55,6 +55,7 @@ from sha256.avatar.engine_warp import (  # noqa: E402
     _RIGHT_EYE,
     _VARIANT_ROLES,
     _Neutral,
+    _pixel_points,
     _source_weights,
 )
 from sha256.core.enums import PixelFormat  # noqa: E402
@@ -409,6 +410,30 @@ def crop_around_face(candidate: Candidate) -> np.ndarray:
 
     cropped: np.ndarray = np.ascontiguousarray(candidate.image[y0:y1, x0:x1])
     return cropped
+
+
+def portrait_points(path: Path, tracker: MediaPipeFaceTracker) -> np.ndarray | None:
+    """The base portrait's landmarks in its own pixels, or ``None``.
+
+    Shared with the ladder builders, which need it for one reason: a rung has to
+    be checked against the portrait it will be placed on, and the check is the
+    engine's own — see :func:`sha256.avatar.engine_warp.refused_as_rung`.
+    """
+    import cv2
+
+    image = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    if image is None:
+        return None
+    result = tracker.process(
+        VideoFrame(
+            data=np.ascontiguousarray(image),
+            pixel_format=PixelFormat.BGR24,
+            metadata=FrameMetadata(frame_id=0, capture_timestamp=0.0),
+        )
+    )
+    if not result.face_detected or result.landmarks is None:
+        return None
+    return _pixel_points(result.landmarks.points, image.shape[1], image.shape[0])
 
 
 def resting_face(base: FaceTrackingResult) -> _Neutral:
