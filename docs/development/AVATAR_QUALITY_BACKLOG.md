@@ -1887,3 +1887,102 @@ four times.
 
 `driving.mkv` is unchanged in every respect, which is the point: it never had
 the frames this is about.
+
+---
+
+## 29. The lid axis reads a quarter-closed eye as a shut one — OPEN, and it is material
+
+**The owner, and this is the one to start with:** *"at 20-30% of a closing it
+thinks the eyes are shut and puts the shut photograph on."*
+
+**Already measured, on 2026-08-19, and written down as the open half of backlog
+24.** The closing side of the ladder has no genuinely half-closed rung, and the
+clip it was built from does not contain one. On `video-07`, the eyes clip:
+
+```
+0048  amount -0.004   open
+0049  amount +0.037   half closed   <- the only frame in the gap
+0050  amount +0.130   nearly shut
+0051  amount +0.236   shut
+```
+
+**The lid crosses from open to nearly shut in two frames.** The dump is one
+frame per 50 ms, `DEFAULT_MIN_MOVED = 0.08` discards frame 0049 before the bands
+are formed, and `_EYES_LADDER_START = 0.12` would refuse to choose it anyway. So
+every rung from +0.122 upward is a *fully shut* photograph, and a reading of
+0.20 — a fifth of a closing, an eye still mostly open — is answered with one.
+
+Two consequences, and the owner has now reported both:
+
+*   a quarter-closed eye is drawn shut;
+*   and any small error in the resting estimate crosses 0.12 and snaps the eye
+    shut, which is what makes reports of "it closes my eyes by itself" so easy
+    to trigger.
+
+**No code change fixes this.** It needs a clip of the lids closing *slowly*,
+with the rungs it yields filed at 0.03, 0.06, 0.10, 0.15, 0.20, 0.25 — and
+`DEFAULT_MIN_MOVED` and the band width lowered to match, since both are set for
+a ladder that starts at a tenth.
+
+---
+
+## 30. Reported 2026-08-19, not yet measured
+
+Written down as the owner said them, with what is already known about each and
+what the first measurement should be. **None of these has been reproduced yet.**
+
+### The dark arc is smaller but still there
+
+After backlog 28. Either a residue of the same carry — the arc is smaller, which
+is what a partly-fixed cause looks like — or a second source. **First
+measurement:** the same three-way render as 28, at the frames of the new
+recording with the largest yaw, with the eyes region's own trust logged rather
+than the minimum across regions. The error made in 28's first pass was reading
+one region's number for another's.
+
+### Light straight on the face reads as a closed eye
+
+*"When the camera is straight in front of me and the light falls straight on my
+face, it thinks my eyes are closed and closes them."*
+
+`_eye_opening` is computed from landmarks, so illumination reaches it only
+through the tracker's accuracy — a washed-out lid crease is a plausible route
+and item 27 already measured a **36% drift in that reading over a second and a
+half while the face did not move**. That drift was blamed on convergence; strong
+frontal light is a second candidate for the same measurement being soft.
+
+**First measurement:** two recordings of the same still face, one lit as the
+owner describes and one not, and the raw `_eye_opening` of each. If the reading
+moves with the light, no rate or threshold on top of it will help.
+
+### The eye is not round — spikes on it, and the pupils get confused
+
+At a turn, and sometimes head-on. The mesh has four points around each iris and
+the triangles between them and the lid shear as the pupil moves;
+`_GAZE_LIMIT_X` and `_GAZE_LIMIT_UP/DOWN` exist because *"an extreme one turns
+the iris into a dark diamond with visible triangle edges"*. Spikes and a
+non-round pupil are that, and at a turn the containment and the tuck both act on
+a ring the carry has already moved.
+
+**First measurement:** draw the iris ring and the lid ring on the render, as in
+25, at the frames the owner marks, and read whether the ring itself is
+misshapen or whether the triangles around it are inverted.
+
+### A greenish colour laid over the eyes
+
+`_match_colour` fits a low-frequency lighting plane between the avatar and the
+scene and is the only thing in the engine that can tint. A green cast means the
+plane is being fitted on pixels it should not see.
+
+**First measurement:** the frames the owner marks, with the correction field
+rendered on its own.
+
+### Turning the head sideways — *"still many problems"*
+
+Left as the owner left it, unenumerated, because guessing at a list is what four
+of the five passes on day 11 did. The turn photographs are also the ones item 22
+found to be motion blurred, so some of this is material rather than code.
+
+**What it needs:** a recording of a turn, slow, with the specific moments named
+aloud — *"now the eye"*, *"now the mouth"* — so that a frame number can be
+attached to each complaint instead of a paragraph.

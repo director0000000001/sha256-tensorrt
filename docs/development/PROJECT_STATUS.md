@@ -3,7 +3,7 @@
 **Living document.** Update it at the end of each working day. For the frozen
 record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
-**Last updated:** 2026-08-19 · **Day 11 — five passes at one shut eye**
+**Last updated:** 2026-08-19 · **Day 11 — five passes at one shut eye, and the owner's list for day 12**
 
 ---
 
@@ -921,6 +921,57 @@ the iris fan, the fence around the opening, the resting eye at startup, and the
 carry — each a different way of ending up with two photographs on screen at
 once, and the last two found only because the owner recorded what he was
 actually looking at.
+
+## Where day 12 starts — the owner's list, and the one item under it
+
+Reported at the end of day 11, after the fifth fix. Written down as said;
+**backlog 29 and 30 hold the detail and the first measurement for each.**
+
+**1. The lid axis reads a quarter-closed eye as a shut one.** *"At 20-30% of a
+closing it thinks the eyes are shut and puts the shut photograph on."* This is
+the one to start with, it is **already measured**, and it is **material rather
+than code**: on `video-07` the lids cross from open to nearly shut in **two
+frames**, the one frame in between is discarded by `DEFAULT_MIN_MOVED`, and so
+every rung from +0.122 upward is a fully shut photograph. A reading of 0.20 is
+answered with one.
+
+It also explains the report next to it. Any small error in the resting estimate
+crosses 0.12 and snaps the eye shut, so "it closes my eyes by itself" is easy to
+trigger and will stay easy until there is something between open and shut to
+choose.
+
+**What it needs is a clip**, not a change: the lids closing **slowly**, two or
+three seconds from open to shut, so the ladder can be filed at 0.03, 0.06, 0.10,
+0.15, 0.20, 0.25. `DEFAULT_MIN_MOVED` and the band width come down with it.
+
+**2. Light straight on the face reads as a closed eye.** Needs two recordings of
+the same still face, lit two ways, and the raw reading of each. Item 27 already
+measured that reading drifting 36% while a face did not move.
+
+**3. The eye is not round — spikes, and the pupils confused.** At a turn and
+sometimes head-on. The iris ring has four points and the triangles around it
+shear; this is the family `_GAZE_LIMIT_X` exists for.
+
+**4. A greenish tint over the eyes.** `_match_colour` is the only thing in the
+engine that can tint.
+
+**5. The dark arc is smaller but still there**, and **6. turning sideways still
+has many problems** — the second left unenumerated on purpose.
+
+### On how this is being found
+
+The owner asked whether this loop — their testing, their feedback — will get
+through the list. **On day 11's evidence, yes, and with one change.** Five
+passes were made on one shut eye. The first four each found something real by
+measurement and **not one of them was confirmed against what the owner was
+actually looking at**; the fifth was, in an afternoon, because they recorded it.
+The rule that follows is the one already sitting at the top of the code list:
+
+*   a complaint plus **a recording of it** is worth more than four careful
+    guesses, and costs the owner two minutes;
+*   and the quality measure has to become a committed tool that reports its own
+    conditions — twice on day 11 a number taken in passing reached a commit
+    message and had to be corrected the next day.
 
 ### Where day 11 leaves off
 
