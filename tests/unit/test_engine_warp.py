@@ -2260,7 +2260,7 @@ class TestPosePhotographsKeepTheirGeometry:
         yaw = avatar.neutral.pose_offset("yaw", tracking.head_pose.yaw)
         return _ladder_weights(avatar.ladder, yaw).get("turn@a", 0.0)
 
-    def _turn_from_rest(self, avatar, tracking):
+    def _turn_from_rest(self, avatar, tracking) -> np.ndarray:
         """Blend ``tracking`` after the engine has been shown a face at rest.
 
         A single frame in isolation *is* the resting angle — the neutral takes
