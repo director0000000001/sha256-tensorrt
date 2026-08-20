@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -222,15 +223,24 @@ def eye_sharpness(candidate: Candidate) -> float:
     its sharpness is comparable across the whole turn. Taking the better of the
     two eyes always measures the near one, whichever way the head is pointing.
     """
-    import cv2
-
     points = candidate.tracking.landmarks
     if points is None:
         return 0.0
+    return near_eye_sharpness(candidate.image, points.points)
 
-    height, width = candidate.image.shape[:2]
-    scaled = points.points[:, :2] * (width, height)
-    grey = cv2.cvtColor(candidate.image, cv2.COLOR_BGR2GRAY)
+
+def near_eye_sharpness(image: np.ndarray, points: np.ndarray) -> float:
+    """The same measure, given an image and its landmarks rather than a candidate.
+
+    Split out for `scripts/measure_quality.py`, which measures the *rendered*
+    frame — there is no candidate there, only the picture the engine produced
+    and the tracked face it was drawn onto.
+    """
+    import cv2
+
+    height, width = image.shape[:2]
+    scaled = points[:, :2] * (width, height)
+    grey = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
     best = 0.0
     for eye, brow in ((_LEFT_EYE, _LEFT_BROW), (_RIGHT_EYE, _RIGHT_BROW)):
@@ -412,12 +422,50 @@ def crop_around_face(candidate: Candidate) -> np.ndarray:
     return cropped
 
 
-def portrait_points(path: Path, tracker: MediaPipeFaceTracker) -> np.ndarray | None:
-    """The base portrait's landmarks in its own pixels, or ``None``.
+# How far apart dumped frames are assumed to be when their names do not say.
+# `dump_clip_frames.py` writes the millisecond into every filename, so this is
+# only reached by a folder someone assembled by hand.
+DUMP_INTERVAL_SECONDS = 0.05
 
-    Shared with the ladder builders, which need it for one reason: a rung has to
-    be checked against the portrait it will be placed on, and the check is the
-    engine's own — see :func:`sha256.avatar.engine_warp.refused_as_rung`.
+_STAMP = re.compile(r"_(\d+)ms")
+
+
+def timestamp_of(path: Path, index: int, interval: float = DUMP_INTERVAL_SECONDS) -> float:
+    """When this dumped frame happened, in seconds.
+
+    **The tracker runs in VIDEO mode and carries state between the frames it is
+    given**, and it reasons about how far anything can have moved from the gap
+    between their timestamps. Every ladder builder used to hand it the same
+    timestamp for every still, which the adapter turns into one millisecond
+    apart — so MediaPipe expected a face that had barely moved and lagged behind
+    one that had.
+
+    Measured on the eye clip: it reported a smooth ramp from 0.014 to 0.038
+    across sixteen frames whose eyes were in fact all wide open at 0.050. The
+    eye ladder was built out of that lag rather than out of the eyelids, which
+    is why six rungs filed from a tenth to half a closing are all photographs of
+    a shut eye. Passing the real millisecond tracks a fresh tracker per still to
+    within 0.003.
+
+    ``dump_clip_frames.py`` writes it into the name — ``0150_06240ms.png``. The
+    index is the fallback, and it is still far better than a constant.
+    """
+    found = _STAMP.search(path.name)
+    if found is None:
+        return index * interval
+    return int(found.group(1)) / 1000.0
+
+
+def portrait_tracking(
+    path: Path, tracker: MediaPipeFaceTracker
+) -> tuple[FaceTrackingResult, np.ndarray] | None:
+    """The base portrait's tracking result, and its landmarks in its own pixels.
+
+    The portrait is what every ladder's zero is measured from: it is this
+    avatar's resting face, and the engine chooses a rung by comparing the
+    driver's closure *against their own rest* with the rung's amount *against
+    the avatar's*. A ladder that took its zero from somewhere else is filing
+    against a different question than the one it will be asked.
     """
     import cv2
 
@@ -433,7 +481,21 @@ def portrait_points(path: Path, tracker: MediaPipeFaceTracker) -> np.ndarray | N
     )
     if not result.face_detected or result.landmarks is None:
         return None
-    return _pixel_points(result.landmarks.points, image.shape[1], image.shape[0])
+    points = _pixel_points(result.landmarks.points, image.shape[1], image.shape[0])
+    if points is None:
+        return None
+    return result, points
+
+
+def portrait_points(path: Path, tracker: MediaPipeFaceTracker) -> np.ndarray | None:
+    """The base portrait's landmarks in its own pixels, or ``None``.
+
+    Shared with the ladder builders, which need it for one reason: a rung has to
+    be checked against the portrait it will be placed on, and the check is the
+    engine's own — see :func:`sha256.avatar.engine_warp.refused_as_rung`.
+    """
+    found = portrait_tracking(path, tracker)
+    return None if found is None else found[1]
 
 
 def resting_face(base: FaceTrackingResult) -> _Neutral:

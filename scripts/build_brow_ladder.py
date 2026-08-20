@@ -46,7 +46,9 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 from extract_avatar_frames import (  # noqa: E402
     Candidate,
     crop_around_face,
+    portrait_tracking,
     sharpness_of,
+    timestamp_of,
 )
 
 from sha256.avatar.engine_warp import _BROW_SPAN, _brow_height  # noqa: E402
@@ -76,7 +78,9 @@ class Step:
     candidate: Candidate
 
 
-def measure(path: Path, tracker: MediaPipeFaceTracker) -> tuple[Step, float] | None:
+def measure(
+    path: Path, tracker: MediaPipeFaceTracker, timestamp: float = 0.0
+) -> tuple[Step, float] | None:
     """One frame's brow blendshapes and sharpness, with its yaw."""
     import cv2
 
@@ -88,7 +92,7 @@ def measure(path: Path, tracker: MediaPipeFaceTracker) -> tuple[Step, float] | N
         VideoFrame(
             data=np.ascontiguousarray(image),
             pixel_format=PixelFormat.BGR24,
-            metadata=FrameMetadata(frame_id=0, capture_timestamp=0.0),
+            metadata=FrameMetadata(frame_id=0, capture_timestamp=timestamp),
         )
     )
     if not result.face_detected or result.landmarks is None or result.head_pose is None:
@@ -112,15 +116,26 @@ def measure(path: Path, tracker: MediaPipeFaceTracker) -> tuple[Step, float] | N
     return step, float(result.head_pose.yaw)
 
 
-def amounts(steps: list[Step]) -> list[tuple[Step, float]]:
+def amounts(steps: list[Step], rest: float | None = None) -> list[tuple[Step, float]]:
     """Each frame with where its brows sit against rest. Signed.
 
     ``(height - rest) / rest``, scaled so a full raise reaches one — the same
-    arithmetic the engine performs against its own slow mean. Rest is the
-    **median** of the clip, because that is where a face keeps its brows when it
-    is not doing anything with them.
+    arithmetic the engine performs against its own slow mean.
+
+    **Rest comes from the base portrait**, for the reason set out at length in
+    `build_eye_ladder.amounts`: the median of the clip is only rest if the clip
+    is mostly at rest, and a brow clip is built out of held brow positions. The
+    engine compares the driver's brow against the driver's rest with the rung's
+    amount against the avatar's, and the avatar's rest is the portrait.
+
+    Measured after the timestamp fix, the rungs installed under the old rule are
+    filed 0.563 out on an axis of 0 to 1, and not even in order:
+    `brows_u088.png` is filed at +0.880 and is a resting brow.
+
+    ``rest`` falls back to the median when no portrait is available.
     """
-    rest = float(np.median([step.height for step in steps]))
+    if rest is None:
+        rest = float(np.median([step.height for step in steps]))
     if rest <= 1e-6:
         return [(step, 0.0) for step in steps]
     return [
@@ -143,7 +158,41 @@ def rung_name(amount: float) -> str:
     return f"brows_{side}{round(abs(amount) * 100):03d}.png"
 
 
-def install(chosen: list[tuple[Step, float]], avatar: Path) -> None:
+def measure_written(image: np.ndarray, tracker: MediaPipeFaceTracker, rest: float) -> float | None:
+    """Where this **cropped** photograph's brows sit, as the file will be stored.
+
+    **The number filed against a photograph has to describe the photograph, and
+    it did not.** Every rung was measured on the full dumped frame and then
+    written out as a crop, and cropping moves the reading: measured on the
+    2026-08-21 rebuild, the same face read 0.0650 in its 2160x3840 source frame
+    and 0.0825 in the 2116x2330 crop cut from it. On this axis that is a
+    difference of **1.29** — wider than the whole ladder — and it was worst on
+    the tightest crops, which is where the cut comes nearest the chin and the
+    hairline that `_brow_height` divides by.
+
+    The engine loads the crop and nothing else, so the crop is what the filed
+    amount must be measured on. Selection still happens on the source frame,
+    where every candidate is comparable; only the number that travels into the
+    manifest comes from here.
+    """
+    result = tracker.process(
+        VideoFrame(
+            data=np.ascontiguousarray(image),
+            pixel_format=PixelFormat.BGR24,
+            metadata=FrameMetadata(frame_id=0, capture_timestamp=0.0),
+        )
+    )
+    if not result.face_detected or rest <= 1e-6:
+        return None
+    return min(max(((_brow_height(result) - rest) / rest) / _BROW_SPAN, -1.0), 1.0)
+
+
+def install(
+    chosen: list[tuple[Step, float]],
+    avatar: Path,
+    tracker: MediaPipeFaceTracker,
+    rest: float,
+) -> None:
     """Write the rungs in and replace the manifest's brow entries.
 
     Both named photographs go with them. A raised brow and a lowered one are two
@@ -170,26 +219,43 @@ def install(chosen: list[tuple[Step, float]], avatar: Path) -> None:
     ]
     print(f"\nretired {before - len(meta['assets'])} manifest entrie(s)")
 
+    kept = 0
     for step, amount in chosen:
-        name = rung_name(amount)
-        cv2.imwrite(str(avatar / name), crop_around_face(step.candidate))
+        cropped = crop_around_face(step.candidate)
+        written = measure_written(cropped, tracker, rest)
+        if written is None:
+            print(f"  dropped a rung at {amount:+.2f}: no face in the crop")
+            continue
+        if abs(written - amount) > 0.25:
+            print(
+                f"  rung at {amount:+.2f} reads {written:+.2f} once cropped; filing what it reads"
+            )
+        name = rung_name(written)
+        cv2.imwrite(str(avatar / name), cropped)
         meta["assets"].append(
             {
                 "path": name,
                 "role": "source_brows_step",
                 "optional": True,
-                "brows": round(amount, 3),
+                "brows": round(written, 3),
             }
         )
+        kept += 1
 
     manifest.write_text(json.dumps(meta, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    print(f"installed {len(chosen)} rung(s); manifest now holds {len(meta['assets'])} assets")
+    print(f"installed {kept} rung(s); manifest now holds {len(meta['assets'])} assets")
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("folders", type=Path, nargs="+")
     parser.add_argument("--avatar", type=Path, default=REPO_ROOT / "avatars" / "my_avatar")
+    parser.add_argument(
+        "--base",
+        type=Path,
+        default=None,
+        help="The portrait the ladder's zero is measured from; defaults to the avatar's.",
+    )
     parser.add_argument("--step", type=float, default=DEFAULT_STEP)
     parser.add_argument("--min-moved", type=float, default=DEFAULT_MIN_MOVED)
     parser.add_argument("--max-yaw", type=float, default=DEFAULT_MAX_YAW)
@@ -202,13 +268,34 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Model bundle missing: {model}")
         return 1
 
+    base_path = args.base or args.avatar / "portrait.png"
+
+    # A tracker of its own for the portrait: it is an unrelated still, and the
+    # tracker carries a prior between the frames it is given.
+    portrait = MediaPipeFaceTracker(model_path=model)
+    portrait.start()
+    try:
+        base = portrait_tracking(base_path, portrait)
+    finally:
+        portrait.stop()
+    if base is None:
+        print(f"No face found in the base portrait {base_path}.")
+        return 1
+
+    # The ladder's zero — see :func:`amounts`.
+    resting = _brow_height(base[0])
+    print(f"resting brow, from {base_path.name}: {resting:.4f}")
+
     tracker = MediaPipeFaceTracker(model_path=model)
     tracker.start()
     try:
         found: list[Step] = []
         for folder in args.folders:
             frames = sorted(folder.glob("*.jpg")) + sorted(folder.glob("*.png"))
-            measured = [measure(path, tracker) for path in frames]
+            measured = [
+                measure(path, tracker, timestamp_of(path, index))
+                for index, path in enumerate(frames)
+            ]
             usable = [
                 step
                 for step, yaw in (m for m in measured if m is not None)
@@ -222,7 +309,9 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
         placed = [
-            (step, amount) for step, amount in amounts(found) if abs(amount) >= args.min_moved
+            (step, amount)
+            for step, amount in amounts(found, resting)
+            if abs(amount) >= args.min_moved
         ]
         if not placed:
             print("\nNo frame in these folders has the brows anywhere but at rest.")
@@ -238,7 +327,7 @@ def main(argv: list[str] | None = None) -> int:
             )
 
         if args.install:
-            install(chosen, args.avatar)
+            install(chosen, args.avatar, tracker, resting)
         else:
             print("\nNothing written. Pass --install to replace the avatar's brows.")
     finally:

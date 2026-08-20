@@ -45,6 +45,7 @@ from extract_avatar_frames import (  # noqa: E402
     Candidate,
     crop_around_face,
     sharpness_of,
+    timestamp_of,
 )
 
 from sha256.avatar.engine_warp import (  # noqa: E402
@@ -88,7 +89,9 @@ class Step:
     candidate: Candidate
 
 
-def measure(path: Path, tracker: MediaPipeFaceTracker) -> tuple[Step, float] | None:
+def measure(
+    path: Path, tracker: MediaPipeFaceTracker, timestamp: float = 0.0
+) -> tuple[Step, float] | None:
     """One frame's smile, mouth opening and sharpness, with its yaw."""
     import cv2
 
@@ -100,7 +103,7 @@ def measure(path: Path, tracker: MediaPipeFaceTracker) -> tuple[Step, float] | N
         VideoFrame(
             data=np.ascontiguousarray(image),
             pixel_format=PixelFormat.BGR24,
-            metadata=FrameMetadata(frame_id=0, capture_timestamp=0.0),
+            metadata=FrameMetadata(frame_id=0, capture_timestamp=timestamp),
         )
     )
     if not result.face_detected or result.landmarks is None or result.head_pose is None:
@@ -222,7 +225,10 @@ def main(argv: list[str] | None = None) -> int:
         found: list[Step] = []
         for folder in args.folders:
             frames = sorted(folder.glob("*.jpg")) + sorted(folder.glob("*.png"))
-            measured = [measure(path, tracker) for path in frames]
+            measured = [
+                measure(path, tracker, timestamp_of(path, index))
+                for index, path in enumerate(frames)
+            ]
             usable = [
                 step
                 for step, yaw in (m for m in measured if m is not None)
@@ -231,8 +237,7 @@ def main(argv: list[str] | None = None) -> int:
                 and step.candidate.face_width >= args.min_face
             ]
             print(
-                f"{folder.name:<12} {len(frames):>4} frames  "
-                f"{len(usable):>4} smiling and frontal"
+                f"{folder.name:<12} {len(frames):>4} frames  {len(usable):>4} smiling and frontal"
             )
             found.extend(usable)
 

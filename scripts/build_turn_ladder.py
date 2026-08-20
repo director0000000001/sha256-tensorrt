@@ -47,6 +47,7 @@ from extract_avatar_frames import (  # noqa: E402
     crop_around_face,
     eye_sharpness,
     sharpness_of,
+    timestamp_of,
 )
 
 from sha256.core.enums import PixelFormat  # noqa: E402
@@ -94,7 +95,7 @@ class Rung:
     candidate: Candidate
 
 
-def measure(path: Path, tracker: MediaPipeFaceTracker) -> Rung | None:
+def measure(path: Path, tracker: MediaPipeFaceTracker, timestamp: float = 0.0) -> Rung | None:
     """Angle and sharpness for one frame, or ``None`` if it holds no face."""
     import cv2
 
@@ -106,7 +107,7 @@ def measure(path: Path, tracker: MediaPipeFaceTracker) -> Rung | None:
         VideoFrame(
             data=np.ascontiguousarray(image),
             pixel_format=PixelFormat.BGR24,
-            metadata=FrameMetadata(frame_id=0, capture_timestamp=0.0),
+            metadata=FrameMetadata(frame_id=0, capture_timestamp=timestamp),
         )
     )
     if not result.face_detected or result.landmarks is None or result.head_pose is None:
@@ -256,7 +257,10 @@ def main(argv: list[str] | None = None) -> int:
         found: list[Rung] = []
         for folder in args.folders:
             frames = sorted(folder.glob("*.jpg")) + sorted(folder.glob("*.png"))
-            measured = [measure(path, tracker) for path in frames]
+            measured = [
+                measure(path, tracker, timestamp_of(path, index))
+                for index, path in enumerate(frames)
+            ]
             kept = [rung for rung in measured if rung is not None]
             usable = [
                 rung

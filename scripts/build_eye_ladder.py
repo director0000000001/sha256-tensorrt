@@ -48,8 +48,9 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 from extract_avatar_frames import (  # noqa: E402
     Candidate,
     crop_around_face,
-    portrait_points,
+    portrait_tracking,
     sharpness_of,
+    timestamp_of,
 )
 
 from sha256.avatar.engine_warp import (  # noqa: E402
@@ -65,13 +66,18 @@ from sha256.tracking.mediapipe_tracker import (  # noqa: E402
     MediaPipeFaceTracker,
 )
 
-# One rung per this much of the closing. A tenth is ten photographs from open to
-# shut, finer than the lid moves between two frames of a blink.
-DEFAULT_STEP = 0.1
+# One rung per this much of the closing. A twentieth: the clip it is built from
+# holds the lids at every stage of a closing rather than blinking through it, so
+# the bands that used to be empty are the ones the owner's first report is
+# about. A tenth was right for a clip that had two usable frames in it.
+DEFAULT_STEP = 0.05
 
 # Below this much movement either way the eye is at rest, and the portrait is
-# already the best photograph of that.
-DEFAULT_MIN_MOVED = 0.08
+# already the best photograph of that. Down from 0.08 with the step, and for the
+# same reason: at 0.08 the shallowest rung of the 2026-08-21 ladder — a lid a
+# fifteenth of the way down, and a genuine photograph of one — is thrown away
+# before the bands are formed.
+DEFAULT_MIN_MOVED = 0.03
 
 # A rung has to be frontal: the lid is cut out of it and placed on the avatar's
 # own frontal layout.
@@ -89,7 +95,10 @@ class Step:
 
 
 def measure(
-    path: Path, tracker: MediaPipeFaceTracker, base_points: np.ndarray | None = None
+    path: Path,
+    tracker: MediaPipeFaceTracker,
+    base_points: np.ndarray | None = None,
+    timestamp: float = 0.0,
 ) -> tuple[Step, float] | None:
     """One frame's eyelid opening and sharpness, with its yaw.
 
@@ -107,7 +116,7 @@ def measure(
         VideoFrame(
             data=np.ascontiguousarray(image),
             pixel_format=PixelFormat.BGR24,
-            metadata=FrameMetadata(frame_id=0, capture_timestamp=0.0),
+            metadata=FrameMetadata(frame_id=0, capture_timestamp=timestamp),
         )
     )
     if not result.face_detected or result.landmarks is None or result.head_pose is None:
@@ -141,19 +150,33 @@ def measure(
     return step, float(result.head_pose.yaw)
 
 
-def amounts(steps: list[Step]) -> list[tuple[Step, float]]:
+def amounts(steps: list[Step], rest: float | None = None) -> list[tuple[Step, float]]:
     """Each frame with where its lids sit against a resting eye. Signed.
 
     ``(rest - opening) / rest``: zero at rest, positive as the lids close,
     negative when they are open wider than usual — the same quantity the engine
     computes from the resting level it learns.
 
-    **Rest is the median, not the widest.** A clip that contains an eyes-wide
-    hold has its widest frame at the wide end, and measuring everything from
-    there puts a resting eye a third of the way shut on its own scale. The
-    median is where a face spends its time, which is what rest means.
+    **Rest comes from the base portrait**, and that is a correction. It used to
+    be the median frame of the clip, on the reasoning that the median is where a
+    face spends its time. That holds only for a clip that is mostly at rest, and
+    an eye clip is the one kind that never is: the take that built the current
+    ladder holds the eyes shut for four of its eight seconds, so its median *is*
+    a shut eye. Measured on it — true rest 0.0538, median 0.0356 — which files
+    every genuinely shut frame at about +0.45 instead of +0.65, and files the
+    open frames as though the eyes were wide.
+
+    The portrait is the right zero for a second reason, not just a safer one.
+    The engine picks a rung by comparing the driver's closure *against the
+    driver's own rest* with the rung's amount *against the avatar's*. The
+    avatar's rest is the portrait's face. Anything else answers a different
+    question from the one the rung is asked.
+
+    ``rest`` falls back to the median when no portrait is available, with the
+    caveat above.
     """
-    rest = float(np.median([step.opening for step in steps]))
+    if rest is None:
+        rest = float(np.median([step.opening for step in steps]))
     if rest <= 1e-6:
         return [(step, 0.0) for step in steps]
     return [(step, (rest - step.opening) / rest) for step in steps]
@@ -198,7 +221,35 @@ def rung_name(amount: float) -> str:
     return f"eyes_{side}{round(abs(amount) * 100):03d}.png"
 
 
-def install(chosen: list[tuple[Step, float]], avatar: Path) -> None:
+def measure_written(image: np.ndarray, tracker: MediaPipeFaceTracker, rest: float) -> float | None:
+    """Where this **cropped** photograph's lids sit, as the file will be stored.
+
+    The number filed against a photograph has to describe the photograph. Every
+    rung is measured on the full dumped frame and then written out as a crop,
+    and cropping moves the reading — see the brow builder's own copy of this,
+    where the same face read 0.0650 in its source frame and 0.0825 in the crop.
+    The eye axis is far less sensitive to it than the brow axis, which divides
+    by a distance running from the hairline to the chin, but it is not immune
+    and the fix costs one tracker call per rung.
+    """
+    result = tracker.process(
+        VideoFrame(
+            data=np.ascontiguousarray(image),
+            pixel_format=PixelFormat.BGR24,
+            metadata=FrameMetadata(frame_id=0, capture_timestamp=0.0),
+        )
+    )
+    if not result.face_detected or rest <= 1e-6:
+        return None
+    return (rest - _eye_opening(result)) / rest
+
+
+def install(
+    chosen: list[tuple[Step, float]],
+    avatar: Path,
+    tracker: MediaPipeFaceTracker,
+    rest: float,
+) -> None:
     """Write the rungs in and replace the manifest's eye entries.
 
     ``source_eyes_closed`` and ``source_eyes_wide`` go with them: the ladder's
@@ -226,20 +277,31 @@ def install(chosen: list[tuple[Step, float]], avatar: Path) -> None:
     ]
     print(f"\nretired {before - len(meta['assets'])} manifest entrie(s)")
 
+    kept = 0
     for step, amount in chosen:
-        name = rung_name(amount)
-        cv2.imwrite(str(avatar / name), crop_around_face(step.candidate))
+        cropped = crop_around_face(step.candidate)
+        written = measure_written(cropped, tracker, rest)
+        if written is None:
+            print(f"  dropped a rung at {amount:+.2f}: no face in the crop")
+            continue
+        if abs(written - amount) > 0.25:
+            print(
+                f"  rung at {amount:+.2f} reads {written:+.2f} once cropped; filing what it reads"
+            )
+        name = rung_name(written)
+        cv2.imwrite(str(avatar / name), cropped)
         meta["assets"].append(
             {
                 "path": name,
                 "role": "source_eyes_step",
                 "optional": True,
-                "eyes": round(amount, 3),
+                "eyes": round(written, 3),
             }
         )
+        kept += 1
 
     manifest.write_text(json.dumps(meta, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    print(f"installed {len(chosen)} rung(s); manifest now holds {len(meta['assets'])} assets")
+    print(f"installed {kept} rung(s); manifest now holds {len(meta['assets'])} assets")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -271,12 +333,18 @@ def main(argv: list[str] | None = None) -> int:
     portrait = MediaPipeFaceTracker(model_path=model)
     portrait.start()
     try:
-        base_points = portrait_points(base_path, portrait)
+        base = portrait_tracking(base_path, portrait)
     finally:
         portrait.stop()
-    if base_points is None:
+    if base is None:
         print(f"No face found in the base portrait {base_path}.")
         return 1
+    base_result, base_points = base
+
+    # The ladder's zero, and it comes from the avatar's own resting face rather
+    # than from the middle of the clip — see :func:`amounts`.
+    resting = _eye_opening(base_result)
+    print(f"resting eye, from {base_path.name}: {resting:.4f}")
 
     tracker = MediaPipeFaceTracker(model_path=model)
     tracker.start()
@@ -284,7 +352,10 @@ def main(argv: list[str] | None = None) -> int:
         found: list[Step] = []
         for folder in args.folders:
             frames = sorted(folder.glob("*.jpg")) + sorted(folder.glob("*.png"))
-            measured = [measure(path, tracker, base_points) for path in frames]
+            measured = [
+                measure(path, tracker, base_points, timestamp_of(path, index))
+                for index, path in enumerate(frames)
+            ]
             usable = [
                 step
                 for step, yaw in (m for m in measured if m is not None)
@@ -302,7 +373,9 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
         placed = [
-            (step, amount) for step, amount in amounts(found) if abs(amount) >= args.min_moved
+            (step, amount)
+            for step, amount in amounts(found, resting)
+            if abs(amount) >= args.min_moved
         ]
         if not placed:
             print("\nNo frame in these folders has the eyes further shut than rest.")
@@ -335,7 +408,7 @@ def main(argv: list[str] | None = None) -> int:
             )
 
         if args.install:
-            install(chosen, args.avatar)
+            install(chosen, args.avatar, tracker, resting)
         else:
             print("\nNothing written. Pass --install to replace the avatar's eyes.")
     finally:

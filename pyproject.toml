@@ -157,7 +157,14 @@ ignore_missing_imports = true
 # that cover the extractor put it on `sys.path` themselves, at runtime. Checking
 # it here would apply the package's strict settings to standalone tools, which
 # is a separate decision from testing them.
-module = ["build_turn_ladder", "extract_avatar_frames", "generate_avatar_clips"]
+module = [
+    "build_brow_ladder",
+    "build_eye_ladder",
+    "build_turn_ladder",
+    "extract_avatar_frames",
+    "generate_avatar_clips",
+    "measure_quality",
+]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
