@@ -369,10 +369,88 @@
       "smile": 1.748
     },
     {
-      "path": "brows_d100.png",
-      "role": "source_brows_step",
+      "path": "eyes_w007.png",
+      "role": "source_eyes_step",
       "optional": true,
-      "brows": -1.0
+      "eyes": -0.07
+    },
+    {
+      "path": "eyes_c006.png",
+      "role": "source_eyes_step",
+      "optional": true,
+      "eyes": 0.065
+    },
+    {
+      "path": "eyes_c011.png",
+      "role": "source_eyes_step",
+      "optional": true,
+      "eyes": 0.106
+    },
+    {
+      "path": "eyes_c015.png",
+      "role": "source_eyes_step",
+      "optional": true,
+      "eyes": 0.154
+    },
+    {
+      "path": "eyes_c018.png",
+      "role": "source_eyes_step",
+      "optional": true,
+      "eyes": 0.175
+    },
+    {
+      "path": "eyes_c025.png",
+      "role": "source_eyes_step",
+      "optional": true,
+      "eyes": 0.254
+    },
+    {
+      "path": "eyes_c030.png",
+      "role": "source_eyes_step",
+      "optional": true,
+      "eyes": 0.3
+    },
+    {
+      "path": "eyes_c037.png",
+      "role": "source_eyes_step",
+      "optional": true,
+      "eyes": 0.374
+    },
+    {
+      "path": "eyes_c042.png",
+      "role": "source_eyes_step",
+      "optional": true,
+      "eyes": 0.425
+    },
+    {
+      "path": "eyes_c045.png",
+      "role": "source_eyes_step",
+      "optional": true,
+      "eyes": 0.452
+    },
+    {
+      "path": "eyes_c053.png",
+      "role": "source_eyes_step",
+      "optional": true,
+      "eyes": 0.531
+    },
+    {
+      "path": "eyes_c060.png",
+      "role": "source_eyes_step",
+      "optional": true,
+      "eyes": 0.604
+    },
+    {
+      "path": "eyes_c066.png",
+      "role": "source_eyes_step",
+      "optional": true,
+      "eyes": 0.665
+    },
+    {
+      "path": "eyes_c072.png",
+      "role": "source_eyes_step",
+      "optional": true,
+      "eyes": 0.716
     },
     {
       "path": "brows_d093.png",
@@ -451,66 +529,6 @@
       "role": "source_brows_step",
       "optional": true,
       "brows": 1.0
-    },
-    {
-      "path": "eyes_w038.png",
-      "role": "source_eyes_step",
-      "optional": true,
-      "eyes": -0.378
-    },
-    {
-      "path": "eyes_w028.png",
-      "role": "source_eyes_step",
-      "optional": true,
-      "eyes": -0.275
-    },
-    {
-      "path": "eyes_w023.png",
-      "role": "source_eyes_step",
-      "optional": true,
-      "eyes": -0.228
-    },
-    {
-      "path": "eyes_w013.png",
-      "role": "source_eyes_step",
-      "optional": true,
-      "eyes": -0.128
-    },
-    {
-      "path": "eyes_c012.png",
-      "role": "source_eyes_step",
-      "optional": true,
-      "eyes": 0.122
-    },
-    {
-      "path": "eyes_c022.png",
-      "role": "source_eyes_step",
-      "optional": true,
-      "eyes": 0.221
-    },
-    {
-      "path": "eyes_c032.png",
-      "role": "source_eyes_step",
-      "optional": true,
-      "eyes": 0.323
-    },
-    {
-      "path": "eyes_c042.png",
-      "role": "source_eyes_step",
-      "optional": true,
-      "eyes": 0.423
-    },
-    {
-      "path": "eyes_c047.png",
-      "role": "source_eyes_step",
-      "optional": true,
-      "eyes": 0.466
-    },
-    {
-      "path": "eyes_c056.png",
-      "role": "source_eyes_step",
-      "optional": true,
-      "eyes": 0.558
     }
   ],
   "engine": {

@@ -160,7 +160,17 @@ _BROW_SMOOTHING = 0.4
 # How far the lids have to have moved before a brow reading is not believed.
 # Past this the landmarks are riding a blink rather than reporting a brow.
 _BROW_FREEZE_LID = 0.30
-_EYES_LADDER_START = 0.12
+# How far the lids have to have moved before a rung is chosen at all. Below it
+# the portrait's own eye is the best photograph of a resting one.
+#
+# It was 0.12 while the ladder's shallowest genuine rung was a fully shut eye:
+# every rung from +0.122 up measured 36-44% of the resting opening, so choosing
+# one early meant shutting an eye that was a fifth closed, and 0.12 was the
+# guard against that. The 2026-08-21 ladder has rungs at +0.065 and +0.106 that
+# really are a fraction closed — 99% and 97% of the resting opening — so the
+# guard now costs what it used to save, and a quarter-closed eye has a
+# photograph of a quarter-closed eye to be drawn with.
+_EYES_LADDER_START = 0.05
 
 # How much nearer another rung has to be before a ladder changes photograph.
 #
