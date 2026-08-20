@@ -1890,7 +1890,7 @@ the frames this is about.
 
 ---
 
-## 29. The lid axis reads a quarter-closed eye as a shut one — OPEN, and it is material
+## 29. The lid axis reads a quarter-closed eye as a shut one — FIXED 2026-08-21, and it was not only material
 
 **The owner, and this is the one to start with:** *"at 20-30% of a closing it
 thinks the eyes are shut and puts the shut photograph on."*
@@ -1923,6 +1923,130 @@ Two consequences, and the owner has now reported both:
 with the rungs it yields filed at 0.03, 0.06, 0.10, 0.15, 0.20, 0.25 — and
 `DEFAULT_MIN_MOVED` and the band width lowered to match, since both are set for
 a ladder that starts at a tenth.
+
+**How often it happens, measured on day 12** by `scripts/measure_quality.py`
+over 1817 frames of `driving.mkv`:
+
+| rung | frames | median share |
+|---|---|---|
+| `eyes +0.122` | 2.4% | 1.00 |
+| `eyes +0.221` | 13.6% | 1.00 |
+| `eyes +0.323` | 6.4% | 1.00 |
+| `eyes +0.423` | 0.4% | 1.00 |
+| `eyes +0.466` | 1.4% | 1.00 |
+| `eyes +0.558` | 8.8% | 1.00 |
+| **the closing side, together** | **33.0%** | |
+
+Every one of them arrives **whole** — a rung is not faded in, which is backlog
+28's fix working as intended. So if the finding above holds and each of these
+rungs is a photograph of a fully shut eye, the avatar's eyes are drawn shut on a
+third of this clip. The wide side is chosen on a further 19.7%, which makes an
+eye photograph of some kind present on **52.7%** of it.
+
+**And the six rung images were then measured, which settles it.** The reading
+above says which rung was *chosen*; this says what is *in* it. Each file put
+through the tracker on its own — a fresh tracker per still, because the tracker
+carries a prior between frames and these are unrelated photographs — and read
+with the engine's own `_eye_opening`:
+
+| file | filed at | `_eye_opening` | of the resting eye |
+|---|---|---|---|
+| `eyes_w038.png` | −0.378 | 0.0749 | 143% |
+| `eyes_w028.png` | −0.275 | 0.0685 | 131% |
+| `eyes_w023.png` | −0.228 | 0.0662 | 126% |
+| `eyes_w013.png` | −0.128 | 0.0685 | 131% |
+| **`portrait.png`** | **0.000** | **0.0524** | **100%** |
+| `eyes_c012.png` | +0.122 | 0.0203 | **39%** |
+| `eyes_c022.png` | +0.221 | 0.0190 | **36%** |
+| `eyes_c032.png` | +0.323 | 0.0215 | **41%** |
+| `eyes_c042.png` | +0.423 | 0.0205 | **39%** |
+| `eyes_c047.png` | +0.466 | 0.0229 | **44%** |
+| `eyes_c056.png` | +0.558 | 0.0221 | **42%** |
+| `clip_eyes_closed.png` | the named shut photograph | 0.0164 | 31% |
+| `clip2_eyes_closed.png` | the named shut photograph | 0.0186 | 36% |
+
+**The six rungs of the closing side are one picture filed six times.** They span
+0.0190 to 0.0229 with no order to them — a fifth of a closing and half a closing
+are the same photograph — and all six sit beside the two photographs taken
+*because* the eyes were shut. The ladder has nothing between an open eye and a
+shut one, and a reading of 0.122 is answered with a shut eye at a share of 1.00.
+
+The wide side is not like this: −0.128 to −0.378 reads 126% to 143% of resting,
+ordered and well separated. That half of the ladder is real.
+
+**So the owner's first report is confirmed, with the number under it: on 33.0% of
+the driving clip the avatar is wearing a photograph of a shut eye.** What it
+needs is still a clip, not a change.
+
+### Fixed 2026-08-21, and the diagnosis above was half right
+
+**The clip was half of it. The other half was that the builder was not measuring
+eyelids.** `build_eye_ladder.py` handed every still to one tracker with the same
+timestamp; the tracker runs in VIDEO mode and the adapter turns repeated
+timestamps into one millisecond apart, so MediaPipe expected a face that had not
+moved and reported its own lag. It produced a smooth ramp from 0.014 to 0.038
+across sixteen frames whose eyes were all wide open at 0.050 — and the ladder
+was filed against that ramp. Six rungs, one picture, is what filing a lag curve
+looks like.
+
+Two fixes, and a clip:
+
+1.  **The real millisecond is passed**, read from the name `dump_clip_frames.py`
+    already writes. Checked against a fresh tracker per still: within 0.003.
+2.  **The ladder's zero comes from the portrait**, not from the median frame of
+    the clip. The median is only rest for a clip that is mostly at rest, and an
+    eye clip never is — the old take holds the eyes shut for four of its eight
+    seconds, so its median was a shut eye.
+3.  **A clip that holds the lids part-way down.** Two takes that asked the
+    generator to *close* the eyes both produced a blink and a long hold; the one
+    that worked asks for a squint deepening in held steps and says the lids
+    never meet.
+
+`DEFAULT_STEP` 0.1 → 0.05, `DEFAULT_MIN_MOVED` 0.08 → 0.03, and
+`_EYES_LADDER_START` 0.12 → 0.05 — that last one was the guard against choosing
+a shut photograph for a barely-closed eye, and there is now a barely-closed
+photograph to choose instead.
+
+| | before | after |
+|---|---|---|
+| rungs on the closing side | 6 | 13 |
+| what they show, against the resting eye | 36-44%, unordered | 99% to 34%, ordered |
+| mean error, filed against shown | 0.30+ | **0.095** |
+| warp residual over the driving clip | 7.59 px | **7.30** |
+| near-eye sharpness | 215 | **329** |
+
+**Still open, and it belongs to this item:** the deepest rung the driving clip
+reaches is +0.604, an eye at 50% of its resting opening. The shut rung at +0.716
+is never chosen because the driver's own reading peaks at 0.636. Rendered it
+looks shut; that is a judgement about a picture rather than a measurement, and
+the driving clip cannot settle it — the segment labelled *"close your eyes for
+two seconds"* contains an open face with three blinks in it.
+
+**And the same builder defect is still in the brow ladder.** Measured with the
+builder's own formula — `((height - rest) / rest) / _BROW_SPAN`, clamped:
+
+| file | filed | actually |
+|---|---|---|
+| `brows_u020.png` | +0.199 | **−0.645** |
+| `brows_u031.png` | +0.311 | **−0.575** |
+| `brows_u043.png` | +0.430 | **−0.594** |
+| `brows_u057.png` | +0.568 | **−0.366** |
+| `brows_u080.png` | +0.796 | +1.000 |
+| `brows_u088.png` | +0.880 | **−0.321** |
+| `brows_u100.png` | +1.000 | +1.000 |
+
+**Five of the seven raised rungs are photographs of lowered brows**, and the two
+that are genuinely raised are both raised *fully*. Mean error 0.442 on an axis
+of −1 to +1. The lowered side is ordered but saturates: `d080`, `d093` and
+`d100` all clamp at −1.0, so three rungs are one picture.
+
+The builder is fixed and the ladder is being rebuilt from the existing clips —
+no new material is needed for the filing. What a rebuild cannot supply is the
+missing middle of the raised side, which is not in any photograph.
+
+(First written as "0.563 on an axis of 0 to 1, and `brows_u088.png` is a resting
+brow". The check had divided by `_BROW_SPAN` without dividing by rest first,
+which is not the builder's formula. Corrected above the same day.)
 
 ---
 

@@ -226,6 +226,12 @@ sharp focus at every angle.
 # did not belong. A clip for them would buy frames nothing reads.
 # ---------------------------------------------------------------------------
 
+# SUPERSEDED FOR THE CLOSING SIDE by `eyes-slow-close` above, and it is the
+# clip that caused the defect that one exists to fix: three of its eight seconds
+# are held shut, which leaves the shallow bands empty and drags the ladder's
+# median zero onto a shut eye. Kept because the library's shut-eye and wide-eye
+# photographs came from it and are good. Do not regenerate it expecting the
+# in-between rungs.
 [[clip]]
 id = "eyes"
 order = 3
@@ -248,6 +254,83 @@ completely still until the end, blinking once naturally.
 The eyelids close and open smoothly and gently, never suddenly. The head does
 not move at any point, the eyebrows do not move, and the mouth stays closed
 throughout.
+'''
+
+# ---------------------------------------------------------------------------
+# THE ONE THE OWNER ASKED FOR FIRST, AND THE TWO TAKES THAT TAUGHT IT ITS SHAPE.
+#
+# THE DEFECT. The library has an open eye and a shut one and nothing between
+# them. Measured 2026-08-20, each photograph alone, against the portrait's own
+# resting opening of 0.0524: the six rungs filed from +0.122 to +0.558 read
+# 0.0190 to 0.0229 - 36% to 44% of resting, unordered, sitting beside the
+# photographs taken because the eyes were shut (31%). Six rungs, one picture. A
+# lid reading of 0.20 is therefore answered with a shut eye at full strength,
+# on 33.0% of the recorded driving clip.
+#
+# TWO TAKES, THE SAME FAILURE. Both the `eyes` clip below and the first take of
+# this one asked for the eyes to CLOSE. Measured on video-07, sampled every
+# 50 ms: one frame part-way down at 2450 ms, then shut from 2500 ms to 6350 ms,
+# then one frame part-way up at 6400 ms. Two usable frames in eight seconds. The
+# first take of this clip did the same thing at 24 fps: open to shut in four
+# frames, then 3.1 seconds held shut, plus a second blink the prompt forbade.
+#
+# A generator asked to close an eye produces a BLINK - a reflex, as fast as it
+# can be drawn - and then holds the pose. Asking for it to be slower has now
+# failed twice, so this prompt stops asking.
+#
+# WHAT IT ASKS FOR INSTEAD: A SQUINT THAT DEEPENS, AND THE EYES NEVER CLOSE.
+# The words "close", "shut" and "blink" do not appear. The eyes narrow, in held
+# steps, and the narrowest position is still open. Three things follow:
+#
+#   * a narrowed eye is a POSE, and the generator holds a pose - which is the
+#     same reason the turn clips ask for stops rather than a sweep;
+#   * a held pose is still, and only a still frame becomes a photograph;
+#   * and nothing in the clip is a shut eye, so nothing competes with the shut
+#     photographs the library already has and is happy with.
+#
+# The rungs this yields are exactly the missing ones. The ends of the axis are
+# already covered.
+# ---------------------------------------------------------------------------
+
+[[clip]]
+id = "eyes-slow-close"
+# Zero, so it sorts ahead of the two turn clips: the owner ranked it first and
+# it is the only clip whose absence is a measured defect rather than a soft one.
+order = 0
+title = "The eyes narrowing in held steps, and never closing"
+why = "The library holds an open eye and a shut one and nothing between them, so a fifth of a closing is drawn as a shut eye on a third of an ordinary conversation. Two takes that asked for a closing produced a blink and a long hold; this one asks for a deepening squint in held steps and never lets the lids meet."
+check = "roles"
+probe_first = false
+want_roles = ["source_eyes_closed"]
+min_roles = 0
+body = '''
+The person in the attached photograph faces the camera with the head still,
+upright and centred, the mouth closed, and the eyes on the lens.
+
+They begin with a relaxed neutral face and the eyes fully open and wide awake,
+and they hold that completely still for three full seconds.
+
+They then narrow their eyes very slightly, as if the light in the room had come
+up a little, and hold that new position completely motionless for one and a half
+seconds. Then they narrow their eyes a little further, into a light squint, and
+again hold it completely motionless for one and a half seconds. Then they narrow
+them further still, into a deep squint with the eyes reduced to narrow slits,
+and hold that completely motionless until the last moment of the clip, when they
+relax their eyes wide open again.
+
+The eyes stay open the entire time. Even at the deepest squint the eyes are
+still open and the pupils are still visible between the lids: the eyelids never
+meet, and there is no blink anywhere in the clip.
+
+Each narrowing takes about a third of a second and is smooth and gentle, and
+each of the three positions is then held completely motionless with no drift and
+no creeping. The upper eyelid does the work: it lowers a little further at each
+step while the face stays otherwise relaxed.
+
+The head does not move at any point, the eyebrows do not move at all, staying
+exactly where they are while the eyelids lower, and the mouth stays closed
+throughout. Every frame is sharp, including the frames in which the eyes are
+part-way narrowed.
 '''
 
 [[clip]]

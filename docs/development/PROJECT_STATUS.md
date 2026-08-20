@@ -3,7 +3,7 @@
 **Living document.** Update it at the end of each working day. For the frozen
 record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
-**Last updated:** 2026-08-19 · **Day 11 — five passes at one shut eye, and the owner's list for day 12**
+**Last updated:** 2026-08-21 · **Day 12 — the quality measure becomes a tool, and the first thing it found was that the eye ladder had been built out of the tracker's own lag**
 
 ---
 
@@ -922,6 +922,284 @@ carry — each a different way of ending up with two photographs on screen at
 once, and the last two found only because the owner recorded what he was
 actually looking at.
 
+## Day 12 — the quality measure becomes a tool, and the first thing it measured was the frame cost
+
+**`scripts/measure_quality.py`.** One clip, fixed frames, one report, and every
+number printed with the conditions that make it mean something. It was the first
+item on the code list for a stated reason: twice on day 11 a figure taken in
+passing reached a commit message and had to be corrected the next day.
+
+It renders `driving.mkv` through the tracker and the engine exactly as the
+application does — from frame 0 every time, because both are stateful — and
+measures four things per frame: the **warp residual** (the pixels left after a
+rigid fit of the blended mesh onto the tracked face, which is how much the
+picture is being stretched), the **near-eye sharpness** of the rendered frame,
+the whole-**face sharpness**, and the cost of `animate` alone. Each is reported
+for all frames, frontal frames and turned frames separately, because the turn
+fix on day 8 was nearly invisible in a single average.
+
+It does **not** combine them into a score. A residual in pixels and a Laplacian
+variance do not add up to anything, and a weighted total would look like a
+measurement while being an opinion.
+
+**What it refuses.** `--baseline` compares two runs and stops dead if they did
+not measure the same thing: a different clip, a different frame range, or a
+different photograph library — the last because day 9 rebuilt every ladder
+without touching a line of engine code, and every number moved. The frame cost
+is withheld separately from the geometry, since a busy machine does not move a
+pixel: repeated runs of the same clip produced **identical residuals to the last
+decimal**, which is the proof that half this report is exact.
+
+### The baseline, 1817 frames of `driving.mkv`
+
+Machine rested first, and every number below reproduced exactly across four
+runs taken in three different machine states.
+
+| | all | frontal | turned |
+|---|---|---|---|
+| warp residual, mean px | 7.59 | 7.60 | 7.07 |
+| warp residual, p50 / p95 | 6.91 / 12.24 | 6.91 / 12.26 | 6.70 / 8.28 |
+| near-eye sharpness | 215 | 213 | 337 |
+| face sharpness | 140 | 140 | 148 |
+| `animate`, mean / p50 / p95 ms | 21.44 / 21.71 / 24.48 | 21.49 / 21.76 / 24.49 | 19.28 / 19.29 / 21.24 |
+| frames | 1817 | 1783 | **34** |
+
+**Thirty-four frames.** The recorded clip holds a turn past ten degrees on
+**1.9%** of its length, so the largest open item on the list is being judged on
+two thirds of a second of video. That is not a shortcoming of the clip — it was
+recorded before the turn was the subject — but no measurement of a turn taken
+here should be believed until there is a clip recorded for it.
+
+### The frame cost, and the trap the tool walked into first
+
+**The same 301 frames, the same commit, measured four times, read 21.5 ms once
+and 34.8 to 35.8 ms three times.** Nothing about the engine changed between
+them. What changed was how long this machine had been working.
+
+| the machine | probe, start → end | `animate` over 301 frames |
+|---|---|---|
+| rested five minutes | 0.384 → 0.408 ms (+6%) | **21.53** |
+| after half an hour of runs | 0.388 → 0.626 ms (+61%) | 35.66, 35.75, 34.76 |
+
+The probe is a fixed OpenCV warp timed before and after every run — the tool's
+own reading of how fast the machine is going. Measured directly as well, outside
+the tool: probe, sixty seconds of many-threaded warping, probe again — **0.392 →
+0.572 ms, and still 0.601 after twenty seconds of rest.** Minutes, not seconds,
+are what this machine needs to come back.
+
+**21.53 ms on a rested machine is the 21.4 ms this document already carried**,
+which is the reassuring half of the finding. The other half is that the same
+measurement taken half an hour into a working session reads **65% higher**, and
+nothing in a printed number says which of the two it is. Every frame-cost figure
+in this file was taken by a scratch script that recorded neither.
+
+That is the whole argument for the tool, made by the tool, on its first day —
+and the first version of it got the interpretation wrong in the other direction:
+it treated the slowdown as another program competing and refused to report the
+frame cost at all, which refused every full-clip run. Both readings are now
+recorded, and a comparison is made **start against start**.
+
+**And then the same discipline had to be applied to the finding itself.** The
+first draft of this section said the engine costs 35 ms in the state a real call
+runs it in, and offered that as the explanation for item 6 — *stages measured
+29 ms, the owner sees 20*. It is not. A **full 1847-frame run on a rested
+machine warms it by 7%** and costs **21.44 ms**: first tenth 22.17, last tenth
+21.27, no drift worth the name. One clip does not heat this machine. Half an
+hour of clips back to back does.
+
+So item 6 stays exactly where it was. What the day produced instead is a
+narrower and more useful fact: **`animate` costs 21.4 ms, confirmed on a rested
+machine, and any figure taken later in a working session will read up to 65%
+higher for reasons that have nothing to do with the code.** Whether a
+thirty-minute call puts the machine in that state is **scenario S5 of the
+performance plan**, which has still never been run.
+
+### What the photograph table says
+
+Every source that reached the screen, counted over the same 1817 frames. The
+ladder rungs are named after their **position in the manifest** — `eyes@81` is
+the eighty-first asset, not an eye 81% shut — so the tool decodes each one to
+the amount it was measured at and the file it came from. Read as a value that
+name says the opposite of the truth for half the eye ladder, whose negative
+rungs are eyes held *wider* than resting.
+
+* **`source_mouth_o` is on 65.6%** of an ordinary clip, at a median share of
+  0.18. The table was last built by hand on day 8 and read 84.2%, so something
+  between the two moved it — one photograph per region on day 10 is the
+  candidate — and it is still the mouth on two frames out of three.
+* **The closing side of the eye ladder is chosen on 33.0%** of frames:
+  +0.122 on 2.4%, +0.221 on 13.6%, +0.323 on 6.4%, +0.423 on 0.4%, +0.466 on
+  1.4%, +0.558 on 8.8%, every one of them at a median share of **1.00**. The six
+  rung *images* were then measured one at a time, and they are **one picture
+  filed six times**: 36% to 44% of the resting eye's opening, unordered, sitting
+  beside the two photographs taken because the eyes were shut (31% and 36%). The
+  ladder holds nothing between an open eye and a shut one. **The owner's first
+  report is confirmed with a number under it — on a third of this clip the
+  avatar is wearing a shut eye** — and backlog 29 has the table.
+* The wide side is chosen on a further **19.7%**, so an eye photograph of some
+  kind is on screen on **52.7%** of the clip.
+* **Two turn rungs are refused at load** — `turn_m58_6.png` and `turn_p55_0.png`
+  — because MediaPipe finds no face in either. The ladder ends at ±42° rather
+  than ±58°, which is a fact worth knowing before the next turn clip is
+  generated.
+
+**604 tests** (was 573), ruff and mypy clean. Five mypy errors and one
+unformatted file were already there and are fixed on the way past, so
+`uv run mypy` and `ruff format --check` are green again.
+
+## Day 12, second pass - the ladder was built out of the tracker's own lag
+
+The owner generated the slow-close clip, and checking it found something larger
+than the clip. **`build_eye_ladder.py` was not measuring eyelids.**
+
+Every ladder builder handed each still to one tracker with
+`capture_timestamp=0.0`. The tracker runs in `RunningMode.VIDEO` and carries
+state between frames, and the adapter turns repeated timestamps into **one
+millisecond apart** - so MediaPipe expected a face that had barely moved and
+reported its own lag instead of the lids. Three measurements of the same frames:
+
+| frame | fresh tracker, one still each | the builder | with the real timestamp |
+|---|---|---|---|
+| `0146` | 0.0334 | 0.0162 | 0.0285 |
+| `0149` | 0.0467 | 0.0144 | 0.0437 |
+| `0152` | 0.0509 | **0.0146** | 0.0480 |
+| `0158` | 0.0517 | 0.0248 | 0.0504 |
+| `0164` | 0.0529 | 0.0333 | 0.0514 |
+
+The middle column is a smooth, ordered, entirely fictitious ramp across frames
+whose eyes are all wide open. **That is what the eye ladder was built from**,
+and it is why six rungs filed from a tenth to half a closing are one photograph
+of a shut eye. Backlog 29 blamed the clip; the clip was half of it.
+
+**Scope, checked rather than assumed.** All four builders share the code.
+
+*   **The turn ladder is fine** - each rung's filed yaw against the yaw its
+    photograph actually shows: mean error **1.4 deg**, worst 2.8, on a ladder
+    whose step is 3. Yaw moves slowly and by large amounts, and the lag cannot
+    catch it.
+*   **The brow ladder is not.** Mean error **0.442 on an axis of -1 to +1**,
+    and worse than unordered: **five of the seven rungs on the raised side are
+    photographs of *lowered* brows.** `brows_u057.png` is filed at +0.568, is
+    actually -0.366, and is the most-used brow rung in the whole clip at 17.6%.
+    Only two rungs are genuinely raised and both are raised *fully*, so the up
+    side of the ladder is nothing, nothing, nothing, nothing, nothing, FULL,
+    nothing, FULL. That is item 3 of the list, and the owner's report on day 12
+    that a raised brow arrives *"completely without cause"* is what a binary
+    ladder looks like from the outside.
+
+    (Corrected the same day: this was first written as "0.563 on an axis of 0
+    to 1, and `brows_u088.png` is a resting brow". The check had divided by
+    `_BROW_SPAN` without first dividing by rest, which is not the builder's own
+    formula. The conclusion holds and is sharper; the numbers above are the
+    right ones.)
+
+**A second defect, found while fixing the first.** `amounts()` took the ladder's
+zero from the **median** frame of the clip. That is only rest if the clip is
+mostly at rest, and an eye clip never is: the take that built the old ladder
+holds the eyes shut for four of its eight seconds, so its median *was* a shut
+eye - true rest 0.0538 against a median of 0.0356. The zero now comes from the
+portrait, which is also the right answer rather than merely the safer one: the
+engine picks a rung by comparing the driver's closure against *their* rest with
+the rung's amount against *the avatar's*, and the avatar's rest is the portrait.
+
+### The clip, and what it took to get one
+
+Two takes failed before one worked, and the reason is worth keeping: **a
+generator asked to close an eye draws a blink** - a reflex, as fast as it can be
+drawn - and then holds the pose. Asking for it to be slower failed twice.
+
+The prompt that worked never mentions closing. It asks for a squint that deepens
+in held steps and states that the lids never meet. The first take also came back
+1280x720 in 16:9 with a **320 px** face, under the 380 px floor, so every one of
+its frames was refused; 9:16 at 1080p gives **496 px**.
+
+**The rungs it yielded, each photograph measured on its own afterwards:**
+
+| | old ladder | new ladder |
+|---|---|---|
+| rungs on the closing side | 6 | 13 |
+| what they show, as a share of the resting eye | 36-44%, unordered | 99% down to 34%, ordered |
+| mean error between filed and shown | 0.30+ | **0.095** |
+
+### Measured, the same clip, the same frames, both runs on a rested machine
+
+| | before | after |
+|---|---|---|
+| warp residual, all | 7.59 px | **7.30** |
+| near-eye sharpness, all | 215 | **329** |
+| face sharpness, all | 140 | **166** |
+| `animate` mean / p95 | 21.44 / 24.48 ms | 21.53 / 24.33 |
+
+The frame cost is unchanged and the two other numbers moved together, which is
+what a better-matched photograph should do: the mesh has less to close because
+the lid it is drawing is the lid the driver has.
+
+**And the tool had to be corrected to allow this comparison at all.** It refused
+any two runs whose photograph libraries differed, on the reasoning that a
+rebuilt ladder moves every number. True - and exactly why it has to be allowed:
+most of the work on this engine *is* rebuilding a ladder. A library change is
+now announced at the top of the comparison instead of ending it.
+
+### The brows were rebuilt, verified, and put back
+
+The owner tested live and reported three things about the brows: they change too
+fast, a *"delighted"* raise arrives with no cause, and a deliberate frown —
+brows down and drawn together — did nothing at all. All three have a cause in
+the table above, and the rebuild that should have fixed them **was reverted**.
+
+The rebuilt ladder looked right: 20 rungs, ordered, brow height running 0.0563
+to 0.0915 across the whole axis, built from the six clips already on disk. Then
+each installed rung was measured on its own, as the eye rungs had been, and it
+came out **worse than the ladder it replaced** — 0.545 mean error against 0.442.
+
+**The reason is a third defect in the builders, and it is the one that matters
+most.** A rung is measured on the full dumped frame and then written out as a
+crop, and `_brow_height` does not survive the crop: the same face reads 0.0650
+in its 2160x3840 source frame and 0.0825 in the 2116x2330 crop cut from it —
+**1.29 on an axis that runs from −1 to +1**. Filing the crop's own reading
+instead makes it worse rather than better: twelve of twenty rungs then move by
+more than 0.25, several of them across zero, so a lowered brow files as a raised
+one. The measure is not stable enough on these images to file anything against.
+
+The eye axis is not affected in the same way — it divides two distances that sit
+inside the eye socket, where the brow axis divides by the whole face from
+hairline to chin, and it verified at 0.095. That is why the eye ladder ships and
+the brow ladder does not.
+
+**So the brows are exactly as the owner tested them**, minus one rung:
+`brows_d100.png` was overwritten by the rebuild before the revert and the file
+recovered in its place is a different photograph, so it was dropped rather than
+shipped under a number that does not describe it. The ladder is 13 rungs,
+−0.927 to +1.000.
+
+**And a fourth thing, which no rebuild would have fixed:** `source_frown` is a
+**mouth** photograph. Nothing in the library is a photograph of brows drawn
+*together*, and `_brow_height` measures only how high they sit — a furrow is two
+movements and the axis has one. The owner's *"I did it and it did nothing"* is
+not a filing error; the picture does not exist and the measurement could not see
+it if it did.
+
+### What is not settled
+
+*   **How deep a blink goes.** The deepest rung the driving clip ever reaches is
+    `+0.604`, which shows an eye at 50% of its resting opening; the genuinely
+    shut rung at `+0.716` is never chosen, because the driver's own reading
+    peaks at 0.636. Rendered, a blink looks properly shut - see
+    `recordings/eyes-after-new-ladder.png` - but that is a judgement about a
+    picture, not a measurement.
+*   **The driving clip cannot settle it.** Its segment labelled *"Close your
+    eyes for two seconds"* contains an **open** face: the driver's eyelid
+    opening sits at 0.053 throughout, with three blinks in it. `replay_clip.py`
+    said this in its docstring on day 9 - the behaviour is not where the labels
+    say - and it is now measured.
+*   **The brow ladder has not been rebuilt** with the fixed builder. It is the
+    next thing, and it needs no new material.
+*   Two artefacts are plainly visible in the contact sheet and belong to the
+    owner's items 3 and 6: a torn triangle by the inner corner at a hard gaze to
+    the right, and the far eye at +39 deg of yaw.
+
+**612 tests** (was 604).
+
 ## Where day 12 starts — the owner's list, and the one item under it
 
 Reported at the end of day 11, after the fifth fix. Written down as said;
@@ -992,14 +1270,15 @@ blurred rung is chosen by angle exactly like a sharp one.
 
 **Next in code, in order:**
 
-1. Item 2 below — the quality measure, as a committed tool rather than a scratch
-   script. Everything since has been reported through it. **This is now the
-   first item for a reason:** the day's own frame-cost figure was wrong because
-   it was taken on a loaded machine, and a committed tool that reports its
-   conditions would not have let that reach a commit message.
-2. The lips: still an average of five photographs, `source_mouth_o` active on
-   84% of the recording. The mouth is the last family that averages rather than
-   chooses.
+1. ~~Item 2 below — the quality measure, as a committed tool rather than a
+   scratch script.~~ **Done on day 12**, and it earned its place on the first
+   run: the frame cost this document was carrying turned out to describe a
+   machine at rest rather than one under load. See the day 12 section.
+2. The lips. `source_mouth_o` is on **65.6%** of the recording at a median share
+   of 0.18 — measured on day 12, against 84.2% when the table was last built by
+   hand on day 8. It is no longer an average of five photographs; one per region
+   went in on day 10. What is left is that a rounded-lips photograph is still the
+   mouth on two frames out of three of a person talking normally.
 3. Two defects the owner reported that cannot be reproduced here — teeth
    doubling now and then, and a delay before the avatar recovers from a big turn.
    Both need a driving clip that turns both ways; `driving.mkv` holds |yaw| > 5°
@@ -1021,11 +1300,14 @@ blurred rung is chosen by angle exactly like a sharp one.
    geometry, the mesh moves with it, and a turned face costs the warp what a
    frontal one does: **22.4 px → 7.3 px** of residual past 10° of yaw.
 
-2. **A repeatable quality measure**, before anything else changes. One clip,
-   fixed frames, one number, so "better" stops being a matter of opinion. Two
-   of the three numbers now exist as a scratch script — warp residual and
-   rendered sharpness, both reported for the turn fix — and what is missing is
-   a committed tool that anyone can run.
+2. ~~**A repeatable quality measure**, before anything else changes.~~
+   **Done on day 12: `scripts/measure_quality.py`.** One clip, fixed frames, and
+   the conditions printed beside every number. Not *one* number — a residual in
+   pixels and a Laplacian variance do not add up to anything, and the composite
+   that would have made them into one would have been an opinion wearing a
+   measurement's clothes. It is four numbers, each reported for all frames,
+   frontal frames and turned frames, and a comparison that refuses itself when
+   two runs did not measure the same thing.
 
 3. **The brows over-fire.** The owner: raising them reads as *"crazily
    overjoyed"*. Same family as the squint — measure how often the brow

@@ -70,6 +70,95 @@ WHAT MATTERS IN THE OUTPUT
 
 
 ================================================================================
+THE ONE TO GENERATE NEXT, 2026-08-20 - eyes-slow-close
+================================================================================
+
+  Get the text with:
+
+      uv run python scripts/generate_avatar_clips.py --print-prompt eyes-slow-close
+
+  WHY IT EXISTS, AND WHY IT IS FIRST. The owner's first report is that at
+  20-30% of a closing the avatar decides the eyes are shut and puts the shut
+  photograph on. That was measured on 2026-08-20, one photograph at a time,
+  against the portrait's own resting eye opening of 0.0524:
+
+      eyes_c012.png   filed at +0.122   opening 0.0203    39% of resting
+      eyes_c022.png   filed at +0.221   opening 0.0190    36%
+      eyes_c032.png   filed at +0.323   opening 0.0215    41%
+      eyes_c042.png   filed at +0.423   opening 0.0205    39%
+      eyes_c047.png   filed at +0.466   opening 0.0229    44%
+      eyes_c056.png   filed at +0.558   opening 0.0221    42%
+      clip_eyes_closed.png  - the photograph taken because the eyes were shut,
+                              for comparison                        31%
+
+  Six rungs, one picture. They span 0.019 to 0.023 with no order to them, and
+  all six sit beside the photographs taken because the eyes were shut. So a lid
+  reading of 0.20 is answered with a fully shut eye at full strength, which
+  happens on 33.0% of the recorded driving clip. No threshold and no rate limit
+  fixes that: the in-between pictures are not in the library.
+
+  TWO TAKES ASKED FOR A CLOSING AND BOTH PRODUCED A BLINK. The old `eyes`
+  clip, measured on video-07 at 50 ms per sample: one frame part-way down at
+  2450 ms, then shut from 2500 ms to 6350 ms, then one frame part-way up at
+  6400 ms. Two usable frames in eight seconds, and the face was 1120 px wide,
+  so nothing was wrong with the framing. The first take of eyes-slow-close, at
+  24 fps: open to shut in four frames, 3.1 seconds held shut, and a second
+  blink the prompt had forbidden.
+
+  A generator asked to close an eye draws a BLINK - a reflex, as fast as it can
+  be drawn - and then holds the pose. Asking for it to be slower has failed
+  twice now.
+
+  SO THE PROMPT STOPS ASKING. The words "close", "shut" and "blink" are gone.
+  It asks for a squint that deepens in three held steps, and the eyes never
+  close: even at the narrowest the lids do not meet. A narrowed eye is a POSE,
+  and a generator holds a pose - the same reason the turn clips ask for stops
+  rather than a sweep - and a held pose is still, which is what makes a frame
+  usable at all. Nothing in the clip is a shut eye, and nothing needs to be:
+  both ends of the axis are already covered by photographs the library is happy
+  with. What is missing is only the middle.
+
+  AND A SECOND REASON THE OLD TAKES WERE MIS-FILED, fixed in code rather than
+  in the prompt: `build_eye_ladder.py` fed every still to one tracker with the
+  same timestamp, so MediaPipe - which runs in VIDEO mode and carries state
+  between frames - thought the stills were one millisecond apart and lagged
+  behind them. It reported a smooth ramp from 0.014 to 0.038 across frames that
+  were in fact all wide open at 0.050. The ladder was built from the tracker's
+  own lag rather than from the eyelids. Measured against a fresh tracker per
+  still, passing the real millisecond - which the dumped filenames already
+  carry - tracks the truth to within 0.003.
+
+  FORMAT: 9:16, AND THE FACE AS LARGE AS THE FRAME ALLOWS. This is measured
+  rather than preferred. The first take came back 1280x720 in 16:9 and its face
+  was 320 px wide - under the 380 px floor, so the ladder builder refused every
+  one of its 192 frames. video-07, which is 2160x3840 in 9:16, has a face
+  1120 px wide. A vertical frame spends its pixels on a head, and a horizontal
+  one spends them on the room either side of it.
+
+  Resolution is the smaller question and 1080p is enough: at 9:16 that is
+  1080x1920, and a face framed as video-07 frames it comes to about 560 px -
+  already above the portrait's own 455 px, so anything beyond it is discarded
+  by `_reduce_to` at load. 4K is not wrong, and the whole current library came
+  from 4K clips, but backlog 16 measured 4K sources rendering *worse* than
+  stills for reasons still not found, so there is no argument for paying for it
+  here. Take whichever the site offers at 9:16.
+
+  WHAT MAKES A TAKE USABLE. Not "it looks right", and not the ladder builder's
+  own band table either until the timestamp fix above is in. The test is the
+  frame-by-frame eyelid opening measured with the real timestamps: the take is
+  good if the lids hold at three distinct openings between the resting eye and
+  a shut one, for at least half a second each, and the face is at least 455 px
+  wide. A take that jumps from open to shut in a few frames is the clip we
+  already have, however slow it looked.
+
+  ONE THING NOT TO WORRY ABOUT: the old rungs do not have to be deleted by
+  hand. `build_eye_ladder.py --install` retires every `eyes_*.png` into
+  `superseded-eyes/` and drops the matching manifest entries itself. That is
+  the opposite of the turn ladder, where the deletion is manual and is the step
+  that is easy and expensive to skip.
+
+
+================================================================================
 THE SHARED BLOCK — put this at the end of EVERY prompt below
 ================================================================================
 
