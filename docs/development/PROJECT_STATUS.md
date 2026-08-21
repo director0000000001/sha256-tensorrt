@@ -1179,6 +1179,51 @@ movements and the axis has one. The owner's *"I did it and it did nothing"* is
 not a filing error; the picture does not exist and the measurement could not see
 it if it did.
 
+### The mouth axis moves from a blendshape to geometry
+
+Its ladder was the one family never checked, and checking it found the same
+defect a third time: `smile_140.png` is filed at +1.401 and shows **less** smile
+than `smile_108.png` at +1.084. Mean error 0.362 on an axis that runs to two.
+
+**The cause is not the builder this time. It is the measurement.**
+``mouthSmile`` saturates: across all ten installed rungs it moves only from
+0.529 to 0.798, and the top five sit between 0.67 and 0.80 — five photographs
+filed as five different smiles which the blendshape cannot tell apart.
+
+Geometry can. The mouth's own width against the span between the outer eye
+corners runs **0.586 to 0.722 across the same ten, in order**, and the lip
+parting divides closed smiles (0.003 to 0.019) from open ones (0.100 to 0.128)
+with nothing in between. Both in pixels over an interior denominator, which is
+what survives a crop: cutting a rung out of its frame and re-reading it moves
+the width by 0.008 of an eye span and the parting by 0.002, against axis spans
+of 0.19 and 0.15. The same test moves the **brow** axis by 38% of its span,
+which is why the brows still cannot be filed and the mouth now can.
+
+**Two mistakes on the way, both caught by measuring rather than by reading.**
+
+*   The two halves were **added** first, on the reasoning that a mouth can widen
+    without parting and part without widening. True, and wrong here: an open
+    mouth then reads as a smile whatever it is doing, and the broadest smile
+    photograph in the library landed on **10.5%** of an ordinary speaking clip.
+    The widening is what makes something a smile and the opening only says how
+    far into one it has gone, so they multiply, as they always did.
+*   The *share* that splits an open mouth between the smiling and the "ah"
+    photographs was normalised by the axis span rather than by the widest smile,
+    which capped the closed-smile photograph at 0.37 of itself.
+
+| | before | after |
+|---|---|---|
+| warp residual, all | 7.29 px | **7.24** |
+| near-eye sharpness | 326 | 326 |
+| face sharpness | 167 | 166 |
+| `source_mouth_open`, the speech photograph | 4.0% | **9.7%** |
+| the ladder, filed | +0.00 to +1.75, out of order | **+0.10 to +0.60, in order** |
+
+The ten rungs were re-filed onto the new axis without a new clip — they are
+photographs, and a photograph can be measured. What the re-filing exposes is the
+hole: **+0.23 then +0.41**, with nothing between a closed smile and one whose
+teeth are showing. `smile-steps` is the clip that fills it.
+
 ### What is not settled
 
 *   **How deep a blink goes.** The deepest rung the driving clip ever reaches is

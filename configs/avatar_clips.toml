@@ -114,7 +114,7 @@ artifacts
 
 [[clip]]
 id = "turn-frame-right"
-order = 1
+order = 4
 title = "Stepped turn, face toward the RIGHT edge of frame (their own left)"
 why = "The side the first clip did not cover. Half the ladder."
 check = "ladder"
@@ -156,7 +156,7 @@ sharp focus at every angle.
 
 [[clip]]
 id = "turn-frame-left"
-order = 2
+order = 5
 title = "Stepped turn, face toward the LEFT edge of frame (their own right)"
 why = "The other half of the ladder, sharp this time."
 check = "ladder"
@@ -234,7 +234,7 @@ sharp focus at every angle.
 # in-between rungs.
 [[clip]]
 id = "eyes"
-order = 3
+order = 6
 title = "Eyes closing, and a natural blink"
 why = "The eyes are the owner's standing complaint. source_eyes_closed is active on 9.6% of a conversation and every blink passes through it, so the closed frame gets a clip of its own and three full seconds inside it."
 check = "roles"
@@ -254,6 +254,153 @@ completely still until the end, blinking once naturally.
 The eyelids close and open smoothly and gently, never suddenly. The head does
 not move at any point, the eyebrows do not move, and the mouth stays closed
 throughout.
+'''
+
+# ---------------------------------------------------------------------------
+# THE BROWS AND THE MOUTH, 2026-08-21, AND WHY THEY LOOK LIKE THE EYE CLIP.
+#
+# All three of the owner's families were measured on 2026-08-21, one photograph
+# at a time, against what the manifest claims each one is:
+#
+#   eyes    14 rungs, ONE clip     mean error 0.095   ordered, 99% down to 34%
+#   brows   13 rungs, SIX clips    mean error 0.442   5 of 7 "raised" rungs are
+#                                                     photographs of LOWERED brows
+#   mouth   10 rungs               mean error 0.362   smile_140 (+1.401) shows
+#                                                     LESS smile than smile_108
+#
+# The eye ladder is the only one built from a single clip, and it is the only
+# one that survives being checked. That is the whole of the difference, and the
+# mechanism was measured: MediaPipe's brow landmarks are not repeatable across a
+# re-detection. The same face reads 0.0650 in its source frame, 0.0831 in the
+# crop cut from it and 0.0798 in a crop framed like the portrait, on an axis
+# whose entire span is 0.039. Inside one continuous clip the tracker carries
+# state between frames and the reading is far steadier; across six clips it is
+# six different biases averaged into one axis.
+#
+# SO: ONE CLIP PER AXIS, and the axis built from that clip alone.
+#
+# AND THE SHAPE THE EYE CLIP TAUGHT. Two takes that asked the generator to close
+# an eye produced a blink -- a reflex, drawn as fast as it can be -- and then a
+# long hold. The take that worked never mentions closing: it asks for held steps
+# and states that the extreme is never reached. These three do the same. None of
+# them asks for a full raise, a hard scowl or a laugh, because what comes back
+# when you ask for an extreme is the extreme and nothing on the way to it, and
+# the way to it is the entire missing middle.
+#
+# A SECOND FINDING, FOR THE MOUTH ONLY. Its axis is driven by the mouthSmile
+# blendshape, which saturates: across the whole existing ladder it moves only
+# from 0.529 to 0.798, and the top five rungs sit between 0.67 and 0.80 -- five
+# photographs of one smile. Measured geometrically instead, the same rungs
+# separate cleanly: mouth width over eye span runs 0.586 to 0.722, and the lip
+# gap divides closed smiles (0.018 to 0.023) from open ones (0.125 to 0.148)
+# with nothing in between. The axis wants changing as well as the clip, and the
+# clip is what supplies the frames the new axis will file.
+# ---------------------------------------------------------------------------
+
+[[clip]]
+id = "brows-up-steps"
+order = 1
+title = "The eyebrows raised in held steps, and never fully"
+why = "Five of the seven raised rungs in the library are photographs of lowered brows, and the two that are genuinely raised are both raised fully -- so the up side of the ladder is nothing, nothing, nothing, nothing, nothing, FULL, nothing, FULL. That is the owner's report that a delighted brow arrives without cause."
+check = "roles"
+probe_first = false
+want_roles = ["source_brows_up"]
+min_roles = 0
+body = '''
+The person in the attached photograph faces the camera with the head still,
+upright and centred, the mouth closed, and the eyes open and on the lens.
+
+They begin with a relaxed neutral face and hold it completely still for three
+full seconds, the eyebrows resting in their natural position.
+
+They then raise both eyebrows by a small amount, about a quarter of the way to
+as high as they could go, and hold that position completely motionless for one
+and a half seconds. Then they raise them a little further, to about half of the
+way, and hold that completely motionless for one and a half seconds. Then a
+little further again, to about three quarters of the way, and hold that
+completely motionless until the end of the clip.
+
+The eyebrows never reach as high as they could go. Even at the last position
+there is clearly room left above them, and the face stays calm throughout: this
+is not surprise and not delight, it is the same relaxed face carrying its
+eyebrows a little higher at each step.
+
+Each raise takes about a third of a second, is smooth and gentle, and ends in a
+complete stop with no drift and no creeping. The eyes stay open and on the lens
+the whole time and do not widen when the eyebrows move. The head does not move
+at any point and the mouth stays closed. Every frame is sharp, including the
+frames in which the eyebrows are part of the way up.
+'''
+
+[[clip]]
+id = "brows-down-steps"
+order = 2
+title = "The eyebrows drawn down in held steps, and never to a scowl"
+why = "The owner drew his brows down and together, which is what a person does when concentrating, and the avatar did nothing at all. The lowered side of the ladder is ordered but saturates -- three of its rungs clamp at the same value -- so there is no shallow frown to choose."
+check = "roles"
+probe_first = false
+want_roles = ["source_brows_down"]
+min_roles = 0
+body = '''
+The person in the attached photograph faces the camera with the head still,
+upright and centred, the mouth closed, and the eyes open and on the lens.
+
+They begin with a relaxed neutral face and hold it completely still for three
+full seconds, the eyebrows resting in their natural position.
+
+They then draw both eyebrows down and very slightly towards each other by a
+small amount, about a quarter of the way to as far as they could go, as though
+beginning to concentrate on something, and hold that position completely
+motionless for one and a half seconds. Then a little further, to about half of
+the way, and hold that completely motionless for one and a half seconds. Then a
+little further again, to about three quarters of the way, and hold that
+completely motionless until the end of the clip.
+
+The eyebrows never reach as far down as they could go, and this is never an
+angry face. Even at the last position the expression is concentration rather
+than anger, the eyes stay open and relaxed, and there is clearly room left below
+the eyebrows.
+
+Each movement takes about a third of a second, is smooth and gentle, and ends in
+a complete stop with no drift and no creeping. The eyes stay open and on the
+lens the whole time and do not narrow when the eyebrows move. The head does not
+move at any point and the mouth stays closed. Every frame is sharp, including
+the frames in which the eyebrows are part of the way down.
+'''
+
+[[clip]]
+id = "smile-steps"
+order = 3
+title = "A smile arriving in held steps, through the moment the lips part"
+why = "The mouth ladder holds five photographs of one smile: the blendshape that files them saturates between 0.67 and 0.80 across its whole upper half, and smile_140 shows less smile than smile_108. What is missing is the middle, and above all the moment the lips just begin to part -- the existing rungs jump from a lip gap of 0.023 to 0.125 with nothing between."
+check = "roles"
+probe_first = false
+want_roles = ["source_smile_closed", "source_smile"]
+min_roles = 1
+body = '''
+The person in the attached photograph faces the camera with the head still,
+upright and centred, the eyes open and on the lens, and the mouth closed.
+
+They begin with a relaxed neutral face and hold it completely still for two and
+a half seconds, the mouth closed and the lips together.
+
+They then smile by a small amount with the lips still closed together, and hold
+that completely motionless for one and a half seconds. Then they smile a little
+wider, just far enough that the lips begin to come apart and the very edges of
+the upper teeth start to show, and hold that completely motionless for one and a
+half seconds. Then a little wider again, with the upper teeth clearly visible
+but the mouth still not opened wide, and hold that completely motionless until
+the end of the clip.
+
+The smile never becomes a laugh, the mouth never opens wide, and the lower teeth
+never show. Even at the last position it is a calm, closed-jaw smile with room
+left to grow.
+
+Each widening takes about a third of a second, is smooth and gentle, and ends in
+a complete stop with no drift and no creeping. The eyes stay open and on the
+lens and do not narrow as the smile grows, the eyebrows do not move at all, and
+the head does not move at any point. Every frame is sharp, including the frames
+in which the lips are part of the way open.
 '''
 
 # ---------------------------------------------------------------------------
@@ -335,7 +482,7 @@ part-way narrowed.
 
 [[clip]]
 id = "brows"
-order = 4
+order = 7
 title = "Brows raised, brows drawn down, eyes wide"
 why = "source_brows_up is active on 56.5% of a conversation and source_brows_down on 34.4% — between them 91% of ordinary speech, on photographs that have never been sharp."
 check = "roles"
@@ -361,7 +508,7 @@ move at any point and the mouth stays closed throughout.
 
 [[clip]]
 id = "mouth-closed"
-order = 5
+order = 8
 title = "Closed and rounded mouth shapes — m, oo, ee"
 why = "source_mouth_o is active on 84% of a conversation and source_mouth_pressed on 37%. The mouth is the last family that averages five photographs instead of choosing one."
 check = "roles"
@@ -388,7 +535,7 @@ any point and the eyes stay open and on the camera lens throughout.
 
 [[clip]]
 id = "mouth-open"
-order = 6
+order = 9
 title = "Open mouth, teeth, and a frown"
 why = "The open mouth was an empty hole until day 8 and the teeth still double now and then. This is the only clip that photographs the mouth interior held still."
 check = "roles"
@@ -416,7 +563,7 @@ any point and the eyes stay open and on the camera lens throughout.
 
 [[clip]]
 id = "smiles"
-order = 7
+order = 10
 title = "Smiles and laughter"
 why = "The smile family is still separately generated stills, which is exactly where identity drift comes from — within one clip it cannot happen."
 check = "roles"
@@ -442,7 +589,7 @@ move at any point and the eyes stay on the camera lens throughout.
 
 [[clip]]
 id = "speech"
-order = 8
+order = 11
 title = "Speech — a sales manager on a first call"
 why = "The case the avatar spends almost all its time in, and the only clip that gives the mouth shapes in the order real speech puts them. Also the closest thing to training footage for the refiner."
 check = "roles"
@@ -489,7 +636,7 @@ and never fast.
 # instant, and an instant is all a photograph needs.
 [[clip]]
 id = "speech-numbers"
-order = 9
+order = 12
 title = "Speech — the value sentence, fully articulated"
 why = "Eight seconds of speech cannot carry every mouth shape. This clip covers what the first speech clip does not: f and v, the open jaw, and the released p."
 check = "roles"
@@ -536,7 +683,7 @@ completely and holding it relaxed and still for a moment between the sentences.
 
 [[clip]]
 id = "tilts"
-order = 10
+order = 13
 title = "Head tilts — the second ladder, pitch"
 why = "PARKED: the engine has no pitch ladder yet, so these frames would sit unused."
 check = "roles"
