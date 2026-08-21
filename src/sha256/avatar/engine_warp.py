@@ -344,7 +344,59 @@ _BROW_RAISE_FULL = 0.55
 
 # The smiling photograph's own mouthSmile reading, so "how much of a smile is
 # this" is measured against the photograph rather than against 1.0.
+#
+# **No longer what the smile axis is built on** — see :func:`_smiling`. Kept
+# because `_source_weights` still weighs the two named smile photographs by the
+# blendshape for an avatar that has no ladder.
 _SMILE_REFERENCE = 0.54
+
+# The mouth corners, and the outer eye corners the mouth is measured against.
+#
+# **Against the eye span rather than the face**, and in pixels rather than in
+# normalised coordinates, because both are what a crop cannot move. Measured on
+# 2026-08-21, cutting a rung out of its own frame and re-reading it: the mouth
+# width moves 0.008 of an eye span and the lip gap 0.002, against axis spans of
+# 0.19 and 0.15 — four percent and one. The same test on the brow axis moves it
+# by seven percent at best and by thirty-eight at worst, which is why the brows
+# still cannot be filed this way and the mouth now can.
+_MOUTH_CORNERS = (61, 291)
+_OUTER_EYE_CORNERS = (33, 263)
+
+# How far the mouth widens, as a fraction of the eye span, for the widening half
+# of the smile axis to reach one.
+#
+# Measured on the owner's own rungs: his resting mouth is 0.533 of an eye span
+# across and his closed smiles are 0.635, so a closed smile widens it by 0.102.
+# The axis has said since it was written that a closed smile is 0.2, so the full
+# span is 0.51.
+_SMILE_WIDEN_SPAN = 0.51
+
+# And how far it widens at the broadest smile in the library, which is what
+# "fully smiling" means for the two named photographs. 0.19 of an eye span,
+# measured: the owner rests at 0.533 and his widest rung is 0.722.
+#
+# A different number from the one above and deliberately so. The *axis* is the
+# ladder's coordinate and says a closed smile is 0.2; the *share* is how far
+# into a smile the face is, from nothing to as far as this person goes. Using
+# the axis for both capped the closed-smile photograph at 0.37 of itself.
+_SMILE_WIDEN_FULL = 0.19
+
+# And how far the lips part, on the same scale, for the opening half to reach
+# one. Measured on the same rungs: the ones where the teeth appear sit at 0.125
+# and the widest at 0.148, and the axis says the teeth appearing is 1.0 — which
+# with the widening already contributing a third gives 0.19.
+_SMILE_OPEN_SPAN = 0.19
+
+# Below this the lips count as together and the opening contributes nothing.
+#
+# **Without it a face doing nothing asks for a smile**, which is how it was
+# found: no mouth is ever perfectly sealed, and a tenth of a millimetre of
+# parting divided by a small number is not a tenth of a millimetre any more.
+# The portrait's own resting mouth measures 0.0019 on this scale and its closed
+# smiles 0.004 to 0.023, so a floor at 0.010 leaves a closed smile its widening
+# and nothing else. `_LIP_GAP_CLOSED` is the same idea on the other
+# denominator, and dropping it here was an oversight rather than a decision.
+_SMILE_LIP_CLOSED = 0.010
 
 # How far the eyelids have to close, as a fraction of their own resting
 # opening, before the closed-eye photograph starts to apply and where it fully
@@ -980,6 +1032,19 @@ _GAZE_ON, _GAZE_FULL = 0.12, 0.25
 # Source weights are rounded to this before deciding whether the previous blend
 # can be reused. Fine enough that no step is visible, coarse enough that a
 # still face rebuilds nothing.
+# How far in from the face's outline the skin sample is taken, in pixels of the
+# portrait. Enough to clear the hairline on one side and the background on the
+# other, both of which sit on the hull itself.
+_SKIN_ERODE = 15
+
+# The largest exposure correction a source may be given, per channel of 255.
+# Twelve is far above the 3 to 6 the owner's library actually needs and far
+# below a photograph that is simply of something else.
+_SKIN_SHIFT_LIMIT = 12.0
+
+# Below this the correction is invisible and is not applied at all.
+_SKIN_SHIFT_FLOOR = 1.0
+
 _WEIGHT_QUANTUM = 0.02
 
 # How much larger than the base a source may be before it is reduced with area
@@ -1791,6 +1856,18 @@ class WarpAvatarEngine:
         for _, key in smiles:
             if key is not None:
                 gaps[key] = _lip_gap_of(aligned_points[key])
+
+        # Last, once every photograph is on the portrait's frame: put them all
+        # on the portrait's *exposure* as well. Each one is a frame of a
+        # different generated clip and carries whatever exposure that clip had,
+        # and until now nothing reconciled them — see :func:`_match_to_portrait`
+        # for the measurement that found it.
+        reference = _skin_median(base_image, base_points)
+        for key, source in aligned.items():
+            aligned[key] = _match_to_portrait(
+                source, aligned_points[key], reference, key, descriptor.id
+            )
+
         return aligned, aligned_points, gaps, ladder, smiles, eyes, brows
 
     def _align_axis(
@@ -2703,18 +2780,57 @@ def _lip_gap(tracking: FaceTrackingResult) -> float:
 
 
 def _smiling(tracking: FaceTrackingResult) -> float:
-    """How far into a smile this face is, from 0 to 1.
+    """How wide this mouth is, against the span between the outer eye corners.
 
     One function because two places have to agree about it: the engine reading
     a live frame, and `build_smile_ladder.py` reading a photograph to decide
     which rung it is. A ladder whose rungs were measured differently from the
     thing they are chosen by is a ladder that picks the wrong rung.
+
+    **Geometry, not ``mouthSmile``, and that is a correction made on
+    2026-08-21.** The blendshape saturates. Measured across the owner's ten
+    installed smile rungs it moves only from 0.529 to 0.798, and the top five
+    sit between 0.67 and 0.80 — five photographs filed as five different smiles
+    which the measurement cannot tell apart. Worse, it puts them in the wrong
+    order: `smile_140.png` is filed at +1.401 and reads *less* smile than
+    `smile_108.png` at +1.084. The whole upper half of the mouth axis was
+    resting on a number that had stopped moving.
+
+    The mouth's own width does not stop moving: the same rungs run 0.586 to
+    0.722 of an eye span, in order. **Raw, not clamped and not rest-subtracted**
+    — a resting mouth is about 0.53 and the caller takes rest off, because where
+    a mouth rests is a fact about the person rather than about smiling.
     """
-    shapes = tracking.blendshapes
-    if shapes is None or not shapes.names:
+    landmarks = tracking.landmarks
+    if landmarks is None or landmarks.count <= max(*_MOUTH_CORNERS, *_OUTER_EYE_CORNERS):
         return 0.0
-    smile = max(shapes.get("mouthSmileLeft"), shapes.get("mouthSmileRight"))
-    return min(smile / _SMILE_REFERENCE, 1.0)
+
+    points = landmarks.points[:, :2]
+    span = float(np.linalg.norm(points[_OUTER_EYE_CORNERS[0]] - points[_OUTER_EYE_CORNERS[1]]))
+    if span <= 1e-6:
+        return 0.0
+    return float(np.linalg.norm(points[_MOUTH_CORNERS[0]] - points[_MOUTH_CORNERS[1]])) / span
+
+
+def _lip_parting(tracking: FaceTrackingResult) -> float:
+    """How far the lips are apart, on the same scale as :func:`_smiling`.
+
+    :func:`_lip_gap` answers the same question against face height and is what
+    decides whether a photograph has an interior to show. This one exists so
+    that both halves of the smile axis are measured against one denominator,
+    and it is the crop-robust one.
+    """
+    landmarks = tracking.landmarks
+    if landmarks is None or landmarks.count <= max(
+        _UPPER_INNER_LIP, _LOWER_INNER_LIP, *_OUTER_EYE_CORNERS
+    ):
+        return 0.0
+
+    points = landmarks.points[:, :2]
+    span = float(np.linalg.norm(points[_OUTER_EYE_CORNERS[0]] - points[_OUTER_EYE_CORNERS[1]]))
+    if span <= 1e-6:
+        return 0.0
+    return abs(float(points[_UPPER_INNER_LIP][1] - points[_LOWER_INNER_LIP][1])) / span
 
 
 def _eye_amount(tracking: FaceTrackingResult, neutral: _Neutral) -> float:
@@ -2809,6 +2925,21 @@ def _brow_amount(tracking: FaceTrackingResult, neutral: _Neutral) -> float:
     return min(max(((height - rest) / rest) / _BROW_SPAN, -1.0), 1.0)
 
 
+def _smile_share(tracking: FaceTrackingResult, neutral: _Neutral) -> float:
+    """How much of an open mouth is a smile rather than an "ah", from 0 to 1.
+
+    :func:`_smiling` used to answer this directly, because a blendshape reads
+    zero on a resting face and one on a full smile. A mouth's *width* does not:
+    it reads 0.53 of an eye span on a face doing nothing, and handing that
+    straight to the caller put a closed-smile photograph on a still face at 0.95
+    — which is how the change was caught.
+
+    So the widening above rest, on the same scale the axis uses, clamped.
+    """
+    above = neutral.relative_expression("smileAmount", _smiling(tracking))
+    return min(max(above / _SMILE_WIDEN_FULL, 0.0), 1.0)
+
+
 def _smile_amount(tracking: FaceTrackingResult, neutral: _Neutral) -> float:
     """How far into a smile this face is, on the axis the smile ladder is filed by.
 
@@ -2818,22 +2949,30 @@ def _smile_amount(tracking: FaceTrackingResult, neutral: _Neutral) -> float:
     value and a ladder built on it stops where the teeth begin — which is
     precisely where it is needed.
 
-    So the opening carries it the rest of the way: ``smile x (1 + opening)``,
-    which runs 0.2 at a closed smile, 1.1 as the teeth appear, 2.0 at a laugh,
-    and is monotonic through the clip. A mouth open without a smile stays near
-    zero, so speech still chooses its own shapes.
+    So the widening carries the axis and the opening extends it:
+    ``widened x (1 + parted)``. Filed against the owner's own rungs it runs 0.10
+    at the faintest smile, 0.20 at a closed one, 0.23 at the widest closed one,
+    0.49 as the teeth appear and 0.60 at the broadest — ordered all the way,
+    which the blendshape was not.
 
-    Measured **above the resting face**, like every other expression here: a
-    relaxed mouth reads 0.07-0.09 on this tracker, and a ladder that starts
-    below that would be on permanently.
+    **Multiplied and not added, and that was learned twice.** Adding them reads
+    an open mouth as a smile whatever the mouth is doing, and this library's
+    broadest smile photograph then landed on 10.5% of an ordinary speaking clip
+    — a man saying words, wearing a grin. The widening is what makes something a
+    smile; the opening only says how far into one it has gone. A mouth that
+    parts without widening is speech, and speech has its own photographs.
+
+    Measured **above the resting face**, like every other expression here.
+    Where a mouth rests is a fact about the person: the owner's sits at 0.53 of
+    an eye span and someone else's will not.
     """
     above = neutral.relative_expression("smileAmount", _smiling(tracking))
     if above <= 0.0:
         return 0.0
 
-    gap = _lip_gap(tracking)
-    opening = (gap - _LIP_GAP_CLOSED) / max(_LIP_GAP_FULL - _LIP_GAP_CLOSED, 1e-6)
-    return above * (1.0 + min(max(opening, 0.0), 1.0))
+    widened = above / _SMILE_WIDEN_SPAN
+    parted = (_lip_parting(tracking) - _SMILE_LIP_CLOSED) / _SMILE_OPEN_SPAN
+    return widened * (1.0 + max(parted, 0.0))
 
 
 def _source_weights(
@@ -2894,7 +3033,7 @@ def _source_weights(
         # Which of the two open-mouth photographs it should come from: a smile
         # shows teeth differently from an "ah". They split the same budget
         # rather than adding to each other.
-        smiling = _smiling(tracking)
+        smiling = _smile_share(tracking, neutral)
         weights["source_smile"] = opening * smiling
         weights["source_mouth_open"] = opening * (1.0 - smiling)
 
@@ -4138,6 +4277,80 @@ def _rigid_layer(
         borderMode=cv2.BORDER_REPLICATE,
     )
     return base
+
+
+def _skin_median(image: np.ndarray, points: np.ndarray) -> np.ndarray:
+    """The median colour of this photograph's face, per channel.
+
+    Over the convex hull of the landmarks, eroded so the hull's own edge — hair
+    on one side, background on the other — cannot reach the sample. The median
+    rather than the mean because a wide-open mouth brings a black cavity with
+    it, and an average would follow it while a median does not.
+    """
+    import cv2
+
+    hull = cv2.convexHull(points[:, :2].astype(np.int32))
+    mask = np.zeros(image.shape[:2], dtype=np.uint8)
+    cv2.fillConvexPoly(mask, hull, 255)
+    eroded: np.ndarray = cv2.erode(mask, np.ones((_SKIN_ERODE, _SKIN_ERODE), dtype=np.uint8))
+    inside = image[eroded.astype(bool)]
+    if inside.size == 0:
+        return np.zeros(3, dtype=np.float32)
+    median: np.ndarray = np.median(inside.reshape(-1, image.shape[2]), axis=0).astype(np.float32)
+    return median
+
+
+def _match_to_portrait(
+    image: np.ndarray, points: np.ndarray, reference: np.ndarray, role: str, avatar_id: str
+) -> np.ndarray:
+    """Put this photograph on the portrait's exposure.
+
+    **Every source in a library is a frame of a different generated clip, and
+    nothing was reconciling their exposures.** The engine relights the finished
+    composite to the *room* — that is :func:`_match_colour` — but between the
+    portrait and the photograph laid over part of it there was no step at all,
+    so a region arrived carrying whatever exposure its own clip happened to
+    have.
+
+    Measured on the owner's recording of 2026-08-21: during a blink the eye
+    region reads **4.9 of 255 brighter** against the cheek than it does with the
+    eyes open, while the cheek itself does not move at all — a patch of another
+    exposure, appearing and vanishing with the lids. The eye rungs measure 3.2
+    lighter than the portrait and the ones they replaced measured 5 to 6 darker,
+    so this is not new; what made it visible is that a rung now arrives whole
+    rather than faded in, and on 47% of frames rather than 33%.
+
+    A single offset per channel, not a field: what differs between two takes of
+    one face under one lighting setup is the exposure, and an offset is what an
+    exposure difference is. A gradient would also chase the pose, and a rung is
+    a photograph of a *different pose* on purpose.
+
+    Clamped at :data:`_SKIN_SHIFT_LIMIT`. Past that the two photographs are not
+    the same face under the same light, and quietly dragging one onto the other
+    would hide that rather than fix it.
+    """
+    mine = _skin_median(image, points)
+    offset = reference - mine
+    largest = float(np.abs(offset).max())
+    if largest > _SKIN_SHIFT_LIMIT:
+        _LOG.warning(
+            "Avatar %s: %s is %.0f of 255 from the portrait's exposure, further than a "
+            "take of the same face under the same light should be; correcting by %.0f",
+            avatar_id,
+            role,
+            largest,
+            _SKIN_SHIFT_LIMIT,
+        )
+        offset = np.clip(offset, -_SKIN_SHIFT_LIMIT, _SKIN_SHIFT_LIMIT)
+    if largest < _SKIN_SHIFT_FLOOR:
+        # Below a value of 255 the correction is not visible and the round trip
+        # through int16 is not free. Most sources land here once a library is
+        # generated in one sitting.
+        return image
+    shifted: np.ndarray = np.clip(image.astype(np.int16) + offset.astype(np.int16), 0, 255).astype(
+        np.uint8
+    )
+    return shifted
 
 
 def _fit_lighting_plane(difference: np.ndarray, coverage: np.ndarray) -> np.ndarray:

@@ -43,6 +43,7 @@ from sha256.avatar.engine_warp import (
     _PROFILE_POSITIONS,
     _ROLE_REGION,
     _SMILE_LADDER_START,
+    _SMILE_REFERENCE,
     _STABLE_POSITIONS,
     _SWITCH_MARGIN,
     MESH_INDICES,
@@ -215,6 +216,13 @@ def relaxed_like(tracking: FaceTrackingResult) -> FaceTrackingResult:
 
         points = landmarks.points.copy()
         set_eye_opening(points, 1.0, 1.0)
+        # And a resting mouth, for the same reason and since 2026-08-21: the
+        # smile is measured from the mouth's own width now, so a resting frame
+        # that kept the expression's widened corners would teach the engine that
+        # this person's face is always smiling.
+        span = float(abs(points[263, 0] - points[33, 0])) or 0.6
+        points[61, :2] = (0.5 - span * 0.53 / 2, points[61, 1])
+        points[291, :2] = (0.5 + span * 0.53 / 2, points[291, 1])
         landmarks = _LandmarkSet(points=points, scheme=landmarks.scheme)
 
     return FaceTrackingResult(
@@ -290,6 +298,26 @@ def expressive_tracking(
     # measured on the lids now, so a test asking for a blink has to produce one.
     left, right = blink if blink is not None else (0.0, 0.0)
     set_eye_opening(points, 1.0 - left, 1.0 - right)
+
+    # The smile axis is geometry now, so a test that asks for a smile has to
+    # produce one: the mouth corners move apart against the span between the
+    # outer eye corners. Resting is 0.53 of that span and the owner's widest
+    # rung is 0.72, both measured on his own photographs.
+    #
+    # **After `set_eye_opening`, which moves the eye corners.** Placing the
+    # mouth first and assuming a span read 3.18 where it should have read 0.53,
+    # and every test about an open mouth then thought it was a smile.
+    # `set_eye_opening` leaves the outer corners a tenth of a frame apart, which
+    # is not a face: the lip parting is measured against this span and would
+    # read six times what a real one does. Two fifths, so that a parting reads
+    # about one and a half times the gap over face height, as it does on the
+    # owner's own photographs.
+    points[33, 0] = 0.3
+    points[263, 0] = 0.7
+    span = float(abs(points[263, 0] - points[33, 0]))
+    reach = 0.53 + 0.19 * min(max((smile or 0.0) / _SMILE_REFERENCE, 0.0), 1.0)
+    points[61, :2] = (0.5 - span * reach / 2, 0.6)
+    points[291, :2] = (0.5 + span * reach / 2, 0.6)
 
     names = tuple(shapes)
     return FaceTrackingResult(
@@ -604,7 +632,7 @@ class TestSourceSelection:
 
     def test_a_smile_calls_for_the_smiling_photo_rather_than_the_open_one(self):
         """Both show teeth; a smile shows them differently from an "ah"."""
-        weights = _source_weights(expressive_tracking(gap=0.06, smile=0.55))
+        weights = weights_from_rest(expressive_tracking(gap=0.06, smile=0.55))
 
         assert weights["source_smile"] > weights.get("source_mouth_open", 0.0)
 
@@ -713,7 +741,7 @@ class TestSourceSelection:
 
     def test_a_wide_open_mouth_leaves_the_closed_one_out_of_it(self):
         """The base portrait's lips are shut; stretched across a gap they are fangs."""
-        weights = _source_weights(expressive_tracking(gap=0.095, jaw=0.5, smile=0.3))
+        weights = weights_from_rest(expressive_tracking(gap=0.095, jaw=0.5, smile=0.3))
 
         mouth = weights.get("source_smile", 0.0) + weights.get("source_mouth_open", 0.0)
         assert mouth > 0.9, f"the closed-mouth base still supplies {1 - mouth:.0%} of the mouth"
@@ -2514,12 +2542,12 @@ class TestTeethGate:
     """
 
     def test_a_closed_smile_shows_no_teeth(self):
-        weights = _source_weights(expressive_tracking(gap=0.001, smile=0.6))
+        weights = weights_from_rest(expressive_tracking(gap=0.001, smile=0.6))
 
         assert "source_smile" not in weights
 
     def test_an_open_smile_does(self):
-        weights = _source_weights(expressive_tracking(gap=0.06, smile=0.6))
+        weights = weights_from_rest(expressive_tracking(gap=0.06, smile=0.6))
 
         assert weights["source_smile"] > 0.5
 
@@ -2533,7 +2561,7 @@ class TestTeethGate:
 
     def test_the_gate_is_gradual(self):
         """A hard threshold would pop the teeth in as the lips part."""
-        weights = _source_weights(expressive_tracking(gap=0.03, smile=1.0))
+        weights = weights_from_rest(expressive_tracking(gap=0.03, smile=1.0))
 
         assert 0.1 < weights["source_smile"] < 0.9
 
@@ -2617,7 +2645,12 @@ class TestMouthInterior:
             "source_mouth_open": 0.199,
         }
 
-        _blend_sources(avatar, expressive_tracking(gap=0.062, smile=1.0))
+        # Rest first, as the engine sees it: the smile is measured from the
+        # mouth's own width against rest now, so a single frame in isolation is
+        # by definition a face that is not smiling.
+        smiling = expressive_tracking(gap=0.062, smile=1.0)
+        _blend_sources(avatar, relaxed_like(smiling))
+        _blend_sources(avatar, smiling)
         assert avatar.interior_role == "source_smile"
 
         _blend_sources(avatar, expressive_tracking(gap=0.095, jaw=0.9))
@@ -2790,13 +2823,13 @@ class TestExpandedSourceSet:
 
     def test_a_closed_smile_asks_for_the_closed_smile_photo(self):
         """And not for the one with teeth in it."""
-        weights = _source_weights(expressive_tracking(gap=0.001, smile=0.6))
+        weights = weights_from_rest(expressive_tracking(gap=0.001, smile=0.6))
 
         assert weights["source_smile_closed"] > 0.9
         assert "source_smile" not in weights
 
     def test_an_open_smile_asks_for_the_open_one_instead(self):
-        weights = _source_weights(expressive_tracking(gap=0.09, smile=0.6))
+        weights = weights_from_rest(expressive_tracking(gap=0.09, smile=0.6))
 
         assert weights["source_smile"] > weights.get("source_smile_closed", 0.0)
 

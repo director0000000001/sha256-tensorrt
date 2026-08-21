@@ -49,9 +49,11 @@ from extract_avatar_frames import (  # noqa: E402
 )
 
 from sha256.avatar.engine_warp import (  # noqa: E402
-    _LIP_GAP_CLOSED,
-    _LIP_GAP_FULL,
+    _SMILE_LIP_CLOSED,
+    _SMILE_OPEN_SPAN,
+    _SMILE_WIDEN_SPAN,
     _lip_gap,
+    _lip_parting,
     _smiling,
 )
 from sha256.core.enums import PixelFormat  # noqa: E402
@@ -118,31 +120,44 @@ def measure(
         sharpness=sharpness_of(image, points),
         identity_drift=0.0,
     )
-    gap = _lip_gap(result)
     step = Step(
         path=path,
         smile=_smiling(result),
-        gap=gap,
-        opening=min(max((gap - _LIP_GAP_CLOSED) / (_LIP_GAP_FULL - _LIP_GAP_CLOSED), 0.0), 1.0),
+        gap=_lip_gap(result),
+        opening=_lip_parting(result),
         sharpness=candidate.sharpness,
         candidate=candidate,
     )
     return step, float(result.head_pose.yaw)
 
 
-def amounts(steps: list[Step]) -> list[tuple[Step, float]]:
+def amounts(steps: list[Step], rest: float | None = None) -> list[tuple[Step, float]]:
     """Each frame with its place on the ladder's axis.
 
-    ``(smile - rest) x (1 + opening)``, and the two halves of that are both
-    necessary. The smile blendshape saturates at the open smile and stays there
-    through the laugh, so the opening is what carries the axis past the point
-    where the teeth appear — which is the part the owner is asking for. And rest
-    is subtracted because a relaxed mouth reads 0.07-0.09 on this tracker, not
-    zero; the engine subtracts its own learned resting value the same way, so
-    the number a rung is filed under is the number it will be chosen by.
+    The engine's own arithmetic, and it has to stay that way: the number a rung
+    is filed under is the number it will be chosen by. See
+    :func:`sha256.avatar.engine_warp._smile_amount` — how much wider the mouth
+    is than it rests, **times** how far the lips have come apart, each on its
+    own measured span. Adding them instead reads speech as a smile.
+
+    **The blendshape is gone from both sides as of 2026-08-21.** Across the ten
+    rungs it had already filed it moved only from 0.529 to 0.798 and put them in
+    the wrong order — `smile_140.png` was filed above `smile_108.png` and shows
+    less smile. Mouth width against the eye span does not saturate: the same ten
+    run 0.586 to 0.722, in order.
+
+    ``rest`` is the mouth's resting width, and it comes from the portrait when
+    one is given: the avatar's resting mouth is the zero the engine will
+    subtract. The narrowest frame in the clip is the fallback.
     """
-    rest = min(step.smile for step in steps)
-    return [(step, max(step.smile - rest, 0.0) * (1.0 + step.opening)) for step in steps]
+    if rest is None:
+        rest = min(step.smile for step in steps)
+    placed = []
+    for step in steps:
+        widened = max(step.smile - rest, 0.0) / _SMILE_WIDEN_SPAN
+        parted = max(step.opening - _SMILE_LIP_CLOSED, 0.0) / _SMILE_OPEN_SPAN
+        placed.append((step, widened * (1.0 + parted)))
+    return placed
 
 
 def best_per_band(placed: list[tuple[Step, float]], step_size: float) -> list[tuple[Step, float]]:

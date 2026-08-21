@@ -312,61 +312,61 @@
       "path": "smile_000.png",
       "role": "source_smile_step",
       "optional": true,
-      "smile": 0.001
+      "smile": 0.104
     },
     {
       "path": "smile_012.png",
       "role": "source_smile_step",
       "optional": true,
-      "smile": 0.118
+      "smile": 0.2
     },
     {
       "path": "smile_042.png",
       "role": "source_smile_step",
       "optional": true,
-      "smile": 0.421
+      "smile": 0.207
     },
     {
       "path": "smile_061.png",
       "role": "source_smile_step",
       "optional": true,
-      "smile": 0.605
+      "smile": 0.206
     },
     {
       "path": "smile_072.png",
       "role": "source_smile_step",
       "optional": true,
-      "smile": 0.721
+      "smile": 0.233
     },
     {
       "path": "smile_108.png",
       "role": "source_smile_step",
       "optional": true,
-      "smile": 1.084
+      "smile": 0.493
     },
     {
       "path": "smile_117.png",
       "role": "source_smile_step",
       "optional": true,
-      "smile": 1.166
+      "smile": 0.505
     },
     {
       "path": "smile_140.png",
       "role": "source_smile_step",
       "optional": true,
-      "smile": 1.401
+      "smile": 0.412
     },
     {
       "path": "smile_152.png",
       "role": "source_smile_step",
       "optional": true,
-      "smile": 1.522
+      "smile": 0.511
     },
     {
       "path": "smile_175.png",
       "role": "source_smile_step",
       "optional": true,
-      "smile": 1.748
+      "smile": 0.602
     },
     {
       "path": "eyes_w007.png",
