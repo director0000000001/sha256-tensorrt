@@ -158,35 +158,6 @@ def rung_name(amount: float) -> str:
     return f"brows_{side}{round(abs(amount) * 100):03d}.png"
 
 
-def measure_written(image: np.ndarray, tracker: MediaPipeFaceTracker, rest: float) -> float | None:
-    """Where this **cropped** photograph's brows sit, as the file will be stored.
-
-    **The number filed against a photograph has to describe the photograph, and
-    it did not.** Every rung was measured on the full dumped frame and then
-    written out as a crop, and cropping moves the reading: measured on the
-    2026-08-21 rebuild, the same face read 0.0650 in its 2160x3840 source frame
-    and 0.0825 in the 2116x2330 crop cut from it. On this axis that is a
-    difference of **1.29** — wider than the whole ladder — and it was worst on
-    the tightest crops, which is where the cut comes nearest the chin and the
-    hairline that `_brow_height` divides by.
-
-    The engine loads the crop and nothing else, so the crop is what the filed
-    amount must be measured on. Selection still happens on the source frame,
-    where every candidate is comparable; only the number that travels into the
-    manifest comes from here.
-    """
-    result = tracker.process(
-        VideoFrame(
-            data=np.ascontiguousarray(image),
-            pixel_format=PixelFormat.BGR24,
-            metadata=FrameMetadata(frame_id=0, capture_timestamp=0.0),
-        )
-    )
-    if not result.face_detected or rest <= 1e-6:
-        return None
-    return min(max(((_brow_height(result) - rest) / rest) / _BROW_SPAN, -1.0), 1.0)
-
-
 def install(
     chosen: list[tuple[Step, float]],
     avatar: Path,
@@ -198,7 +169,17 @@ def install(
     Both named photographs go with them. A raised brow and a lowered one are two
     ends of one movement, which is what the signed axis says and what two
     separate photographs could never say.
+
+    Filed from the **sequence** measurement, not from the crop that is written.
+    That was tried on 2026-08-21 and made the brow ladder worse — 0.442 mean
+    error to 0.545 — because MediaPipe's brow landmarks are not repeatable
+    across a re-detection: the same face reads 0.0650 in its source frame,
+    0.0831 in the crop cut from it and 0.0798 in a crop framed like the
+    portrait, on an axis whose whole span is 0.039. The reading inside one
+    continuous clip is far steadier than any reading taken again afterwards,
+    and the engine never re-measures a rung anyway — it reads the manifest.
     """
+
     import cv2
 
     manifest = avatar / "metadata.json"
@@ -219,31 +200,20 @@ def install(
     ]
     print(f"\nretired {before - len(meta['assets'])} manifest entrie(s)")
 
-    kept = 0
     for step, amount in chosen:
-        cropped = crop_around_face(step.candidate)
-        written = measure_written(cropped, tracker, rest)
-        if written is None:
-            print(f"  dropped a rung at {amount:+.2f}: no face in the crop")
-            continue
-        if abs(written - amount) > 0.25:
-            print(
-                f"  rung at {amount:+.2f} reads {written:+.2f} once cropped; filing what it reads"
-            )
-        name = rung_name(written)
-        cv2.imwrite(str(avatar / name), cropped)
+        name = rung_name(amount)
+        cv2.imwrite(str(avatar / name), crop_around_face(step.candidate))
         meta["assets"].append(
             {
                 "path": name,
                 "role": "source_brows_step",
                 "optional": True,
-                "brows": round(written, 3),
+                "brows": round(amount, 3),
             }
         )
-        kept += 1
 
     manifest.write_text(json.dumps(meta, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    print(f"installed {kept} rung(s); manifest now holds {len(meta['assets'])} assets")
+    print(f"installed {len(chosen)} rung(s); manifest now holds {len(meta['assets'])} assets")
 
 
 def main(argv: list[str] | None = None) -> int:

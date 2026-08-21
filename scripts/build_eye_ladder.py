@@ -221,29 +221,6 @@ def rung_name(amount: float) -> str:
     return f"eyes_{side}{round(abs(amount) * 100):03d}.png"
 
 
-def measure_written(image: np.ndarray, tracker: MediaPipeFaceTracker, rest: float) -> float | None:
-    """Where this **cropped** photograph's lids sit, as the file will be stored.
-
-    The number filed against a photograph has to describe the photograph. Every
-    rung is measured on the full dumped frame and then written out as a crop,
-    and cropping moves the reading — see the brow builder's own copy of this,
-    where the same face read 0.0650 in its source frame and 0.0825 in the crop.
-    The eye axis is far less sensitive to it than the brow axis, which divides
-    by a distance running from the hairline to the chin, but it is not immune
-    and the fix costs one tracker call per rung.
-    """
-    result = tracker.process(
-        VideoFrame(
-            data=np.ascontiguousarray(image),
-            pixel_format=PixelFormat.BGR24,
-            metadata=FrameMetadata(frame_id=0, capture_timestamp=0.0),
-        )
-    )
-    if not result.face_detected or rest <= 1e-6:
-        return None
-    return (rest - _eye_opening(result)) / rest
-
-
 def install(
     chosen: list[tuple[Step, float]],
     avatar: Path,
@@ -256,7 +233,17 @@ def install(
     two ends are better versions of both, measured rather than named, and
     leaving them in would put a fully shut eye back in competition with a
     half-closed one and a full stare with a slightly widened one.
+
+    Filed from the **sequence** measurement, not from the crop that is written.
+    That was tried on 2026-08-21 and made the brow ladder worse — 0.442 mean
+    error to 0.545 — because MediaPipe's brow landmarks are not repeatable
+    across a re-detection: the same face reads 0.0650 in its source frame,
+    0.0831 in the crop cut from it and 0.0798 in a crop framed like the
+    portrait, on an axis whose whole span is 0.039. The reading inside one
+    continuous clip is far steadier than any reading taken again afterwards,
+    and the engine never re-measures a rung anyway — it reads the manifest.
     """
+
     import cv2
 
     manifest = avatar / "metadata.json"
@@ -277,31 +264,20 @@ def install(
     ]
     print(f"\nretired {before - len(meta['assets'])} manifest entrie(s)")
 
-    kept = 0
     for step, amount in chosen:
-        cropped = crop_around_face(step.candidate)
-        written = measure_written(cropped, tracker, rest)
-        if written is None:
-            print(f"  dropped a rung at {amount:+.2f}: no face in the crop")
-            continue
-        if abs(written - amount) > 0.25:
-            print(
-                f"  rung at {amount:+.2f} reads {written:+.2f} once cropped; filing what it reads"
-            )
-        name = rung_name(written)
-        cv2.imwrite(str(avatar / name), cropped)
+        name = rung_name(amount)
+        cv2.imwrite(str(avatar / name), crop_around_face(step.candidate))
         meta["assets"].append(
             {
                 "path": name,
                 "role": "source_eyes_step",
                 "optional": True,
-                "eyes": round(written, 3),
+                "eyes": round(amount, 3),
             }
         )
-        kept += 1
 
     manifest.write_text(json.dumps(meta, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    print(f"installed {kept} rung(s); manifest now holds {len(meta['assets'])} assets")
+    print(f"installed {len(chosen)} rung(s); manifest now holds {len(meta['assets'])} assets")
 
 
 def main(argv: list[str] | None = None) -> int:
