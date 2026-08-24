@@ -50,6 +50,7 @@ from sha256.avatar.engine_warp import (
     WarpAvatarEngine,
     _blend_sources,
     _brow_amount,
+    _brow_height,
     _build_regions,
     _carried_share,
     _commit,
@@ -1600,6 +1601,62 @@ class TestTheBrowAxisIsSigned:
         _brow_amount(self.moved(0.0), neutral)
 
         assert _brow_amount(self.moved(0.0), neutral) == pytest.approx(0.0, abs=0.02)
+
+
+class TestTheBrowReadingSurvivesBeingTakenAgain:
+    """Why the brow ladder could not be filed until 2026-08-24, in two tests.
+
+    The reading used to be taken from the **nose bridge**, and the bridge is the
+    part that moves: over 127 frames from the six brow clips, each detected once
+    on the frame and once on the crop cut from it, the brow points shifted 0.0038
+    of an eye span and the bridge 0.0209. Every rebuilt ladder came out worse
+    than the one it replaced because a rung was filed from a number that changed
+    when the photograph was written.
+
+    Both tests below are about what a *re-detection* may not change. A rung is
+    measured in one frame and re-read in another, and the two have to agree, or
+    the ladder is a row of labels that do not describe their photographs.
+    """
+
+    def face(self, *, brow: float = 0.36, bridge: float = 0.5, stretch: float = 1.0):
+        from sha256.avatar.engine_warp import _LEFT_BROW, _RIGHT_BROW
+
+        points = with_brow_anatomy(synthetic_landmarks())
+        points[10, 1], points[152, 1] = 0.2, 0.8  # forehead and chin
+        points[168, 1] = bridge
+        for index in _LEFT_BROW + _RIGHT_BROW:
+            points[index, 1] = brow
+        # A different frame shape, in normalised coordinates: x is normalised by
+        # the width and y by the height, so a 16:9 frame and a square one place
+        # the same face at different x for the same pixels.
+        points[:, 0] *= stretch
+        return tracking_from(points)
+
+    def test_the_nose_bridge_cannot_move_the_reading(self):
+        """It moved it by more than the brows did, which is the whole defect."""
+        high = _brow_height(self.face(bridge=0.42))
+        low = _brow_height(self.face(bridge=0.58))
+
+        assert high == pytest.approx(low, abs=1e-6)
+
+    def test_the_brows_still_move_it(self):
+        """A guard on the test above: a reading nothing can move is not a fix."""
+        assert _brow_height(self.face(brow=0.30)) > _brow_height(self.face(brow=0.40))
+
+    def test_a_change_of_aspect_ratio_cannot_move_it(self):
+        """Which is why the denominator is the face height and not the eye span.
+
+        The eye span is steadier across a re-detection -- 1.0% of the axis
+        against 1.9% -- and it is horizontal, so dividing a vertical distance by
+        it carries the frame's shape into the answer: the same face reads 0.137
+        in a square portrait and 0.367 in a 16:9 frame. Rungs are cropped to
+        whatever shape the face needs and the portrait is square, so that
+        difference would land straight in the ladder.
+        """
+        square = _brow_height(self.face())
+        widescreen = _brow_height(self.face(stretch=16 / 9))
+
+        assert square == pytest.approx(widescreen, abs=1e-6)
 
 
 class TestTheBrowsHoldStillThroughABlink:

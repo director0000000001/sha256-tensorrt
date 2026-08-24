@@ -3,7 +3,7 @@
 **Living document.** Update it at the end of each working day. For the frozen
 record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
-**Last updated:** 2026-08-21 · **Day 12 — the quality measure becomes a tool, and the first thing it found was that the eye ladder had been built out of the tracker's own lag**
+**Last updated:** 2026-08-24 · **Day 13 — the brow axis was measuring the nose bridge, and Smart App Control blocked the tracker for half a day**
 
 ---
 
@@ -1244,6 +1244,157 @@ teeth are showing. `smile-steps` is the clip that fills it.
     the right, and the far eye at +39 deg of yaw.
 
 **612 tests** (was 604).
+
+## Day 13 — the brow axis was measuring the nose bridge, and the machine stopped trusting our own binaries
+
+Two things, and the first one stopped the day before it started.
+
+### Smart App Control turned on and killed the tracker
+
+`Get-WinEvent` on the CodeIntegrity log, by file and by day:
+
+| day | blocked |
+|---|---|
+| 08-16 | a game's `.exe` |
+| 08-18 / 08-19 | `libssl-3-x64.dll` |
+| 08-21 | `python.exe` |
+| **08-24** | **`_ssl.pyd`, `_lzma.pyd`, `libmediapipe.dll`** |
+
+`libmediapipe.dll` was installed on 13 August, is **not signed**, and every
+ladder on this machine was built with it. It was blocked for the first time on
+day 13. Mapped, rather than guessed: `numpy`, `cv2`, `torch`, **CUDA**,
+`onnxruntime`, PySide6, `pyvirtualcam` and the engine itself all still load;
+`ssl`, `lzma` and the Face Landmarker do not. So the application would not
+start, no ladder could be built, and nothing could be measured — while the one
+part of the stack nobody has used yet was fine.
+
+`VerifiedAndReputablePolicyState` was 1, enforced. There is no exclusion list
+for Smart App Control and self-signing does not satisfy it, so the only fix is
+turning it off, which the owner did. **No reboot was needed** — the state went
+to 0 and every blocked import returned on the next run.
+
+**And it is a delivery finding, not only a Tuesday.** This is exactly what a
+shipped, unsigned `.exe` meets on a customer's Windows 11, where Smart App
+Control is on by default. Code signing moves from *nice* to *required* — and an
+Authenticode certificate identifies a legal entity, which runs straight into the
+anonymity constraint. **Open decision, and the owner's to make.**
+
+### The brow axis: three guesses, and the measurement disagreed with all three
+
+Day 12 left the brows unfilable: `_brow_height` did not survive being re-read on
+the crop that gets written, so every rebuild came out worse than the ladder it
+replaced. The obvious fix was the one the mouth had just had — swap the
+denominator for something interior. **It is not the denominator.** 127 frames
+from the six brow clips, each detected twice, once on the frame and once on the
+crop cut from it, every quantity as a ratio to the eye span:
+
+| quantity | moves across a re-detection |
+|---|---|
+| the brow points | 0.0038 |
+| the face height | 0.0032 |
+| **the nose bridge** | **0.0209** |
+
+The brows were never the unstable part and neither was the denominator. It was
+landmark 168, the point the brows were being measured *down from* — chosen
+precisely because a nose bridge cannot be moved by an eyelid, which is true and
+cost more than it bought.
+
+| axis | % of its own span, frame vs crop |
+|---|---|
+| `(bridge − brows) / face height` — shipped until today | **11.8%** |
+| `(bridge − brows) / eye span` | 2.7% |
+| `(eye line − brows) / eye span` | 1.0% |
+| **`(eye line − brows) / face height`** — shipped now | **1.9%** |
+
+**1.9%, against the 4% the mouth axis ships at**, which is the bar that lets a
+rung be filed from the photograph instead of from the clip. The eye span is
+better still at 1.0% and was rejected: it is horizontal, so dividing a vertical
+distance by it means pixels, `FaceTrackingResult` carries no frame size, and
+0.9 of a percentage point does not justify changing the one type every tracker
+backend has to produce. Measured, because it is the trap the old code had
+already half-fallen into: against a horizontal denominator in normalised
+coordinates the same face reads **0.137 in a square portrait and 0.367 in a
+16:9 frame**. Two vertical distances cancel it.
+
+**The eyelid objection was measured, not argued.** Moving the reference to the
+eye looks like walking back into `browInnerUp`'s defect. Across six clips the
+correlation between this reading and the eyelid opening runs **+0.95 to −0.98,
+changing sign** — and the nose-bridge version changes sign with it. A lid
+reaching the reading would push one way every time. What the correlation shows
+is a face that raises its brows as it opens its eyes on some clips and not on
+others.
+
+`_BROW_SPAN` is **0.62**, re-measured rather than converted: the furthest raised
+photograph in the library sits at +0.620 of the portrait's resting height and
+the owner's own furthest raise over 1847 frames of `driving.mkv` is **+0.599**.
+Two different faces, the same number, which is the strongest evidence the axis
+measures what it claims.
+
+### `scripts/check_ladder.py`, and the brow ladder re-filed
+
+Three ladders have now been built out of numbers that did not describe their
+photographs, and all three were caught by hand, afterwards. So the check is a
+committed tool: it re-detects every installed rung, compares it with what the
+manifest claims, and `--max-error` exits non-zero. `--refile` rewrites the
+manifest from the measurements, which is only sound on an axis that survives a
+re-detection — and now one does.
+
+What it found, and it confirms day 12 independently on a stable axis:
+
+```
+brows_u020.png   filed +0.199   shows -0.096      brows_u080.png  +0.796  +0.893
+brows_u031.png   filed +0.311   shows -0.124      brows_u100.png  +1.000  +1.000
+brows_u043.png   filed +0.430   shows -0.127
+brows_u057.png   filed +0.568   shows -0.139
+brows_u088.png   filed +0.880   shows -0.129
+
+mean error 0.374 · 5 of 13 on the wrong side of rest · 20 of 78 pairs out of order
+```
+
+Re-filed and de-duplicated at one rung per 0.05 — five of the thirteen were one
+photograph filed five times, inside 0.04 of each other — the ladder is **8 rungs
+and exact: mean error 0.000, nothing on the wrong side, no pair out of order**,
+and the filenames describe their photographs again.
+
+The tool also names the hole rather than hiding it: **+0.002 to +0.893, 0.891
+wide.** The entire raised side of the brow ladder is one gap. That is
+`brows-up-steps`, and it is now a number rather than an impression.
+
+**Retiring is collision-safe**, which is not tidiness: `superseded-brows/`
+already held a `brows_d093.png` from an earlier rebuild and `shutil.move` copies
+over an existing file. That is how `brows_d100.png` was lost on 2026-08-21.
+
+### Measured, same clip, same frames
+
+| | before | after |
+|---|---|---|
+| warp residual, all | 7.24 px | **7.09** |
+| near-eye sharpness | 326 | **332** |
+| face sharpness | 166 | **167** |
+| brow rungs, share of frames | 68.3% | **16.2%** |
+| the wrongly-filed rungs | 23.7% of frames | **never chosen** |
+
+Nearly a quarter of the clip was showing the owner a photograph of lowered brows
+while he raised his. Day 12 measured the two brow roles covering 91% of an
+ordinary conversation and called it the squint's shape; it is 16.2% now.
+
+### What day 13 found and did not fix
+
+**The engine's brow zero is not zero.** Run over `driving.mkv`, `_brow_amount`
+has a **median of −0.202** — a person talking normally, with their brows where
+they keep them, reads a fifth of the way into a frown. That is why the −0.400
+rung is nearest on 14% of the clip (at a median share of 0.28, so blended rather
+than shown whole).
+
+It is not the axis: the raw reading's median is 0.1014 and the engine's tracked
+rest ends at 0.1044. It is `_Neutral.track_level`, which follows a raise faster
+than it comes back and so sits above where the face actually rests. **Not
+diagnosed, deliberately** — the same estimator feeds the eyes and the mouth, and
+guessing at it is what four of the five passes on day 11 did.
+
+**615 tests** (was 612). Three of them are the regression: the nose bridge may
+not move the reading, the brows still must, and a change of aspect ratio may
+not.
 
 ## Where day 12 starts — the owner's list, and the one item under it
 

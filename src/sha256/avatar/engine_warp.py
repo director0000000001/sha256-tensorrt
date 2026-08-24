@@ -146,12 +146,24 @@ _EYES_PREFIX = "eyes@"
 _BROWS_PREFIX = "brows@"
 _BROWS_LADDER_START = 0.12
 
-# The brow bridge landmark, and how far the brows move as a fraction of their
-# resting height above it. Measured on the owner's brows clip: a full raise is
-# +18% of that height and a full frown -15%, so a fifth spans either direction
-# and the axis reaches one where the clip does.
-_NOSE_BRIDGE_LANDMARK = 168
-_BROW_SPAN = 0.18
+# How far the brows move as a fraction of their resting height above the eye
+# line, for the axis to reach one.
+#
+# **0.62, and it is a new measurement rather than a converted one** — see
+# :func:`_brow_height`, which stopped measuring from the nose bridge on
+# 2026-08-24. The old 0.18 described a different numerator and does not carry
+# over. Measured twice, on the two faces this axis has to agree about, and they
+# agree: the furthest raised photograph in the library sits at **+0.620** of the
+# portrait's resting height, and the owner's own furthest raise over the 1847
+# frames of `driving.mkv` is **+0.599**. A frown reaches -0.262 in the library
+# and -0.155 on the recording.
+#
+# So the axis reaches one where a full raise is, and the tail past it clamps:
+# p95 of ordinary conversation is +0.224, which is 0.36 of the scale. That is
+# the point of taking the span from a full raise rather than from a percentile —
+# the alternative puts an everyday raise at 1.0, and an everyday raise reading
+# as a full one is the owner's *"crazily overjoyed"* complaint exactly.
+_BROW_SPAN = 0.62
 
 # How much of a new brow reading is taken each frame. 0.4 is a time constant of
 # about two and a half frames.
@@ -2875,7 +2887,7 @@ def _eye_amount(tracking: FaceTrackingResult, neutral: _Neutral) -> float:
 
 
 def _brow_height(tracking: FaceTrackingResult) -> float:
-    """How high the brows sit above the nose bridge, over face height.
+    """How high the brows sit above the eye line, over face height.
 
     **Measured on the brows**, for the third time in this file and for the third
     time because a blendshape would not answer it. ``browInnerUp`` reacts to the
@@ -2884,14 +2896,50 @@ def _brow_height(tracking: FaceTrackingResult) -> float:
     it put a fully raised brow on the face for an instant every time the eyes
     opened. That is the doubled brow and the angry look they photographed.
 
-    Against the **nose bridge**, which does not move when a lid does, rather
-    than against the eye. Two vertical distances divided by each other, as the
-    lip gap and the eye opening are, so the frame's aspect ratio cancels.
+    **Above the eye line, and that is the 2026-08-24 correction.** It used to be
+    above the *nose bridge*, on the reasoning that a bridge cannot be moved by a
+    lid — sound, and it turned out to cost far more than it bought. The brow
+    ladder could not be filed at all because this reading did not survive being
+    taken again on the crop that gets written: day 12 measured the same face at
+    0.0650 in its source frame and 0.0825 in its crop, and every attempt to
+    rebuild the ladder came out worse than the one it replaced.
+
+    Measured on 127 frames from the six brow clips, each detected twice — once
+    on the frame, once on the crop cut from it — the instability is **not in the
+    brows and not in the denominator**. It is the bridge landmark itself:
+
+    ======================  =========================
+    quantity                moves, over an eye span
+    ======================  =========================
+    the brow points         0.0038
+    the face height         0.0032
+    **the nose bridge**     **0.0209**
+    ======================  =========================
+
+    Dropping it takes the axis from **11.8% of its own span to 1.9%**, with a
+    bias of +0.0002, which is below the 4% the mouth axis ships at and is what
+    lets a rung be filed from the photograph rather than from the clip.
+
+    The outer eye corners are the canthi and a lid does not move them. That was
+    an argument rather than a measurement, so it was measured: across six clips
+    the correlation between this reading and the eyelid opening runs from +0.95
+    to -0.98, **changing sign**, and the nose-bridge version changes sign with
+    it. A lid reaching the brow reading would push one way every time. What the
+    correlation shows is a face raising its brows as it opens its eyes on some
+    clips and not on others, which is a face and not an artefact.
+
+    Divided by the face height rather than by the span between the eye corners,
+    which is steadier still at 1.0%. Both distances are vertical this way, so
+    the frame's aspect ratio cancels and the landmarks can stay normalised —
+    against a horizontal denominator the same face reads 0.137 in a square
+    portrait and 0.367 in a 16:9 frame. Reaching 1.0% means carrying the frame's
+    size into ``FaceTrackingResult``, which every tracker backend then has to
+    produce, and 0.9 of a percentage point does not buy that.
     """
     landmarks = tracking.landmarks
     if landmarks is None or landmarks.count <= max(max(_LEFT_BROW), max(_RIGHT_BROW)):
         return 0.0
-    if landmarks.count <= max(_FOREHEAD_LANDMARK, _CHIN_LANDMARK, _NOSE_BRIDGE_LANDMARK):
+    if landmarks.count <= max(_FOREHEAD_LANDMARK, _CHIN_LANDMARK, *_OUTER_EYE_CORNERS):
         return 0.0
 
     points = landmarks.points
@@ -2899,8 +2947,9 @@ def _brow_height(tracking: FaceTrackingResult) -> float:
     if face <= 1e-6:
         return 0.0
 
+    eye_line = float(np.mean(points[list(_OUTER_EYE_CORNERS), 1]))
     brows = float(np.mean(points[list(_LEFT_BROW + _RIGHT_BROW), 1]))
-    return (float(points[_NOSE_BRIDGE_LANDMARK, 1]) - brows) / face
+    return (eye_line - brows) / face
 
 
 def _brow_amount(tracking: FaceTrackingResult, neutral: _Neutral) -> float:

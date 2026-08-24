@@ -453,76 +453,46 @@
       "eyes": 0.716
     },
     {
-      "path": "brows_d093.png",
+      "path": "brows_d040.png",
       "role": "source_brows_step",
       "optional": true,
-      "brows": -0.927
+      "brows": -0.4
     },
     {
-      "path": "brows_d080.png",
+      "path": "brows_d032.png",
       "role": "source_brows_step",
       "optional": true,
-      "brows": -0.8
+      "brows": -0.322
     },
     {
-      "path": "brows_d053.png",
+      "path": "brows_d022.png",
       "role": "source_brows_step",
       "optional": true,
-      "brows": -0.526
-    },
-    {
-      "path": "brows_d043.png",
-      "role": "source_brows_step",
-      "optional": true,
-      "brows": -0.433
-    },
-    {
-      "path": "brows_d030.png",
-      "role": "source_brows_step",
-      "optional": true,
-      "brows": -0.303
+      "brows": -0.223
     },
     {
       "path": "brows_d014.png",
       "role": "source_brows_step",
       "optional": true,
-      "brows": -0.136
+      "brows": -0.139
     },
     {
-      "path": "brows_u020.png",
+      "path": "brows_d010.png",
       "role": "source_brows_step",
       "optional": true,
-      "brows": 0.199
+      "brows": -0.097
     },
     {
-      "path": "brows_u031.png",
+      "path": "brows_u000.png",
       "role": "source_brows_step",
       "optional": true,
-      "brows": 0.311
+      "brows": 0.002
     },
     {
-      "path": "brows_u043.png",
+      "path": "brows_u089.png",
       "role": "source_brows_step",
       "optional": true,
-      "brows": 0.43
-    },
-    {
-      "path": "brows_u057.png",
-      "role": "source_brows_step",
-      "optional": true,
-      "brows": 0.568
-    },
-    {
-      "path": "brows_u080.png",
-      "role": "source_brows_step",
-      "optional": true,
-      "brows": 0.796
-    },
-    {
-      "path": "brows_u088.png",
-      "role": "source_brows_step",
-      "optional": true,
-      "brows": 0.88
+      "brows": 0.893
     },
     {
       "path": "brows_u100.png",
