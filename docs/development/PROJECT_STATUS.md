@@ -1562,6 +1562,88 @@ optimistic side.
     refiner's. Every clip the owner generates moves that number; no amount of
     training does.
 
+## Day 13, fourth pass — the brow zero was the first frame, for a minute
+
+Day 13's first pass left this named and undiagnosed: `_brow_amount` had a median
+of **−0.202** over `driving.mkv`, so a person talking normally, brows where they
+keep them, read a fifth of the way into a frown.
+
+**It is `track_level`, and it is the seed.** That method was a plain slow mean
+seeded from frame 0, with none of the acceleration `relative_pose` and
+`relative_rise` both have. Measured: **frame 0 of `driving.mkv` reads a brow
+height of 0.1489 against the clip's median of 0.1014** — 47% high — and at
+`_POSE_RATE` that takes a seventeen-second time constant to walk off. Tenth by
+tenth the amount came out
+
+```
+-0.455  -0.378  -0.276  -0.201  -0.119  -0.279  -0.226  -0.175  +0.100 ...
+```
+
+decaying across the whole recording. **The bias was the first frame, still being
+paid for a minute later.**
+
+**The other candidate was checked and dismissed.** The brow signal is genuinely
+skewed — brows raise much further than they lower, so a *mean* sits above a
+*median* by construction. Measured, that skew is **1.7%**, a fortieth of what
+was seen. It is the seed, not the skew.
+
+**Scope, checked rather than assumed.** `track_level` has exactly one caller:
+`_brow_amount`, under the name `browHeight`. The eyes use `relative_rise` /
+`relative_drop` and the mouth uses `relative_expression`, both of which already
+warm up. The worry that this reached three families was wrong.
+
+The fix is the remedy its two neighbours already carry: for the first
+`_LEVEL_WARMUP_FRAMES` readings the rate floors at a `_LEVEL_WINDOW_FRAMES`
+window with a prior. **Both directions, unlike `relative_rise`** — that one
+warms upward only to protect an asymmetry it needs against blinks, and a plain
+level has none to protect.
+
+### Measured, both estimators on the same frames in one pass
+
+| brow amount, median | old | new | change |
+|---|---|---|---|
+| the whole clip | −0.202 | −0.145 | +0.057 |
+| **the first ten seconds** | **−0.393** | **−0.233** | **+0.159** |
+| just after the warm-up (45–300) | −0.448 | −0.237 | +0.211 |
+| the second half | −0.167 | −0.140 | +0.027 |
+| worst case, p5 | −0.455 | −0.267 | +0.188 |
+
+Tracked once and both estimators run on the same series, so the difference
+cannot be two runs of MediaPipe disagreeing.
+
+And on the render:
+
+| | before | after |
+|---|---|---|
+| warp residual, all | 7.09 px | **7.07** |
+| near-eye sharpness | 332 | **336** |
+| `brows_d040`, the deep frown | **14.5%** of frames | **0.0%** |
+| `brows_u000`, at rest | 0.8% | 2.4% |
+
+**A deep-frown photograph was on a seventh of an ordinary talking clip and is
+now never chosen.** That was the visible half of the bias.
+
+*(The report announced a library change between the two runs. It is the
+documented false positive: the fingerprint includes each asset's modification
+time, and `git checkout main` during the merge rewrote `metadata.json` with
+byte-identical content. `git status` confirms nothing changed.)*
+
+### Still not zero, and it is no longer the seed
+
+The whole-clip median is **−0.145** and the second half barely moved, so what is
+left is not the first frame. It is a seventeen-second mean sitting near the
+clip's average while the owner's brow position wanders further than that: over
+tenths 6 to 8 his brows genuinely sit at 0.089–0.093 against an overall median
+of 0.1014, and the estimate reads that as a mild frown — **which it arguably
+is**. Whether "rest" should track a wandering face faster is a design question
+with no measured answer yet, and changing `_POSE_RATE` would move the eyes and
+the head pose with it. Left alone deliberately.
+
+**620 tests** (was 615). Five of them are this: a bad first frame is walked off
+inside the warm-up, the old slow mean provably would not have, it warms in both
+directions, and two seconds of raised brows still do not become a new resting
+face.
+
 ## Where day 12 starts — the owner's list, and the one item under it
 
 Reported at the end of day 11, after the fifth fix. Written down as said;

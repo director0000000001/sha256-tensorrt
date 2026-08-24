@@ -1379,18 +1379,59 @@ class _Neutral:
         return now
 
     def track_level(self, name: str, value: float) -> float:
-        """A plain slow mean of a signal, advanced by this reading.
+        """A slow mean of a signal, advanced by this reading. Warm at first.
 
         For a measurement that moves both ways around rest and has no preferred
         direction — where a brow sits, as against how open an eye is, which only
         ever closes from its widest. The asymmetric estimators above would drift
         toward whichever way the face happened to move most.
+
+        **The warm-up is a 2026-08-24 fix and it was the whole of the defect.**
+        This was a plain slow mean seeded from the first frame, with none of the
+        acceleration :meth:`relative_pose` and :meth:`relative_rise` both have —
+        so a bad first frame stayed in it for a minute. Measured on
+        `driving.mkv`: frame 0 reads a brow height of **0.1489 against the
+        clip's median of 0.1014**, 47% high, and at ``_POSE_RATE`` the estimate
+        needs a seventeen-second time constant to walk it off. Tenth by tenth
+        the brow amount came out
+
+            -0.455  -0.378  -0.276  -0.201  -0.119  -0.279 ...
+
+        decaying across the whole clip, with a median of **-0.202**: a person
+        talking normally, brows where they keep them, reading a fifth of the way
+        into a frown for the length of a call.
+
+        The other candidate was checked and dismissed. The brow signal *is*
+        skewed — brows raise much further than they lower — so a mean sits above
+        a median by construction, but only by **1.7%** here, which is a fortieth
+        of what was seen. It is the seed, not the skew.
+
+        Same remedy as its two neighbours, and the same shape: for the first
+        :data:`_LEVEL_WARMUP_FRAMES` readings the rate floors at a
+        :data:`_LEVEL_WINDOW_FRAMES` window with a prior. **Both directions,
+        unlike :meth:`relative_rise`** — that one warms upward only to protect
+        an asymmetry it needs against blinks, and a plain level has no asymmetry
+        to protect. A seed can be wrong on either side and this one was high.
         """
         rest = self._means.get(name)
         if rest is None:
             self._means[name] = value
+            self._level_seen[name] = 1
             return value
-        rest += _POSE_RATE * (value - rest)
+
+        seen = self._level_seen.get(name, 1) + 1
+        self._level_seen[name] = seen
+
+        rate = _POSE_RATE
+        if seen <= _LEVEL_WARMUP_FRAMES:
+            # Windowed rather than a mean of everything seen so far, for the
+            # reason :meth:`relative_rise` gives: the tracker's own reading
+            # drifts 36% over the first second and a half while the face does
+            # not move, so an average across the warm-up is an average of a
+            # journey rather than an estimate of where it arrives.
+            rate = max(rate, 1.0 / (min(seen, _LEVEL_WINDOW_FRAMES) + _POSE_PRIOR_FRAMES))
+
+        rest += rate * (value - rest)
         self._means[name] = rest
         return rest
 

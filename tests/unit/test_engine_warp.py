@@ -893,6 +893,81 @@ class TestTheRestingAngle:
         assert neutral.pose_offset("yaw", 40.0) == pytest.approx(40.0)
 
 
+class TestTheRestingBrowLevel:
+    """Where the engine thinks a brow sits when nothing is happening.
+
+    ``track_level`` was a plain slow mean seeded from the first frame, with none
+    of the acceleration :meth:`relative_pose` and :meth:`relative_rise` both
+    have. Measured on `driving.mkv`: frame 0 reads a brow height of **0.1489
+    against the clip's median of 0.1014**, 47% high, and at ``_POSE_RATE`` alone
+    that takes a seventeen-second time constant to walk off. The brow amount had
+    a median of **-0.202** over the whole recording -- a person talking normally
+    reading a fifth of the way into a frown -- and **-0.393 over the first ten
+    seconds**, which is the part of a call anybody actually judges.
+    """
+
+    SEED = 0.1489
+    TRUE = 0.1014
+
+    def feed(self, neutral: _Neutral, value: float, frames: int) -> float:
+        for _ in range(frames):
+            rest = neutral.track_level("browHeight", value)
+        return rest
+
+    def test_the_first_reading_is_its_own_rest(self):
+        """The property that makes an avatar start as its own photograph."""
+        neutral = _Neutral()
+
+        assert neutral.track_level("browHeight", self.SEED) == self.SEED
+
+    def test_a_bad_first_frame_is_walked_off_inside_the_warm_up(self):
+        """The defect this exists for, stated as a number."""
+        neutral = _Neutral()
+        neutral.track_level("browHeight", self.SEED)
+
+        settled = self.feed(neutral, self.TRUE, _LEVEL_WARMUP_FRAMES)
+
+        left = (settled - self.TRUE) / (self.SEED - self.TRUE)
+        assert left < 0.15, "the first frame is still most of the resting estimate"
+
+    def test_the_old_slow_mean_would_not_have_managed_that(self):
+        """Guards the fix rather than the framework.
+
+        At the slow rate alone the same number of frames leaves almost all of
+        the error in place, which is a mild frown on a face doing nothing for
+        as long as the owner keeps looking.
+        """
+        left = (1.0 - _POSE_RATE) ** _LEVEL_WARMUP_FRAMES
+
+        assert left > 0.85
+
+    def test_it_warms_in_both_directions(self):
+        """The difference from :meth:`relative_rise`, which warms upward only.
+
+        That one is protecting an asymmetry it needs against blinks. A plain
+        level has no asymmetry to protect, and a seed can be wrong on either
+        side -- the one that was measured was high.
+        """
+        neutral = _Neutral()
+        neutral.track_level("browHeight", self.TRUE)
+
+        settled = self.feed(neutral, self.SEED, _LEVEL_WARMUP_FRAMES)
+
+        left = (self.SEED - settled) / (self.SEED - self.TRUE)
+        assert left < 0.15, "a seed below the face is not corrected the way one above it is"
+
+    def test_a_held_brow_after_the_warm_up_is_not_a_new_resting_face(self):
+        """Otherwise raising the brows for two seconds teaches it that they rest
+        there, and lowering them back reads as a frown."""
+        neutral = _Neutral()
+        self.feed(neutral, self.TRUE, _LEVEL_WARMUP_FRAMES * 2)
+
+        settled = self.feed(neutral, self.SEED, 60)
+
+        held = (self.SEED - settled) / (self.SEED - self.TRUE)
+        assert held > 0.8, "two seconds of raised brows moved where they rest"
+
+
 class TestOnePhotographPerRegion:
     """The owner's report, in their words: they smile, the teeth appear, and the
     closed mouth is still there underneath at low opacity.
