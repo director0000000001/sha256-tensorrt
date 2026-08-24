@@ -1726,6 +1726,148 @@ fence's width, because the octagon's vertices sit on the iris outline where the
 diamond's edges stopped short of it — six pixels of the hull fell below the bar
 and every one was on its boundary.
 
+## Where day 14 starts — the owner's list after testing day 13 live
+
+He ran the application and reported four things. **All four are written as he
+said them**, with what today's measurements already establish under each, so
+nothing is re-derived tomorrow.
+
+### 1. The mouth, and he ranks it first
+
+*"The mouth movements are the most important thing now. There are many problems
+here. **When I am talking it almost does not follow me at all.**"*
+
+**Diagnosed on day 13, and the obvious reading is wrong.** The mouth *does*
+follow — measured by re-tracking the render, which is the only way to read what
+is on screen rather than what the engine believes it put there:
+
+| | driver p5–p95 | avatar p5–p95 | gain | r |
+|---|---|---|---|---|
+| lip parting | 0.2260 | 0.2357 | **1.04** | 0.99 |
+| mouth width | 0.1962 | 0.1603 | 0.82 | 0.97 |
+
+So the amount and the timing are right. What is not right is the *content*:
+
+| photograph | share of frames | median share |
+|---|---|---|
+| `source_mouth_o` | **65.6%** | **0.18** |
+| `source_mouth_open` | 9.7% | 0.78 |
+| `source_mouth_pressed` | 6.1% | 0.22 |
+| the smile ladder, ten rungs | ~17% | — |
+
+**On two thirds of the clip the mouth is 82% the portrait's own closed mouth**
+with one rounded-lips photograph washed over it at 18%. The mesh pulls a closed
+mouth open. That is a stretched closed mouth, not a speaking one, and it is
+exactly what *"it does not follow me"* looks like from the outside.
+
+**And it corrects something said earlier the same day: `smile-steps` will not
+fix this.** That clip fills the smile ladder's hole, which is 17% of frames.
+Speech is the other 83%.
+
+**What it needs is a speech ladder from one clip**, by the method that fixed the
+eyes — 14 rungs, one clip, 0.095 mean error. `speech` and `speech-numbers` are
+already in `configs/avatar_clips.toml`; only single best frames were ever taken
+from them.
+
+**The open design question, named rather than glossed:** an eye is
+one-dimensional, open to shut. Speech is **two**-dimensional — width and parting
+move independently, and the engine already computes both. "Ladder" is a
+one-dimensional idea. Either a grid on two axes, or two ladders.
+
+**First step, cheap, and it decides whose job this is:** measure whether the
+existing `speech` clip already covers the width × parting plane. If it does, the
+material is on disk and this is a builder. If it does not, it is a clip.
+
+### 2. The iris still takes a colour that is not iris
+
+*"Something like a different-coloured iris gets added... it happens when it
+briefly loses focus on the eye. Then it corrects itself."* Arrow on the **outer
+corner** of one eye.
+
+The octagon fixed the *shape* — near-eye sharpness 336 → 359 and the polygonal
+outline is gone — and **did not fix the colour**. Measured over 1847 frames, the
+off-iris chroma inside the iris has a median of 14.1 and reaches 22.7, so it is
+a continuum rather than a rare fault. Reproduced on frames 261 and 384: a pink
+wedge cutting into the iris.
+
+**Cause, and the code already names the risk for the other axis:**
+`_contain_iris` holds the iris inside the lid **vertically only** — *"a lid
+occludes an iris from above and below and leaves its width alone"*, which is
+true of occlusion. But **gaze moves the iris sideways, toward the corner**,
+where the lid outline narrows; the fan triangles there are compressed to almost
+no area, and an affine fitted to three nearly-collinear points is unstable.
+
+**Proposed fix: lateral containment** — hold the iris ring inside the lid's own
+outline with a margin, so the fan can never collapse, rather than trusting a
+fixed `_GAZE_LIMIT_X`.
+
+**And one thing this ruled out:** the owner thought the camera was too slow and
+that 60 fps would prevent it. It would not — the whole diagnosis was rendered
+**offline from `driving.mkv` with no camera involved**, at exactly 30 fps. (60 fps
+is separately impossible today: `animate` is 21.4 ms against a 16.7 ms budget.)
+
+### 3. The forehead — and the constraint that unblocks it
+
+*"The whole forehead should be covered."* And then, decisively:
+
+> **"Clients will work with their hair back, not falling forward. The whole
+> forehead will be free."**
+
+That removes the objection `_trim_forehead` was written around — *"two hairlines
+never agree; that is structure, not tone"*. With the hair back there is no
+hairline to disagree with, so **this becomes a tuning problem rather than an
+architectural one.**
+
+There is also a contradiction to settle: the code claims the mask already
+*"keeps the whole forehead covered"* and the owner says it does not. One is
+wrong and it is measurable. **First step: how much of his forehead the mask
+actually covers.** Above 95% is tuning; near 70% is not.
+
+### 4. Progress, in his words
+
+*"There is real progress on the iris and I am glad."* And: *"we are slowly
+getting to really good results."*
+
+---
+
+## What day 13 owes, and did not do
+
+*   **The frame cost after the octagon.** 245 triangles against 229 is +7.0% at
+    one OpenCV call each, so the honest expectation is about +1.5 ms on
+    `animate`'s 21.4 ms — but the machine was 52% warm and the tool refused the
+    comparison. **Needs a rested run.** This is the only unknown in a change
+    that shipped.
+*   **Why the warp residual rose**, 7.07 → 7.30. The candidate is that it is an
+    average over mesh points and the mesh gained eight that are deliberately
+    displaced by gaze. Not verified.
+*   **A check that would have caught the browless rungs.** Four measurements
+    failed at it on day 13 and the last one was thrown away for finding whatever
+    it was pointed at. `check_ladder` still cannot catch this class.
+*   **The last brow candidate**, untested: this avatar's brows are light ginger,
+    the owner's room is dim and warm, and `_match_colour` fits the avatar to
+    that light. It predicts the defect on *every* frame rather than only at a
+    raise, which is what makes it testable.
+*   **Startup.** 21 seconds with no feedback, under a flood of MediaPipe `W0000`
+    lines that read as errors. The owner concluded the application had failed —
+    and a customer opening an `.exe` will conclude the same.
+
+## Still waiting on the owner
+
+`brows-up-steps`, `brows-down-steps`, `smile-steps`, and — still blocking the
+largest open item — **`turn-frame-right` and `turn-frame-left`**. 9:16 at 1080p,
+which gives a 496 px face; 16:9 at 720p gave 320 px and every frame was refused.
+
+## The refiner, where it was left
+
+Trained, 1.30 ms on a 256×256 tile, and short of data by measurement: the
+learning curve was still climbing at 853 pairs. The ceiling is known — 22% of
+the error on the held-out clip, 35% across all seven — so the remaining prize is
+about 1.7 of mean and 6.8 of worst-1%. The cheapest 5× is `--stride 1`.
+
+**Open, and it decides what adding a new face costs:** whether one refiner
+generalises across faces or each face needs its own run. Today's was trained on
+one.
+
 ## Where day 12 starts — the owner's list, and the one item under it
 
 Reported at the end of day 11, after the fifth fix. Written down as said;
