@@ -1396,6 +1396,95 @@ guessing at it is what four of the five passes on day 11 did.
 not move the reading, the brows still must, and a change of aspect ratio may
 not.
 
+## Day 13, second pass — the refiner exists, runs on CUDA in 1.3 ms, and is short of data
+
+**CUDA had never been used by anything.** Before today it appeared in exactly
+two places in the repository: a `device: "auto"|"cuda"|"cpu"` field nothing
+reads, and `scripts/check_gpu.py` from day 1. The engine is entirely CPU — a
+~900-triangle mesh warp whose cost is per-call overhead rather than pixels — so
+the 5070 Ti has been idle for twelve days.
+
+**And it should stay idle for the warp.** Moving 900 small `warpAffine` calls
+onto the GPU makes them slower, not faster, and `cv2.cuda` is not in the pip
+wheel at all (`getCudaEnabledDeviceCount()` is 0, `build has CUDA: False`), so
+using it means building OpenCV from source and shipping a CUDA runtime to the
+customer. The GPU's place is the refiner, which is where the plan always put it.
+
+### `scripts/make_training_pairs.py` — the week-1 item that did not exist
+
+**The problem it solves is that there is no ground truth.** The avatar is a
+generated person, so for any live frame the right answer has never been
+photographed and never will be.
+
+It exists inside one clip. Every clip in `avatars/*/frames` is that same face
+moving, so frame **A** warped onto frame **B**'s mesh has an answer: **B
+itself**. The input carries the artefacts and the target carries none of them,
+and nothing in the pair is invented by us.
+
+The warp is the shipped `warp_mesh` with the same triangulation and the same
+face box, so what the refiner learns to undo is what the engine will hand it.
+The mask travels with each pair, because outside the face the two images differ
+by the whole background and a refiner scored on that would spend itself there.
+
+**1000 pairs at 256×256, 289 MiB, from seven clips.** What is in them:
+
+| | mean of the face | worst 1% of it |
+|---|---|---|
+| p5 | 1.9 | 11.0 |
+| p50 | 6.3 | 41.0 |
+| p95 | 15.2 | 87.7 |
+
+The worst-1% column is the one that matters and is why it is reported at all:
+a sheared triangle by an eye corner is a handful of pixels wrong by a lot, and
+it moves the mean by almost nothing. **Every complaint the owner has made is a
+worst-1% complaint.** By frame distance the difficulty is a clean curriculum —
+median worst-1% runs 26 at ±5 frames to 70 at ±45.
+
+### `scripts/train_refiner.py`, and what it actually achieved
+
+345k parameters: two stride-2 convolutions down, four residual blocks, two
+nearest-neighbour upsamples back, and a **zero-initialised delta** so an
+untrained refiner is exactly the identity and cannot start worse than the warp.
+The split holds out a **whole clip** — frames five apart are near-duplicates,
+so a random split reports a number that means nothing.
+
+| | mean | worst 1% |
+|---|---|---|
+| the warp alone, held out | 9.11 | 60.33 |
+| the refiner, best epoch | **8.76** | **55.46** |
+
+**−3.8% on the mean and −8% on the worst 1%.** Real, measured on a clip it never
+saw, and small.
+
+**Inference: 1.30 ms median, 2.54 ms p95, on one 256×256 tile.** B001 predicted
+1.83 ms fp32 for this shape on day 1 and it came in under that. Against
+`animate`'s 21.4 ms and a 33.3 ms budget, **the refiner fits with room to
+spare** — and that was the single largest unknown in the four-week plan.
+
+### Why it is small, measured rather than guessed
+
+Training loss fell from 6.79 to 4.86 while held-out error stopped improving at
+about epoch 30 and then drifted back. That is overfitting, and the fix it
+implies was checked rather than assumed:
+
+| training pairs | held-out mean | gain over the warp |
+|---|---|---|
+| 214 | 8.96 | −0.15 |
+| 427 | 8.83 | −0.28 |
+| 853 | 8.76 | −0.35 |
+
+**The curve is still climbing.** More data is the answer, and it is now a
+measurement instead of an instinct. The cheapest 5× is on disk already — the
+set was built at `--stride 5`, and stride 1 gives about 9000 pairs from the same
+clips. The owner's three pending clips add more.
+
+**One thing to settle before spending a night on 9000 pairs.** Part of the 9.11
+is not artefact and cannot be fixed by any refiner: warping A onto B cannot
+recover what A does not contain — a closed lid, teeth behind a mouth that was
+shut. The ±5-frame pairs sit at a mean of 4.0 and the ±120 pairs at 8.5, and
+most of that difference is *content*, not damage. **The irreducible floor has
+not been measured**, and until it is, "8.76 against 9.11" has no denominator.
+
 ## Where day 12 starts — the owner's list, and the one item under it
 
 Reported at the end of day 11, after the fifth fix. Written down as said;
