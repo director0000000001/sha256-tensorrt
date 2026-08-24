@@ -1481,9 +1481,86 @@ clips. The owner's three pending clips add more.
 **One thing to settle before spending a night on 9000 pairs.** Part of the 9.11
 is not artefact and cannot be fixed by any refiner: warping A onto B cannot
 recover what A does not contain — a closed lid, teeth behind a mouth that was
-shut. The ±5-frame pairs sit at a mean of 4.0 and the ±120 pairs at 8.5, and
-most of that difference is *content*, not damage. **The irreducible floor has
-not been measured**, and until it is, "8.76 against 9.11" has no denominator.
+shut. **The irreducible floor has not been measured**, and until it is, "8.76
+against 9.11" has no denominator. Measured next, below.
+
+## Day 13, third pass — the denominator, and it is smaller than hoped
+
+`scripts/measure_refiner_ceiling.py`. Three numbers on the same frames, all on
+`video-10`, which is the clip the refiner was held out on:
+
+| | mean | worst 1% |
+|---|---|---|
+| the warp machinery alone (self-warp) | 0.00 | 0.00 |
+| **one source — what ships** | **9.06** | **58.77** |
+| one source, flat exposure removed | 9.12 | 58.46 |
+| **the consensus of every source** | **7.05** | **47.14** |
+
+*Self-warp* is frame B warped onto B's **own** mesh. It comes out exactly zero,
+which is itself worth recording: **when the two meshes agree the warp is
+lossless.** Every pixel of error the engine makes comes from the geometry
+differing, none of it from resampling or triangle edges.
+
+*Consensus* is every available source warped onto B and the per-pixel median
+taken. Where independent warps agree, the content was in all of them; where they
+disagree, some are artefacts and the median discards them. A refiner reads
+**one** warped image, so it has strictly less to work with than that median —
+which makes the consensus an **optimistic** estimate of the best any
+single-input refiner could do.
+
+**Over all seven clips** (80 targets) the same measurement reads 7.37 / 4.77 and
+a headroom of **35%**. `video-10` is a harder clip than the average, which is
+why it is quoted separately: it is where the refiner's own numbers were taken,
+and mixing the two would compare a share against the wrong whole.
+
+### What that makes the first refiner worth
+
+| | available | the refiner took | share |
+|---|---|---|---|
+| mean | 2.01 | 0.35 | **17%** |
+| worst 1% | 11.62 | 4.87 | **42%** |
+
+**The refiner is not underperforming — it is already taking 42% of everything
+available on the metric that matches what the owner sees.** And the prize is
+bounded: **the whole of the refiner's possible contribution is 22% of the error
+the engine makes today.** The other 78% is not reachable by any network reading
+one warped frame.
+
+### Two explanations for the floor, both tested and both wrong
+
+Neither was assumed away, and both would have changed what to do next:
+
+*   **Not the mask's edge.** The edge runs through hair, ears and the jaw's
+    silhouette, where two frames of one face differ by a strand. Split, the
+    consensus error is **7.22 on the face's core against 6.43 on the ring** —
+    the floor is *on the face*, not at its border.
+*   **Not a flat exposure difference.** Shifting each channel's mean onto the
+    target's before scoring moves the error from 9.06 to **9.12**, so a global
+    tone shift explains none of it. This one mattered: the pairs stop at
+    ``warp_mesh`` and never run ``_match_colour``, so had the answer been yes,
+    every number above would have been measuring a correction the engine already
+    applies.
+
+The floor is real, spread across the face, and it is what a 2-D landmark warp
+cannot do: skin shading that moves with the flesh, speculars, hair, and the
+parts of a 3-D rotation no triangle can express.
+
+**One caveat on the ceiling, stated because the whole point of the number is to
+be trusted.** The consensus bound assumes a network reading one image cannot
+beat a median of five. That is reasonable and it is not a theorem — a trained
+network carries priors about faces that a median does not, and could in
+principle exceed it. Read 22% as an estimate with the error bar on the
+optimistic side.
+
+### What it changes
+
+*   **The refiner is worth finishing, not worth a fortnight.** The remaining
+    prize is about 1.7 of mean and 6.8 of worst-1%. More data is still the
+    lever — the learning curve was still climbing — but the target is now known.
+*   **The larger prize is not in the network.** 78% of the error is the source
+    frame being the wrong picture, which is the *ladder's* job, not the
+    refiner's. Every clip the owner generates moves that number; no amount of
+    training does.
 
 ## Where day 12 starts — the owner's list, and the one item under it
 
