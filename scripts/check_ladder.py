@@ -25,11 +25,43 @@ brows do -- and re-filing it then made the ladder worse, 0.442 to 0.545. On the
 eye-line axis it moves 1.9% of its span, and re-filing is the whole point:
 a photograph can be measured, so a ladder can be corrected without a new clip.
 
+``--refuse`` retires named rungs whatever they measure. It was written for a
+defect it then failed to fix, and both halves of that are worth keeping.
+
+The owner, 2026-08-24: *"when I raise my brows all the way the brow disappears
+completely -- it looks like they are shaved."* **Reproduced**, which is itself a
+first: frames 510-513 of `driving.mkv`, his brows plainly raised and the avatar
+with none. And seemingly localised, by compositing the brow region at full
+weight -- from the portrait through `brows@81` the brow is a solid dark bar, and
+on `brows@82` and `brows@83` it is gone.
+
+**Four hypotheses, all wrong.** The brow is inside the region's box (240 px
+against a box starting at 227). The mask does not fade over it (0.77 to 1.00 at
+each rung's own brow). Its darkness at the landmarks matches the portrait's
+(82.9 against 86.5). And "brow mass" -- the one that looked decisive -- separated
+the two rungs cleanly under one parameterisation and then gave three different
+answers under three others: sized from each photograph's own brow-to-eye gap it
+accused the *lowered* rungs instead, because the raised rungs have wider-open
+eyes, so a wider band, so more forehead inside it. A measurement that finds
+whatever it is pointed at is not a measurement, and none of it shipped.
+
+**Then the two rungs were refused and the render did not change.** Same frames,
+same amounts, same missing brow with the ladder ending at +0.002. So they were
+never the cause; they were put back, and the defect is still open. The remaining
+candidate, unmeasured: this avatar's brows are light ginger, the owner's room is
+dim and warm, and ``_match_colour`` fits the avatar to that light -- which would
+cost brow-against-skin contrast everywhere, not only at a raise.
+
+Kept because the option is sound and the record is the point: two renders
+agreeing localised nothing here, and the check that would catch this
+automatically is still owed.
+
 Usage::
 
     uv run python scripts/check_ladder.py brows
     uv run python scripts/check_ladder.py brows --max-error 0.15
     uv run python scripts/check_ladder.py brows --refile
+    uv run python scripts/check_ladder.py brows --refile --refuse brows_u089.png
 """
 
 from __future__ import annotations
@@ -285,6 +317,17 @@ def main(argv: list[str] | None = None) -> int:
         help="Exit non-zero if the mean error is worse than this.",
     )
     parser.add_argument("--refile", action="store_true")
+    parser.add_argument(
+        "--refuse",
+        nargs="+",
+        default=(),
+        metavar="RUNG",
+        help=(
+            "Retire these rungs by name, whatever they measure. For a rung "
+            "refused on the evidence of a render rather than of a number -- see "
+            "the note in the module docstring."
+        ),
+    )
     args = parser.parse_args(argv)
 
     family = FAMILIES[args.family]
@@ -365,7 +408,23 @@ def main(argv: list[str] | None = None) -> int:
         f"   (the axis spans {family.span:.3f})"
     )
 
-    kept, dropped = keep_one_per_band(rungs, args.band)
+    refused = [r for r in rungs if r.path in set(args.refuse)]
+    missing = set(args.refuse) - {r.path for r in rungs}
+    if missing:
+        print(f"\n--refuse names rungs the manifest does not hold: {sorted(missing)}")
+        return 1
+    if refused:
+        print(f"\nrefused by name, {len(refused)} rung(s):")
+        for rung in refused:
+            print(f"  {rung.measured:>+7.3f}  {rung.path}")
+
+    usable = [r for r in rungs if not any(r is x for x in refused)]
+    if not usable:
+        print("\nEvery rung was refused; nothing would be left of the ladder.")
+        return 1
+
+    kept, dropped = keep_one_per_band(usable, args.band)
+    dropped = dropped + refused
     print(f"\none rung per {args.band:g} of the axis leaves {len(kept)} of {len(rungs)}:")
     for rung in kept:
         print(f"  {rung.measured:>+7.3f}  {rung.path}")
