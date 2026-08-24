@@ -1644,6 +1644,88 @@ inside the warm-up, the old slow mean provably would not have, it warms in both
 directions, and two seconds of raised brows still do not become a new resting
 face.
 
+## Day 13, fifth pass — the iris was a diamond, and is now an octagon
+
+The owner, testing: *"when I look slightly to the side with my eyes the iris
+changes shape and stops being a circle — it gets partly pointed. The rest is
+normal."* And separately: *"sometimes a greenish-bluish colour becomes part of
+the iris."*
+
+**Two reports, one mechanism, and it is geometry.** MediaPipe gives a centre and
+**four** boundary points per iris, so the mesh's iris is a **diamond inscribed
+in the iris circle** — and an inscribed square covers only **2/π = 63.7%** of a
+circle's area. The other **36%** is four circular segments belonging to no iris
+triangle at all: they are carried by the fan running out to the eyelid.
+`_place_irises` then moves the *target's* iris by the gaze while the source's
+stays where the portrait's is, so that fan is sheared. The compressed side folds
+iris pixels into a corner; the stretched side pulls sclera in under the iris
+outline. **A point, and a colour that is not iris.**
+
+### And the limits were not where the comment said
+
+Measured on 1847 frames, sideways gaze as a fraction of eye width:
+
+| | |
+|---|---|
+| median | **0.1172** |
+| p95 | 0.2196 |
+| max | 0.2633 |
+| where `_GAZE_LIMIT_X / _GAZE_SCALE` clamps | **0.1182** |
+
+The comment said *"the scale keeps normal gaze comfortably inside them"*. **The
+owner's ordinary gaze sits exactly on the clamp**: the iris is at or past the
+limit on about half of a call. The limits are unchanged anyway — the defect they
+guard against has been attacked from the other side instead, and whether a finer
+iris earns a wider limit is a question for a measurement.
+
+### The fix
+
+Four more points per iris, on the iris's own outline, between the four the
+tracker gives. A regular octagon covers **90.0%** of the circle, so the share
+the shearing fan is responsible for falls from **36% to 10% — 3.6-fold**.
+
+They are computed rather than tracked, in `_pixel_points`, which is the one
+place a mesh is built — so the portrait and the live face get them by the same
+rule, which is the only property a warp requires. Each takes the radius of the
+two neighbours it sits between, so an iris the tracker reports as slightly oval
+keeps its shape; and they are bisected by angle rather than by landmark number,
+so which index is "top" is not something this file has to know.
+
+### Measured
+
+| | before | after |
+|---|---|---|
+| **near-eye sharpness, all** | 336 | **359** |
+| **near-eye sharpness, turned** | 447 | **483** |
+| face sharpness | 168 | 171 |
+| warp residual, all | 7.07 px | 7.30 |
+| mesh | 139 points, 229 triangles | **147, 245** |
+
+**Near-eye sharpness is the metric for exactly this region and it moved +23**,
+and +36 on turned frames. Rendered side by side against the camera on frames
+390–392 — the owner's furthest sideways glance — the polygonal outline and the
+dark corner notches are gone.
+
+**The residual rose and the explanation is not verified.** The likely reason is
+that it is an average over the mesh points, and the mesh gained eight points
+which are *deliberately* displaced by gaze rather than placed by the fit — so
+the iris now carries twice the weight in an average it was always going to
+score badly in. That is a change in what the number is over rather than in what
+the picture looks like, but it is a candidate and not a measurement.
+
+**And the frame cost is unknown.** 245 triangles against 229 is **+7.0%**, and
+`warp_mesh` costs one OpenCV call per triangle, so the honest expectation is
+about +1.5 ms on `animate`'s 21.4 ms. The comparison refused to report it —
+one run was on a machine 3% warm and the other 52% — so it needs a rested
+measurement before it is believed.
+
+**620 tests.** Two fixtures had to stop hard-coding the mesh's shape: one built
+a mesh by hand instead of through `_pixel_points`, and one wrote a fixed list of
+five iris points into a list that is now nine. The overlap test is eroded by the
+fence's width, because the octagon's vertices sit on the iris outline where the
+diamond's edges stopped short of it — six pixels of the hull fell below the bar
+and every one was on its boundary.
+
 ## Where day 12 starts — the owner's list, and the one item under it
 
 Reported at the end of day 11, after the fifth fix. Written down as said;

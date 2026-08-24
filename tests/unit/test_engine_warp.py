@@ -5,8 +5,8 @@ landmark set exercise the geometry, which is where this engine can be wrong in
 ways that are hard to see. The visual quality question is answered by looking at
 it, not by asserting on pixels.
 
-What matters here is that it fails clearly when an avatar is unusable — a
-missing portrait, a portrait with no face in it, the wrong engine id — because
+What matters here is that it fails clearly when an avatar is unusable â€” a
+missing portrait, a portrait with no face in it, the wrong engine id â€” because
 those are the errors a user will actually hit, and each one has an obvious cause
 that the message should name.
 """
@@ -47,6 +47,7 @@ from sha256.avatar.engine_warp import (
     _STABLE_POSITIONS,
     _SWITCH_MARGIN,
     MESH_INDICES,
+    MESH_POINT_COUNT,
     WarpAvatarEngine,
     _blend_sources,
     _brow_amount,
@@ -170,7 +171,7 @@ def with_brow_anatomy(points: np.ndarray) -> np.ndarray:
     """The synthetic face, with the brows put above the eyes.
 
     ``synthetic_landmarks`` scatters every inner feature around a ring, which is
-    enough for anything that only needs *a* face — and useless for a question
+    enough for anything that only needs *a* face â€” and useless for a question
     about what sits above what. Anything testing where the brows end and the
     eyes begin has to say where they are.
     """
@@ -200,7 +201,7 @@ def relaxed_like(tracking: FaceTrackingResult) -> FaceTrackingResult:
     """The same face at rest: every signal it carries, all of them quiet.
 
     Needed because the engine measures expression *relative to rest*, so it has
-    to have seen rest. The blendshape names must match — a resting face that
+    to have seen rest. The blendshape names must match â€” a resting face that
     reports no signals at all teaches the engine nothing about them.
     """
     from sha256.core.types import BlendshapeSet, HeadPose
@@ -245,8 +246,8 @@ def weights_from_rest(
 ) -> dict[str, float]:
     """Weights for ``tracking``, after the engine has been shown a resting face.
 
-    A single frame in isolation is by definition neutral — that is the whole
-    point of the change these tests describe — so a test that wants an
+    A single frame in isolation is by definition neutral â€” that is the whole
+    point of the change these tests describe â€” so a test that wants an
     expression to register has to establish rest first, exactly as the engine
     does on its first frame.
     """
@@ -269,7 +270,7 @@ def expressive_tracking(
 
     ``smile``, ``jaw`` and ``blink`` are spelled out here rather than left to
     ``**shapes`` because a mistyped blendshape name is silently accepted by the
-    tracker's own type — it is just a string — and the test would then measure
+    tracker's own type â€” it is just a string â€” and the test would then measure
     nothing while looking like it measured something.
 
     ``gap`` defaults to open: the teeth-bearing photographs are gated on the
@@ -378,11 +379,12 @@ def engine(monkeypatch: pytest.MonkeyPatch):
     def fake_landmarks(image: np.ndarray, avatar_id: str) -> np.ndarray:
         del avatar_id
         height, width = image.shape[:2]
-        points = synthetic_landmarks()
-        subset = points[list(MESH_INDICES), :2].copy()
-        subset[:, 0] *= width
-        subset[:, 1] *= height
-        result: np.ndarray = subset.astype(np.float32)
+        # Through `_pixel_points` rather than by hand, so the fixture builds a
+        # mesh the same way the engine does -- including the computed iris arcs,
+        # which a hand-built subset would silently leave off.
+        mesh = _pixel_points(synthetic_landmarks(), width, height)
+        assert mesh is not None
+        result: np.ndarray = mesh
         return result
 
     monkeypatch.setattr(built, "_landmarks_of", fake_landmarks)
@@ -421,7 +423,7 @@ class TestMeshLayout:
 
     def test_each_eye_carries_its_whole_lid(self):
         """Six points leave the eye anchored to the cheek by long triangles that
-        sweep as the lid closes — the wedge above a blink. The ring terminates
+        sweep as the lid closes â€” the wedge above a blink. The ring terminates
         them."""
         from sha256.avatar.engine_warp import _EYE_RINGS
 
@@ -514,7 +516,7 @@ class TestAnimation:
     def test_the_avatar_is_composited_over_the_camera_frame(self, engine, tmp_path):
         # A textured portrait, not a flat colour. Colour matching shifts the
         # avatar's mean onto the scene's, so a flat portrait over a flat scene
-        # comes out *identical* to the scene by construction — and the test
+        # comes out *identical* to the scene by construction â€” and the test
         # would pass or fail for reasons that have nothing to do with warping.
         engine.load_avatar(make_descriptor(tmp_path, image=_striped(256)))
         frame = camera_frame()
@@ -647,7 +649,7 @@ class TestSourceSelection:
 
         The blendshape is trained on blinks, which are fast. Measured on the
         owner's recording it peaks at 0.66 on a blink and reads **0.14** on two
-        seconds of held closure — lower than plenty of frames with the eyes
+        seconds of held closure â€” lower than plenty of frames with the eyes
         plainly open. So the avatar squinted back at a person whose eyes were
         closed. Closure is measured on the eyelids now, and the eyelids are in
         the same place either way.
@@ -685,7 +687,7 @@ class TestSourceSelection:
         A glance aside narrows the lids by up to 47% of their opening with no
         blink involved. Measured over the owner's whole recording, an eye
         photograph was active on **41% of frames** while they were only talking
-        — a quarter of a squint worn through most of a conversation. No frame of
+        â€” a quarter of a squint worn through most of a conversation. No frame of
         that looks broken, which is why every still render passed.
         """
         for narrowing in (0.15, 0.30, 0.45):
@@ -703,7 +705,7 @@ class TestSourceSelection:
         Ordinary life reaches 0.47 of the eye's opening and a blink reaches
         0.65, so a squint band either fires constantly or never. What would
         separate it is the *lower* lid, which a squint raises and a blink does
-        not — available in the mesh, and not written yet.
+        not â€” available in the mesh, and not written yet.
         """
         for narrowing in (0.2, 0.4, 0.6, 0.9):
             weights = weights_from_rest(expressive_tracking(blink=(narrowing, narrowing)))
@@ -789,7 +791,7 @@ class TestSourceBlending:
 
         Every photograph used to be averaged across the whole face, so a smile
         repainted the forehead and the hairline too. Confining each to its own
-        region is what stops expressions interfering — and what makes a larger
+        region is what stops expressions interfering â€” and what makes a larger
         photograph set worth having at all.
         """
         engine.load_avatar(make_descriptor(tmp_path))
@@ -802,7 +804,7 @@ class TestSourceBlending:
         # Everything outside the mouth's own box is untouched. Asserted against
         # the box rather than against "the forehead", because the synthetic
         # landmarks here are a ring of points and do not put a mouth where a
-        # real face has one — the invariant is what is being tested, not the
+        # real face has one â€” the invariant is what is being tested, not the
         # anatomy of the fixture.
         mouth = next(region for region in avatar.regions if region.name == "mouth")
         x0, y0, x1, y1 = mouth.box
@@ -857,7 +859,7 @@ class TestTheRestingAngle:
         """Guards the fix rather than the framework.
 
         At the slow rate alone, the same number of frames leaves most of the
-        error in place — which is what the owner would have seen as a cheek
+        error in place â€” which is what the owner would have seen as a cheek
         stretched sideways until well after they had stopped caring why.
         """
         left_over = 31.7 * (1.0 - _POSE_RATE) ** _POSE_WARMUP_FRAMES
@@ -974,7 +976,7 @@ class TestOnePhotographPerRegion:
 
     Both halves of that were one cause. A region mixed every photograph that
     scored anything, and whatever the mix did not claim was left as base
-    portrait — whose lips are shut. So a wide smile was a smile photograph
+    portrait â€” whose lips are shut. So a wide smile was a smile photograph
     averaged with a pressed-lips one and a rounded one, over a closed mouth.
     """
 
@@ -994,7 +996,7 @@ class TestOnePhotographPerRegion:
     def test_a_committed_expression_leaves_no_base_portrait_underneath(self):
         """The teeth case. Past the commit point the shut mouth is gone, not faint.
 
-        Held for a few frames first, because the amount is now rate limited —
+        Held for a few frames first, because the amount is now rate limited â€”
         see :class:`TestExpressionsArriveOverTime`. What matters here is where
         it settles, not how long it takes to get there.
         """
@@ -1090,7 +1092,7 @@ class TestOnePhotographPerRegion:
 class TestTheLadderDoesNotAverageAcrossAGap:
     """The owner, on turning their head: *dough*, around the nose.
 
-    A ladder cut from a real clip is not evenly spaced — the second turn clip
+    A ladder cut from a real clip is not evenly spaced â€” the second turn clip
     left eight degrees between +11 and +19, because that is where the head was
     moving rather than stopping. Averaged across that gap, a cheek at +11 lies
     over a cheek at +19 and the face reads as smeared.
@@ -1134,7 +1136,7 @@ class TestExpressionsArriveOverTime:
     *"as if the frame had been cut"*.
 
     They were right. The amount was read straight off the tracker, and a
-    blendshape crosses the commit point in a frame or two — so a photograph
+    blendshape crosses the commit point in a frame or two â€” so a photograph
     correct for the mouth's final shape was appearing whole while the lips were
     still moving. A real smile takes about a third of a second to form.
     """
@@ -1205,7 +1207,7 @@ class TestExpressionsArriveOverTime:
 
 class TestTheMaskAtALargeTurn:
     """The owner, turning their head: *"the part next to my ear shows on the
-    face — it does not cover me there."*
+    face â€” it does not cover me there."*
 
     The mask is eroded all the way round so the join happens over skin on both
     sides rather than over the background. Frontal that is right. Turned, the
@@ -1216,7 +1218,7 @@ class TestTheMaskAtALargeTurn:
 
     def turned(self, points: np.ndarray, by: float) -> np.ndarray:
         """The same mesh with the nose moved off centre, which is what a turn
-        looks like to the mask — it reads the picture, not the tracker.
+        looks like to the mask â€” it reads the picture, not the tracker.
 
         ``by`` runs from -1 (nose against the left edge of the face, so the near
         cheek is the right one) through 0 to +1.
@@ -1259,14 +1261,14 @@ class TestTheMaskAtALargeTurn:
 
     def test_it_never_reaches_outside_the_face(self):
         """Undoing the erosion, never extending past the outline into hair or
-        into the room — the restored piece is clipped to the outline first."""
+        into the room â€” the restored piece is clipped to the outline first."""
         points = self.turned(self.points(), 1.0)
         size = 320
 
         mask = _destination_mask(points, size, size)[:, :, 0]
         outline = np.zeros((size, size), np.uint8)
         cv2.fillPoly(outline, [_trim_forehead(points).astype(np.int32)], 255)
-        # The nose and lips are filled at full strength too, and always were —
+        # The nose and lips are filled at full strength too, and always were â€”
         # what is being tested here is that the near-side restoration adds
         # nothing beyond them.
         cv2.fillConvexPoly(
@@ -1291,7 +1293,7 @@ class TestRegionsDoNotOverlap:
 
     Which is where the regions overlap. A brow's box is grown by its margin and
     reaches down over the socket, an eye's reaches up, so a closed eyelid and a
-    lowered brow were painted over the same skin in sequence — an average of two
+    lowered brow were painted over the same skin in sequence â€” an average of two
     photographs after all the work to stop being one.
     """
 
@@ -1328,7 +1330,7 @@ class TestRegionsDoNotOverlap:
 
         # The irises, which are unambiguously inside the socket. The eye ring's
         # topmost points sit on the brow ridge itself, and which side of the
-        # line those fall on is what the anatomical split decides — see
+        # line those fall on is what the anatomical split decides â€” see
         # :class:`TestTheBrowsAndTheEyesDivideTheRidge`.
         at_eyes = avatar.points[_IRIS_POSITIONS].astype(int)
         eyes = np.array([by_name["eyes"][y, x] for x, y in at_eyes])
@@ -1341,7 +1343,7 @@ class TestRegionsDoNotOverlap:
         """The owner, on a shut eye: *"behind the closed-eye photograph, I think
         the open-eye one is still there."*
 
-        Every other photograph in the library was taken with the eyes open — the
+        Every other photograph in the library was taken with the eyes open â€” the
         whole-head turn rungs above all, and one of those is mixed in on nearly
         every frame because a head is never at exactly its resting angle. So any
         share of the opening the eyes do not hold is an open eye, and the mesh
@@ -1360,7 +1362,21 @@ class TestRegionsDoNotOverlap:
             cv2.fillConvexPoly(
                 inside, cv2.convexHull(avatar.points[iris][:, :2].astype(np.int32)), 255
             )
+            # Eroded by the fence's own width, which became necessary when the
+            # iris gained four more points on 2026-08-24. The mesh used to
+            # describe it as a diamond *inscribed* in the circle, so its hull
+            # stopped well short of the lid; the octagon's vertices sit on the
+            # outline itself, and on this avatar the iris is wider than the lid
+            # opening is tall -- so the diagonal vertices now land in the fence
+            # that fades along the eye's own edge. Six pixels of the hull fell
+            # below the bar and every one of them was on its boundary.
+            #
+            # What the assertion is about is unchanged and is what the docstring
+            # already says: the part of the eye a pupil is seen *through*. An
+            # outline is a blend edge by construction.
+            inside = cv2.erode(inside, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)))
             sel = inside > 0
+            assert bool(sel.any()), "the erosion left no iris to test"
 
             others = sum(mask[sel] for name, mask in by_name.items() if name != "eyes")
             assert float(np.max(others)) < 0.05, "another photograph reaches inside the eye"
@@ -1368,13 +1384,13 @@ class TestRegionsDoNotOverlap:
 
 
 class TestTheSmileLadder:
-    """The owner's own proposal: *"we already have the clip where he laughs —
+    """The owner's own proposal: *"we already have the clip where he laughs â€”
     ten photographs from where the smile starts through to the full smile."*
 
     One smile photograph faded in over a resting mouth fails twice at once.
     While it is faint there are two mouths on screen; and at any weight the
     shape it draws is the shape it was photographed at, so a small smile is a
-    wide one at low opacity. The lips never stretch, the teeth simply appear —
+    wide one at low opacity. The lips never stretch, the teeth simply appear â€”
     which is exactly what the owner described.
     """
 
@@ -1406,7 +1422,7 @@ class TestTheSmileLadder:
 
     def test_the_axis_keeps_rising_after_the_blendshape_saturates(self):
         """The smile blendshape reaches 1.0 at the open smile and stays there
-        through the laugh, so the opening has to carry the rest — otherwise the
+        through the laugh, so the opening has to carry the rest â€” otherwise the
         ladder stops exactly where the teeth begin."""
         neutral = _Neutral()
         # A resting face first: the floor is learned from what a face does when
@@ -1450,7 +1466,7 @@ class TestTheEyeLadder:
             assert len(_nearest_rung(self.LADDER, amount, _EYES_LADDER_START)) <= 1
 
     def settled(self) -> _Neutral:
-        """A resting eye the estimate has had time to learn — see
+        """A resting eye the estimate has had time to learn â€” see
         :data:`_LEVEL_WARMUP_FRAMES`."""
         neutral = _Neutral()
         for _ in range(_LEVEL_WARMUP_FRAMES + 1):
@@ -1474,7 +1490,7 @@ class TestTheEyeLadder:
         instruction: the tracker's eyelid reading climbs **36%** over the first
         second and a half while the face does not move. An estimate chasing that
         is always behind it, and the gap between the two reads as a lid coming
-        down — a shut rung on 44 of the first 60 frames. There is no rate that
+        down â€” a shut rung on 44 of the first 60 frames. There is no rate that
         wins a race against the thing it is estimating, so the lids say nothing
         until the estimate has stopped being new.
         """
@@ -1489,7 +1505,7 @@ class TestTheEyeLadder:
         assert _eye_amount(expressive_tracking(blink=(1.0, 1.0)), self.settled()) > 0.0
 
     def test_a_blink_is_faster_than_the_rest_of_the_face(self):
-        """A blink is 100-150 ms — three or four frames. At the mouth's rate the
+        """A blink is 100-150 ms â€” three or four frames. At the mouth's rate the
         lid would still be half shut when the eye was open again."""
         eyes: dict[str, float] = {}
         mouth: dict[str, float] = {}
@@ -1506,7 +1522,7 @@ class TestTheLidAxisIsSigned:
     does, as if I were mad. It is a bit funny."*
 
     Measured on their own recording, the wide-eye photograph fired on 4.6% of
-    frames at a median weight of 0.11 — a sixth of a full stare over a face
+    frames at a median weight of 0.11 â€” a sixth of a full stare over a face
     doing nothing. The same shape of defect as the squint, which was dropped for
     it, and the tilts, which were dropped for it.
     """
@@ -1563,7 +1579,7 @@ class TestTheBrowsAndTheEyesDivideTheRidge:
 
     Giving the whole overlap to the eyes was right for the socket and wrong for
     the ridge above it. A brow rung could not paint over the *portrait's* brow,
-    because that sits inside what the eyes had claimed — so the portrait's brow
+    because that sits inside what the eyes had claimed â€” so the portrait's brow
     stayed and the rung's appeared above it. It happened when the eyes opened
     because that is when an eye rung is on at all.
     """
@@ -1609,7 +1625,7 @@ class TestTheBrowAxisIsSigned:
     """The last family that was two named photographs, and the owner reported
     both halves of what that cost.
 
-    *"A slight raise takes on a surprised face — the brows do not actually go
+    *"A slight raise takes on a surprised face â€” the brows do not actually go
     up"*, because the photograph shows a full raise faded in by how far they
     moved. And *"two brows, and two more slightly above, faint"*, because the
     photograph's brows are somewhere the portrait's are not.
@@ -1646,7 +1662,7 @@ class TestTheBrowAxisIsSigned:
     def moved(self, by: float) -> FaceTrackingResult:
         """A face with its brows shifted, in normalised landmark coordinates.
 
-        Measured on the brows themselves now, not on ``browInnerUp`` — which
+        Measured on the brows themselves now, not on ``browInnerUp`` â€” which
         reacts to the eyelid as well, reached its maximum on 5% of the owner's
         recording, and so put a fully raised brow on the avatar for an instant
         every time their eyes opened.
@@ -1740,7 +1756,7 @@ class TestTheBrowsHoldStillThroughABlink:
 
     The brow landmarks ride the blink. Measured over their recording, where the
     brows sit correlates with the lids at r=+0.24 against the nose bridge and
-    -0.22 against the forehead — neither anchor escapes it — and a blink reads
+    -0.22 against the forehead â€” neither anchor escapes it â€” and a blink reads
     as a brow raise of 0.63, which is most of the way up a ladder that is shown
     whole. Three frames of a raised brow, every blink.
     """
@@ -1754,7 +1770,7 @@ class TestTheBrowsHoldStillThroughABlink:
 
     def test_and_they_do_not_leave_either(self):
         """Leaving would be a change of picture too, and the brows have not
-        moved — only the eyes have."""
+        moved â€” only the eyes have."""
         assert _nearest_rung(self.LADDER, 0.0, 0.12, "brows@a", freeze=True) != {}
 
     def test_once_the_eyes_are_back_the_brows_move_again(self):
@@ -1766,18 +1782,18 @@ class TestTheBrowsHoldStillThroughABlink:
 
 class TestARungWhoseFeaturesLandInAnotherRegion:
     """The owner picked the files off the screen: *"eyes_c014, eyes_c017,
-    brows_d100 — one of those is being drawn."*
+    brows_d100 â€” one of those is being drawn."*
 
     Two of them were. A rung is a whole face, cut into by whichever region it
     belongs to, and the regions are drawn around the *portrait's* features. Both
-    of those eye rungs had their brows 18 px below the portrait's brow line —
-    inside the socket — because the head was pitched in those frames and the
+    of those eye rungs had their brows 18 px below the portrait's brow line â€”
+    inside the socket â€” because the head was pitched in those frames and the
     similarity fit could not undo it. Painted in the eye region, that is a
     second brow under the real one, exactly where he saw it.
     """
 
     def face(self, brow: float, eye: float) -> np.ndarray:
-        points = np.zeros((len(MESH_INDICES), 2), dtype=np.float32)
+        points = np.zeros((MESH_POINT_COUNT, 2), dtype=np.float32)
         points[_BROW_POSITIONS, 1] = brow
         points[_EYE_POSITIONS, 1] = eye
         return points
@@ -1810,11 +1826,11 @@ class TestARungWhoseFeaturesLandInAnotherRegion:
 
 
 class TestAShutEyesIrisIsTuckedOutOfTheWay:
-    """The owner: *"the pupils, very thin, low in height and long in width — a
+    """The owner: *"the pupils, very thin, low in height and long in width â€” a
     flat oval, for a very short time."*
 
     Containment shrinks the iris to fit the lid and never puts it anywhere else,
-    so at a shut lid the fan is a wide flat sliver lying along the lash line —
+    so at a shut lid the fan is a wide flat sliver lying along the lash line â€”
     and the lash line is the darkest thing in the picture.
 
     **Taking the fan out of the mesh was the first answer and it was wrong.**
@@ -1837,7 +1853,7 @@ class TestAShutEyesIrisIsTuckedOutOfTheWay:
 
     def mesh(self, left: float, right: float) -> np.ndarray:
         """A mesh whose two lid rings have the given height over width."""
-        points = np.zeros((len(MESH_INDICES), 2), dtype=np.float32)
+        points = np.zeros((MESH_POINT_COUNT, 2), dtype=np.float32)
         for (eye, iris), aspect in zip(_EYE_PAIRS, (left, right), strict=True):
             ring = points[eye]
             ring[:, 0] = np.linspace(0.0, 100.0, len(eye))
@@ -1863,7 +1879,7 @@ class TestAShutEyesIrisIsTuckedOutOfTheWay:
 
     def test_a_lid_with_no_width_at_all_counts_as_shut(self):
         """Rather than dividing by it."""
-        points = np.zeros((len(MESH_INDICES), 2), dtype=np.float32)
+        points = np.zeros((MESH_POINT_COUNT, 2), dtype=np.float32)
 
         assert _shut(points, _EYE_PAIRS[0][0], 0.32)
 
@@ -1944,7 +1960,7 @@ class TestALidIsNotFadedOutByATurn:
     differs from what is under it in whether the eye is **open**.
 
     Reproduced from the owner's own recording, which contains the pair
-    `driving.mkv` never does — the head past 20 degrees with the lids down. The
+    `driving.mkv` never does â€” the head past 20 degrees with the lids down. The
     eye rung was applied at 1.00 at 19 degrees falling to 0.82 at 28, and over
     the whole recording on 1572 of the 2668 frames the region was carried at
     all. A shut lid at four fifths of an opacity leaves a fifth of an open eye
@@ -1979,14 +1995,14 @@ class TestTheBuildersCanAskTheSameQuestion:
     and nothing else, so a band whose sharpest frame is one the engine will
     refuse ends up empty. The owner's eye ladder had two such holes, at a tenth
     and a fifth of a closing, and a blink therefore had to be drawn by fading a
-    shut photograph in over a wide-open portrait — which is the iris seen
+    shut photograph in over a wide-open portrait â€” which is the iris seen
     through a closed eyelid. So the check is offered to the builders, and they
     ask it before choosing rather than finding out afterwards.
     """
 
     def face(self, *, brow: float, eye: float, shift: float = 0.0) -> np.ndarray:
         """A face whose stable landmarks are spread enough to fit a transform."""
-        points = np.zeros((len(MESH_INDICES), 2), dtype=np.float32)
+        points = np.zeros((MESH_POINT_COUNT, 2), dtype=np.float32)
         spread = np.linspace(-60.0, 60.0, len(_STABLE_POSITIONS), dtype=np.float32)
         points[_STABLE_POSITIONS, 0] = spread
         points[_STABLE_POSITIONS, 1] = np.abs(spread) + shift
@@ -2059,7 +2075,7 @@ class TestTheLidsArriveWhole:
 
     Shown whole answered how much of a rung is applied once it has settled; this
     answers the frames on the way there. The lids ease at ten a second, so a rung
-    took three frames to arrive — and a blink is three or four frames, so the
+    took three frames to arrive â€” and a blink is three or four frames, so the
     fade lasted the whole blink and every one of them was a mix of a shut
     photograph and the wide-open portrait underneath it.
 
@@ -2107,7 +2123,7 @@ class TestTheLidsArriveWhole:
 
 class TestTheEasingIsMeasuredInSeconds:
     """Asked to try 60 fps, and it would have made every expression take twice
-    as long — the engine appearing to get slower on a faster machine."""
+    as long â€” the engine appearing to get slower on a faster machine."""
 
     def test_the_same_expression_takes_the_same_time_at_any_rate(self):
         slow: dict[str, float] = {}
@@ -2174,14 +2190,14 @@ class TestEyeGeometry:
         The socket is built as a ring of however many points the mesh declares,
         rather than a fixed list of corners: the engine carries the full eyelid
         contour and the count is allowed to change again. Its extremes are the
-        same either way — a full width across and 0.6 of that tall — so what the
+        same either way â€” a full width across and 0.6 of that tall â€” so what the
         assertions measure does not move with the point count.
         """
         from sha256.avatar.engine_warp import _EYE_PAIRS
 
-        points: np.ndarray = (
-            synthetic_landmarks()[list(MESH_INDICES), :2].astype(np.float32) * 400.0
-        )
+        built = _pixel_points(synthetic_landmarks(), 400, 400)
+        assert built is not None
+        points: np.ndarray = built
         for index, (socket, iris) in enumerate(_EYE_PAIRS):
             centre = np.array([150.0 + 100.0 * index, 180.0], dtype=np.float32)
             width = 40.0
@@ -2192,10 +2208,14 @@ class TestEyeGeometry:
             points[socket] = centre + ring * width
 
             pupil = centre + np.array([dx, dy], dtype=np.float32) * width
-            around = np.array(
-                [(0.0, 0.0), (0.2, 0.0), (0.0, -0.2), (-0.2, 0.0), (0.0, 0.2)], dtype=np.float32
-            )
-            points[iris] = pupil + around[: len(iris)] * width
+            # The iris the same way as the socket, and for the same reason: it
+            # is a centre followed by however many boundary points the mesh
+            # declares. It was four and is eight -- see `_IRIS_ARCS_PER_EYE` --
+            # and a fixed list of five silently stopped describing it.
+            points[iris[0]] = pupil
+            around_iris = np.linspace(0.0, 2.0 * np.pi, len(iris) - 1, endpoint=False)
+            circle = np.stack([np.cos(around_iris), np.sin(around_iris)], axis=1).astype(np.float32)
+            points[iris[1:]] = pupil + circle * 0.2 * width
         return points
 
     @pytest.mark.parametrize(("dx", "dy"), [(0.10, 0.0), (-0.10, 0.0), (0.0, 0.04), (0.0, -0.06)])
@@ -2271,7 +2291,9 @@ class TestEyeGeometry:
     def test_the_avatar_does_not_inherit_the_users_eye_shape(self):
         from sha256.avatar.engine_warp import _damp_brows
 
-        source = synthetic_landmarks()[list(MESH_INDICES)][:, :2].astype(np.float32) * 500.0
+        built = _pixel_points(synthetic_landmarks(), 500, 500)
+        assert built is not None
+        source = built
         target = source.copy()
         # A user whose eyes open half again as wide as the avatar's.
         centre = target[_EYE_POSITIONS].mean(axis=0)
@@ -2330,7 +2352,7 @@ class TestTurnLadder:
         """Never a third rung, whatever the spacing.
 
         Measured at the middle of the gap, which is the only place two rungs
-        this far apart are both on screen at all — twenty degrees is far wider
+        this far apart are both on screen at all â€” twenty degrees is far wider
         than the ladder's own three, and across a gap that wide the nearer rung
         is shown whole. See :class:`TestTheLadderDoesNotAverageAcrossAGap`.
         """
@@ -2386,7 +2408,7 @@ class TestPosePhotographsKeepTheirGeometry:
     The rungs used to be mesh-warped onto the frontal portrait's layout, which
     at 35 degrees is not a correction but a fold: a seam down the face, the far
     eye and brow drawn twice, the mouth smeared sideways. What each rung holds
-    now is the picture as it was shot, and its own landmarks alongside — so the
+    now is the picture as it was shot, and its own landmarks alongside â€” so the
     live warp runs from a turned mesh onto a turned face and barely deforms
     anything.
 
@@ -2401,7 +2423,7 @@ class TestPosePhotographsKeepTheirGeometry:
         """Give the avatar one rung: the same face, ``shift`` px to the right.
 
         ``squeeze`` narrows it as well, which is the part of a turn a similarity
-        cannot follow — a real turn foreshortens, and that leftover is what
+        cannot follow â€” a real turn foreshortens, and that leftover is what
         decides whether a frontal photograph can still be placed.
         """
         avatar.sources["turn@a"] = np.full_like(avatar.image, fill)
@@ -2423,9 +2445,9 @@ class TestPosePhotographsKeepTheirGeometry:
     def _turn_from_rest(self, avatar, tracking) -> np.ndarray:
         """Blend ``tracking`` after the engine has been shown a face at rest.
 
-        A single frame in isolation *is* the resting angle — the neutral takes
+        A single frame in isolation *is* the resting angle â€” the neutral takes
         its first reading as straight ahead, which is what stops a camera above
-        a monitor from putting a permanent tilt in the avatar — so a test that
+        a monitor from putting a permanent tilt in the avatar â€” so a test that
         wants a turn to register has to establish rest first.
 
         The resting frame carries the same signals as the one under test, all of
@@ -2455,7 +2477,7 @@ class TestPosePhotographsKeepTheirGeometry:
 
         Every eye photograph is of a face looking straight ahead, so past a
         certain angle none of them can be placed and the blend has nothing to
-        say about the eyes — they freeze at whatever the turned photograph
+        say about the eyes â€” they freeze at whatever the turned photograph
         caught. The mesh takes over exactly as much as the photograph loses.
         """
         from sha256.avatar.engine_warp import _EYE_FOLLOW, _EYE_FOLLOW_ALONE
@@ -2477,7 +2499,7 @@ class TestPosePhotographsKeepTheirGeometry:
         assert avatar.eye_follow <= _EYE_FOLLOW_ALONE
 
     def test_a_resting_face_keeps_the_avatars_own_eyes(self, engine, tmp_path):
-        """Nothing is asked for, so nothing is taken over — item 12 still holds."""
+        """Nothing is asked for, so nothing is taken over â€” item 12 still holds."""
         from sha256.avatar.engine_warp import _EYE_FOLLOW
 
         engine.load_avatar(make_descriptor(tmp_path))
@@ -2503,7 +2525,7 @@ class TestPosePhotographsKeepTheirGeometry:
 
         Expression photographs are cut from a face looking straight ahead. Pasted
         at the frontal mouth's coordinates over a head that has turned, they land
-        beside the mouth on screen — 70 px beside it at 36 degrees on the owner's
+        beside the mouth on screen â€” 70 px beside it at 36 degrees on the owner's
         avatar, which is the "two photographs on top of each other" all over
         again. So a region is carried onto the head before it is composed.
         """
@@ -2538,7 +2560,7 @@ class TestRelighting:
     """The avatar must take the room's light and none of the user's face.
 
     The correction adds the whole scene-minus-avatar difference back, and what
-    is under the mask is the user's face — so whatever the correction can
+    is under the mask is the user's face â€” so whatever the correction can
     represent, it takes from the person the product exists to hide. It used to
     be a blurred field, which could represent a brow shadow and did: the avatar
     was printed with the user's own brows and beard, and no improvement to the
@@ -2580,8 +2602,8 @@ class TestRelighting:
         pattern = np.zeros((self.SIZE, self.SIZE), dtype=np.float32)
         pattern[int(self.SIZE * 0.28) : int(self.SIZE * 0.36)] = -1.0
 
-        # A plane cannot reject it entirely — an off-centre band has a linear
-        # component — but the blurred field it replaced transferred 52%.
+        # A plane cannot reject it entirely â€” an off-centre band has a linear
+        # component â€” but the blurred field it replaced transferred 52%.
         assert self.transferred(pattern) < 0.35
 
     def test_fine_detail_is_not_transferred_at_all(self):
@@ -2595,8 +2617,8 @@ class TestTrackingLoss:
     """What happens in the frames where the tracker loses the face.
 
     This is a privacy requirement, not a smoothness one. Passing the camera
-    through a dropout puts the user's real face on the call — which is the one
-    thing the product exists to prevent — and it is what the owner saw as a
+    through a dropout puts the user's real face on the call â€” which is the one
+    thing the product exists to prevent â€” and it is what the owner saw as a
     flicker.
     """
 
@@ -2633,8 +2655,8 @@ class TestTrackingLoss:
         """There is no length of dropout at which the real face becomes correct.
 
         An earlier version gave up after a second and passed the camera through,
-        on the theory that the user had left. If they had not left — a hand over
-        the face, an extreme angle, bad light — their real face went out on the
+        on the theory that the user had left. If they had not left â€” a hand over
+        the face, an extreme angle, bad light â€” their real face went out on the
         call for as long as the loss lasted.
         """
         engine.load_avatar(make_descriptor(tmp_path, image=_striped(256)))
@@ -2668,7 +2690,7 @@ class TestTeethGate:
     """Teeth may only appear when the lips are actually parted.
 
     Measured on the avatar's own photographs: the smiling-with-teeth photo reads
-    mouthSmile 0.54, and so does a closed-mouth smile — so weighting the
+    mouthSmile 0.54, and so does a closed-mouth smile â€” so weighting the
     teeth-bearing photographs by the smile blendshape put teeth into a smile
     that had none.
     """
@@ -2703,7 +2725,7 @@ class TestMouthInterior:
 
     Which is most of the time: no still portrait is taken mid-yawn. Placing the
     whole photograph and trusting the fit put its *lips* inside the live
-    opening — a second, smaller mouth inside the first.
+    opening â€” a second, smaller mouth inside the first.
     """
 
     def test_opening_wider_than_the_photo_shows_cavity_not_lips(self, engine, tmp_path):
@@ -2724,7 +2746,7 @@ class TestMouthInterior:
         """The owner's report: a smile with no teeth, and an open mouth with none.
 
         The interior was a mask cut from the *base portrait*, and the base
-        portrait's lips are together — a sliver a few pixels tall. So however
+        portrait's lips are together â€” a sliver a few pixels tall. So however
         wide the blend's mouth was, only that sliver was ever copied and the
         rest of the opening stayed flat cavity colour. It is asked of the
         blended mesh now, which is the thing that actually describes the blend.
@@ -2852,7 +2874,7 @@ class TestBrowSource:
 class TestExpandedSourceSet:
     """The wider set of source photographs, and what selects each.
 
-    A wrong mapping here is invisible in a still and obvious in motion — the
+    A wrong mapping here is invisible in a still and obvious in motion â€” the
     avatar looks left when you look right, or pulls a face you are not pulling.
     """
 
@@ -2886,7 +2908,7 @@ class TestExpandedSourceSet:
 
         The owner's replacement open-mouth photograph measured a lip gap of
         0.229 against 0.095 for a normal opening. Dividing by it scored a smile
-        at 0.13 and the teeth stopped appearing — the photograph was loaded and
+        at 0.13 and the teeth stopped appearing â€” the photograph was loaded and
         the weight that would have shown it was measured against a yawn.
         """
         smiling = expressive_tracking(gap=0.06, smile=0.6)
@@ -2946,7 +2968,7 @@ class TestExpandedSourceSet:
         assert weights.get(left_role, 0.0) > 0.0
 
     def test_gaze_asks_for_no_photograph_at_all(self):
-        """It is geometry now — see TestEyeGeometry. The four gaze photographs
+        """It is geometry now â€” see TestEyeGeometry. The four gaze photographs
         are no longer used, and an avatar that has them is not penalised for it.
         """
         for shape in ("eyeLookOutLeft", "eyeLookOutRight", "eyeLookUpLeft", "eyeLookDownLeft"):
@@ -2977,7 +2999,7 @@ class TestExpandedSourceSet:
 
         A tilt photograph was active on 99.2% of the owner's recording at a
         median weight of 0.38, and its landmarks sit a tenth of a face away
-        from the portrait's — so once a pose photograph began carrying its own
+        from the portrait's â€” so once a pose photograph began carrying its own
         geometry, it moved the mesh 4.2 px further from the tracked face on
         nearly every frame. An avatar that has the photographs is not penalised
         for having them; they are simply never asked for.
@@ -3005,7 +3027,7 @@ def _ring(count: int, centre: tuple[float, float], radii: tuple[float, float]) -
     """``count`` points around an ellipse, in contour order.
 
     Contour order because the lips are filled as a polygon, not tested as a
-    point cloud — scattered points would describe a star.
+    point cloud â€” scattered points would describe a star.
     """
     angles = np.linspace(0.0, 2.0 * np.pi, count, endpoint=False)
     return np.stack(
@@ -3033,7 +3055,7 @@ class TestRelightingStability:
 
     A webcam hunting its exposure makes the scene brighten and dim continuously.
     A correction that follows it instantly makes the avatar's face pulse against
-    a background that is merely drifting — which is what the owner saw as the
+    a background that is merely drifting â€” which is what the owner saw as the
     picture flickering.
     """
 

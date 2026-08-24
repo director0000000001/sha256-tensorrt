@@ -566,13 +566,57 @@ def _positions(*groups: tuple[int, ...]) -> list[int]:
 
 _EYE_POSITIONS = _positions(_LEFT_EYE, _RIGHT_EYE)
 
+# The iris boundary, without the centre. MediaPipe gives five points per iris
+# and the first is the middle of it — see :data:`_LEFT_IRIS`.
+_LEFT_IRIS_RING, _RIGHT_IRIS_RING = _LEFT_IRIS[1:], _RIGHT_IRIS[1:]
+_IRIS_RING_POSITIONS = (_positions(_LEFT_IRIS_RING), _positions(_RIGHT_IRIS_RING))
+
+# **Four more points per iris, on the circle, between the four the tracker
+# gives.** Added 2026-08-24, and the reason is geometry rather than taste.
+#
+# The owner: *"when I look slightly to the side with my eyes the iris changes
+# shape and stops being a circle — it gets partly pointed"*, and *"sometimes a
+# greenish-bluish colour becomes part of the iris"*. One mechanism gives both.
+#
+# A tracker's four boundary points sit **on** the iris circle, so the polygon
+# through them is a diamond *inscribed* in it, and an inscribed square covers
+# only **2/π — 63.7% — of the circle's area**. The remaining **36%** is four
+# circular segments that belong to no iris triangle at all: they are carried by
+# the fan running out to the eyelid. :func:`_place_irises` then moves the
+# *target's* iris while the source's stays where the portrait's is, so that fan
+# is sheared by the gaze — compressed on one side, stretched on the other. The
+# compressed side folds iris pixels into a corner; the stretched side pulls
+# sclera in under the iris outline. A point, and a colour that is not iris.
+#
+# Eight points make it a regular octagon, which covers **90.0%** — the segments
+# outside the mesh drop from 36% to 10%, a **3.6-fold** reduction in how much of
+# the iris the shearing fan is responsible for.
+#
+# They are computed rather than tracked: the iris is a circle whose centre and
+# radius are already known, so the bisector of each pair of neighbours is a
+# point on it. Computed inside :func:`_pixel_points`, which is the one place a
+# mesh is built, so the portrait and the live face get them by the same rule —
+# which is the only property a warp actually requires of them.
+_IRIS_ARCS_PER_EYE = 4
+_LEFT_IRIS_ARCS = tuple(range(len(MESH_INDICES), len(MESH_INDICES) + _IRIS_ARCS_PER_EYE))
+_RIGHT_IRIS_ARCS = tuple(
+    range(len(MESH_INDICES) + _IRIS_ARCS_PER_EYE, len(MESH_INDICES) + 2 * _IRIS_ARCS_PER_EYE)
+)
+
+MESH_POINT_COUNT = len(MESH_INDICES) + 2 * _IRIS_ARCS_PER_EYE
+"""Rows in a mesh: the tracked landmarks, then the computed iris arcs."""
+
 # Per eye, because gaze is placed one eye at a time: each iris is positioned
 # inside its own socket, so a face at an angle still gets both right.
 _EYE_PAIRS = (
-    (_positions(_LEFT_EYE), _positions(_LEFT_IRIS)),
-    (_positions(_RIGHT_EYE), _positions(_RIGHT_IRIS)),
+    (_positions(_LEFT_EYE), [*_positions(_LEFT_IRIS), *_LEFT_IRIS_ARCS]),
+    (_positions(_RIGHT_EYE), [*_positions(_RIGHT_IRIS), *_RIGHT_IRIS_ARCS]),
 )
-_IRIS_POSITIONS = _positions(_LEFT_IRIS, _RIGHT_IRIS)
+_IRIS_POSITIONS = [
+    *_positions(_LEFT_IRIS, _RIGHT_IRIS),
+    *_LEFT_IRIS_ARCS,
+    *_RIGHT_IRIS_ARCS,
+]
 
 # What an eye photograph is allowed to move — the lids *and the irises inside
 # them*. The irises were left out, and on a blink that put the mesh's iris
@@ -592,16 +636,25 @@ _EYE_RINGS = tuple(eye for eye, _ in _EYE_PAIRS)
 # How far the pupil may travel inside its socket, as a fraction of eye width,
 # and how much of the user's travel it copies.
 #
-# The mesh has four points around each iris, so the triangles between them and
-# the lid shear as the pupil moves. Rendered across the full
-# range, a small shift is clean and an extreme one turns the iris into a dark
-# diamond with visible triangle edges. Vertically it is worse and asymmetric,
-# because the lower lid is closer than the upper one.
+# The triangles between the iris and the lid shear as the pupil moves, so a
+# small shift is clean and an extreme one turns the iris into a dark diamond
+# with visible triangle edges. Vertically it is worse and asymmetric, because
+# the lower lid is closer than the upper one.
 #
-# The limits are where the render stops being clean, and the scale keeps normal
-# gaze comfortably inside them. Nothing is lost by it: gaze reads as a
-# *direction* long before it reads as a magnitude, and a video call is not
-# looked at from the corner of the eye.
+# **The claim that normal gaze sits comfortably inside these limits is false on
+# the owner's own recording, and it was measured on 2026-08-24.** His sideways
+# gaze over 1847 frames has a **median of 0.1172** of eye width, and
+# ``_GAZE_LIMIT_X / _GAZE_SCALE`` puts the clamp at **0.1182** — so the iris is
+# at or past the limit on about **half of an ordinary call**, not at the edge of
+# what a person does. p95 is 0.2196 and the furthest is 0.2633.
+#
+# The limits stay where they are for now anyway, because the defect they were
+# guarding against has just been attacked from the other side — see
+# :data:`_IRIS_ARCS_PER_EYE`. Whether a finer iris earns a wider limit is a
+# question for a measurement, not for this comment.
+#
+# Nothing is lost by clamping: gaze reads as a *direction* long before it reads
+# as a magnitude, and a video call is not looked at from the corner of the eye.
 _GAZE_SCALE = 0.55
 _GAZE_LIMIT_X = 0.065
 _GAZE_LIMIT_UP, _GAZE_LIMIT_DOWN = 0.035, 0.012
@@ -2206,15 +2259,57 @@ class WarpAvatarEngine:
         return points
 
 
+def _iris_arcs(mesh: np.ndarray) -> np.ndarray:
+    """The four points between each iris's four, on the iris's own outline.
+
+    See :data:`_IRIS_ARCS_PER_EYE` for why they exist. Two properties matter
+    and both are deliberate:
+
+    *   **On the outline rather than on a fitted circle.** Each new point takes
+        the radius of the two neighbours it sits between, so an iris the tracker
+        reports as slightly oval keeps its shape instead of being rounded out.
+    *   **Ordered by angle, not by landmark number.** The four boundary points
+        are bisected pairwise going round, and which tracker index is "top" is
+        not something this file should have to know or a future tracker have to
+        promise.
+    """
+    arcs = np.zeros((2 * _IRIS_ARCS_PER_EYE, 2), dtype=np.float32)
+    for eye, ring in enumerate(_IRIS_RING_POSITIONS):
+        points = mesh[ring]
+        centre = points.mean(axis=0)
+        offsets = points - centre
+        radii = np.linalg.norm(offsets, axis=1)
+        angles = np.arctan2(offsets[:, 1], offsets[:, 0])
+        order = np.argsort(angles)
+
+        for step in range(_IRIS_ARCS_PER_EYE):
+            first = order[step]
+            second = order[(step + 1) % _IRIS_ARCS_PER_EYE]
+            start, end = float(angles[first]), float(angles[second])
+            if end < start:
+                end += 2.0 * np.pi
+            middle = (start + end) / 2.0
+            radius = float(radii[first] + radii[second]) / 2.0
+            arcs[eye * _IRIS_ARCS_PER_EYE + step] = centre + radius * np.array(
+                [np.cos(middle), np.sin(middle)], dtype=np.float32
+            )
+    return arcs
+
+
 def _pixel_points(normalised: np.ndarray, width: int, height: int) -> np.ndarray | None:
-    """The mesh subset in pixel coordinates, or ``None`` if the mesh is wrong."""
+    """The mesh in pixel coordinates, or ``None`` if the landmarks are wrong.
+
+    **The one place a mesh is built**, which is what lets the iris arcs be added
+    here: the portrait's mesh and the live face's both come through this
+    function, so they are computed by the same rule and correspond.
+    """
     if normalised.shape[0] <= max(MESH_INDICES):
         return None
 
     subset = normalised[list(MESH_INDICES), :2].astype(np.float32)
     subset[:, 0] *= width
     subset[:, 1] *= height
-    return subset
+    return np.vstack([subset, _iris_arcs(subset)])
 
 
 def _triangulate(points: np.ndarray, width: int, height: int) -> np.ndarray:
