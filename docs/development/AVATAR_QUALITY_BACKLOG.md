@@ -2110,3 +2110,69 @@ found to be motion blurred, so some of this is material rather than code.
 **What it needs:** a recording of a turn, slow, with the specific moments named
 aloud — *"now the eye"*, *"now the mouth"* — so that a frame number can be
 attached to each complaint instead of a paragraph.
+
+---
+
+## 31. The driving clip's segment map does not describe the driving clip — OPEN, measured 2026-08-25
+
+Found while looking for the frames of `driving.mkv` that hold speech, for
+`scripts/measure_speech_plane.py`. It is not a quality defect in the avatar; it
+is a defect in the instrument every quality claim since day 12 was taken with,
+which is worse.
+
+`recordings/driving.json` names which frames were recorded against which
+instruction. **The content lags the labels, and the lag grows to about 450
+frames — fifteen seconds — by the end of the clip.**
+
+### Verified in the pictures, not inferred from the numbers
+
+| frame | labelled | what is in the frame |
+|---|---|---|
+| 900 | *"Smile widely, showing your teeth"* | eyes shut, mouth closed |
+| 1050 | *"Open your mouth wide, then close it"* | a closed-mouth smile |
+| 1200 | *"TALK. Say anything, normally"* | a wide smile |
+| 1500 | *"Turn your head slowly LEFT, then back"* | mouth wide open |
+| 1560–1800 | *"Turn RIGHT" / "Raise your eyebrows" / "SIT STILL again"* | the speech |
+
+And measured, so it can be caught without looking: the eight seconds labelled
+`TALK` hold **two** mouth openings — 0.25 a second, against the three to five a
+second of ordinary speech — while *"Open your mouth wide, then close it"* holds
+**none**, at a p95 lip parting of 0.0116 on a face whose lips are touching at
+0.010.
+
+### The recorder is not at fault, which is why nothing caught it
+
+`record_driving_clip.py` stamps every boundary from the frames it has actually
+written — `started = frames` before the step, `frames - 1` after — and each
+segment in the sidecar comes out at 29.3 to 30.0 fps against a 30 fps target.
+The frame counting is exactly right. **What it cannot see is that the person
+lags the prompt**, finishing one instruction while the next is already on
+screen, and that the lag accumulates over fourteen steps.
+
+### What it costs
+
+*   **`measure_quality.py --segment` selects the wrong frames.** One saved report
+    used it: `day12-closed-segment.json`, *"the two seconds of held-shut eyes"*,
+    over frames 654–743 — where the eyes are open. The closure is near 820–910.
+*   **`driving.mkv` contains no completed head turn.** `|yaw|` stays under 4.6°
+    until frame 1800 and reaches 39.8° on the last frame: the final instructions
+    ran off the end of the recording. Every quality report since day 12 reads
+    **34 turned frames out of 1817** — 1.9%, one direction, cut off. Every
+    "turned" number this project has published rests on those 34 frames.
+*   The frontal/turned split itself is **safe**: `_by_angle` reads the measured
+    yaw rather than the sidecar.
+
+### What it needs
+
+A new driving clip, and the recorder changed so the clip can be trusted:
+
+1.  **Hold each prompt until the movement is done** rather than for a fixed
+    number of seconds — a keypress, or a countdown that starts when the previous
+    movement has finished.
+2.  **Check the map against the clip before it is used.** Each instruction
+    predicts something measurable in its own window: a turn predicts yaw, a blink
+    predicts the lids, `TALK` predicts three to five mouth openings a second. A
+    map that fails its own predictions should be refused, the way
+    `--baseline` already refuses a comparison whose conditions moved.
+3.  Until then, `--segment` should not be trusted on `driving.mkv`, and the
+    speech window is named by hand: **frames 1560–1799**.

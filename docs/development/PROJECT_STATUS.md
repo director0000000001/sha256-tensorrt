@@ -3,7 +3,7 @@
 **Living document.** Update it at the end of each working day. For the frozen
 record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
-**Last updated:** 2026-08-24 · **Day 13 — the brow axis was measuring the nose bridge, and Smart App Control blocked the tracker for half a day**
+**Last updated:** 2026-08-25 · **Day 14 — speech is one-dimensional, the material is on disk, and the driving clip is mislabelled**
 
 ---
 
@@ -1829,6 +1829,138 @@ actually covers.** Above 95% is tuning; near 70% is not.
 getting to really good results."*
 
 ---
+
+## Day 14 — speech is one-dimensional, the material is on disk, and the driving clip is mislabelled
+
+`scripts/measure_speech_plane.py`, the cheap first step day 13 asked for: *"measure
+whether the existing `speech` clip already covers the width × parting plane. If it
+does, the material is on disk and this is a builder. If it does not, it is a clip."*
+
+It does. And two other things fell out of the same pass, one of which is larger
+than the question that was asked.
+
+### The plane is the engine's own, and so are its units
+
+Both axes are what `engine_warp` already computes, normalised by the spans it
+normalises them with, so a unit here is a unit there:
+
+*   **widened** — `_smiling`, the mouth's width against the outer eye corners,
+    above rest, over `_SMILE_WIDEN_SPAN`. The driver's rest is the floor
+    `_Neutral` learns; a source's rest is the portrait's own mouth.
+*   **parted** — `_lip_parting`, the inner lips' gap on the same denominator,
+    less `_SMILE_LIP_CLOSED`, over `_SMILE_OPEN_SPAN`.
+
+### The open design question, answered: one ladder, not a grid
+
+Measured over the 240 frames of `driving.mkv` where the owner is actually
+speaking:
+
+| | p5 | p50 | p95 | max |
+|---|---|---|---|---|
+| widened | 0.000 | 0.046 | 0.118 | 0.133 |
+| **parted** | 0.000 | **0.202** | **0.947** | **1.212** |
+
+They move together at **r = −0.049**, and one direction carries **98.4%** of the
+demand: **(−0.006 widened, +1.000 parted)**. Speech parts the lips and barely
+widens the mouth. *"An eye is one-dimensional while speech is two"* was the
+worry; on this face, in the engine's own units, it is not. **A ladder on lip
+parting, and no grid.**
+
+### And it names the mechanism behind *"it does not follow me"*
+
+The mouth is chosen by `widened × (1 + parted)` — `_smile_amount`. During speech
+`widened` sits at 0.046 and hardly moves, so the scalar hardly moves either:
+
+*   the demand is **0.262** wide about its own centre;
+*   frames the scalar cannot tell apart still sit **0.214** apart;
+*   so the scalar removes **18%** of the spread and keeps 82% of it hidden.
+
+That is the whole complaint in one number. The ladder holds still while the lips
+open and close over a full span, and everything the driver does is then carried
+by the mesh stretching a closed mouth — which is exactly what day 13 photographed.
+
+### The material is on disk, so this is a builder
+
+Nearest photograph to each speech frame, on the plane:
+
+| | sources | median | p90 | worst |
+|---|---|---|---|---|
+| the installed library | 16 | 0.047 | 0.221 | **0.567** |
+| **the `speech` clip** | **240** | **0.015** | **0.034** | **0.066** |
+| `video-10`, the mouth-open clip | 160 | 0.017 | 0.206 | 0.632 |
+
+**The speech clip's worst frame is better than the installed library's p90.** All
+240 of its frames pass `|yaw| ≤ 12` and `face ≥ 380 px`, its identity drift
+against the portrait is 0.032 median and 0.095 worst against a tolerance of
+0.08, and at a tenth of the axis per rung there are **no holes**: every band the
+driver visits, the clip can fill, and it goes on to 2.3 where the driver stops
+at 1.2.
+
+**One caveat, and it decides where each rung comes from.** The speech clip is
+720p with a **389 px** face; `video-10` is 4K with **1009 px**, against a
+portrait of 455. Band winners' sharpness reads 337/380/286/203 from `video-10`
+and 99/87/66/70 from the speech clip. `video-10` reaches only to parted 0.6 and
+covers 79% of speech frames; above that the 720p clip is the only material there
+is. **So: build from both** — the builder takes the sharpest frame per band and
+will pick the 4K clip below 0.6 by itself — and put a 1080p 9:16 re-shoot of the
+speech clip on the list beside the turn clips.
+
+### The driving clip's segment map does not describe the driving clip
+
+Found while looking for the speech frames, and it is the larger finding.
+
+`recordings/driving.json` names which frames were recorded against which
+instruction. **The content lags the labels, and the lag grows to about 450
+frames — fifteen seconds — by the end.** Verified in the pictures, not inferred:
+
+| frame | labelled | actually |
+|---|---|---|
+| 900 | *"Smile widely, showing your teeth"* | eyes shut, mouth closed |
+| 1050 | *"Open your mouth wide"* | a closed-mouth smile |
+| 1200 | *"TALK"* | a wide smile |
+| 1500 | *"Turn your head slowly LEFT"* | mouth wide open |
+| 1560–1800 | *"Turn RIGHT" / "Raise your eyebrows" / "SIT STILL again"* | **the speech** |
+
+Measured the same way: the eight seconds labelled `TALK` contain **two** mouth
+openings in 8 s — 0.25 a second, against the three to five a second of ordinary
+speech — and the segment labelled *"Open your mouth wide, then close it"* has
+none at all and a p95 lip parting of 0.0116.
+
+The recorder is not at fault: `record_driving_clip.py` stamps each boundary from
+the frames it has actually written, and every segment in the sidecar comes out
+at 29.3–30.0 fps. **The person lags the prompts, and the lag accumulates**, which
+no amount of correct frame counting can see.
+
+**Three consequences.**
+
+*   **`measure_quality.py --segment` selects the wrong frames.** One saved report
+    used it — `day12-closed-segment.json`, *"the two seconds of held-shut eyes"*,
+    over frames 654–743, where the eyes are open. The closure is around 820–910.
+    The frontal/turned split is **safe**: `_by_angle` reads the measured yaw, not
+    the sidecar.
+*   **`driving.mkv` contains no completed head turn.** `|yaw|` stays under 4.6°
+    until frame 1800, then rises to 39.8° at the last frame — the final
+    instructions ran off the end of the recording. Every quality report since day
+    12 shows **34 turned frames out of 1817**, 1.9%, one direction, cut off. Every
+    "turned" number this project has published rests on those 34 frames.
+*   **The quality measure needs a new driving clip**, recorded with the prompts
+    held until the movement is done rather than on a timer, and checked against
+    its own map before it is used.
+
+### And an engine finding, on the way
+
+`_Neutral.relative_expression("smileAmount", …)` is **advanced twice per frame**:
+once by `_smile_share` inside `_source_weights`, and again by `_smile_amount`
+when it chooses the rung. Both learn from the reading, so the smile floor chases
+the mouth at double the intended rate — `_FLOOR_FALL` 0.15 becomes 0.2775 — and
+`_smile_amount`, reading second, sees a systematically smaller widening than
+`_smile_share` did. It picks a rung slightly too low.
+
+This is the exact hazard `_Neutral.floor_of` was written to prevent, and the head
+pose is careful about it one screen further down: *"Read, not learn:
+`_source_weights` has already advanced the resting angle for this frame."* The
+smile floor is not. **Not fixed today** — it is measured, named, and it belongs
+with the speech ladder, because that is the code that will read it.
 
 ## What day 13 owes, and did not do
 
