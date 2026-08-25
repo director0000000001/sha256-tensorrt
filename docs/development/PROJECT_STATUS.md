@@ -3,7 +3,7 @@
 **Living document.** Update it at the end of each working day. For the frozen
 record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
-**Last updated:** 2026-08-25 · **Day 14 — speech is one-dimensional, the material is on disk, and the driving clip is mislabelled**
+**Last updated:** 2026-08-25 · **Day 14 — the speech ladder: one photograph replaced by twelve, and the driving clip is mislabelled**
 
 ---
 
@@ -1962,13 +1962,155 @@ pose is careful about it one screen further down: *"Read, not learn:
 smile floor is not. **Not fixed today** — it is measured, named, and it belongs
 with the speech ladder, because that is the code that will read it.
 
+## Day 14, second pass — the speech ladder, and one photograph replaced by twelve
+
+Built, installed, and measured against the frames it was built for.
+`scripts/build_speech_ladder.py`, and the engine gained a fourth axis.
+
+### What it is
+
+**Fourteen rungs, one per tenth of the parting axis, from two clips.** The
+sharpest frame in each band wins, which sorted the two sources by itself: the 4K
+`video-10` took the bottom three rungs at sharpness 337, 329 and 88, and the
+720p speech clip took the eleven above them — which is the part of the range
+that had no photograph at all before. No holes between the lowest rung and the
+highest.
+
+**The axis is absolute, and it is the only one that is.** Where a mouth *rests*
+is a fact about the person — the owner's sits at 0.53 of an eye span wide — but
+where lips *touch* is not: they touch at zero on every face. So `_speech_amount`
+has nothing to learn and nothing to warm up, which is worth having on the one
+axis that moves several times a second.
+
+**Two ladders share the mouth, and what separates them is which way the mouth is
+moving.** The engine already drew that line for the named photographs —
+`source_smile` takes `opening x smiling`, `source_mouth_open` takes
+`opening x (1 - smiling)` — and the same line is drawn between the two ladders,
+on the same quantity. Measured on the owner: `_smile_share` sits near 0.12 while
+he speaks and reaches 0.80 at a broad smile. `_one_per_region` keeps whichever
+scores higher and shows it whole. **No new threshold was added.**
+
+That needed one new thing: `_nearest_rung` can now be given a weight separately
+from the amount. Everywhere else the amount answers both questions — the eye
+ladder's 0.3 rung *is* a photograph of an eye three tenths shut — but scaling the
+amount here would have chosen a rung at the wrong parting.
+
+### Two photographs retired, and the second was found by measuring
+
+`source_mouth_open` went the way the named smile photographs went: one
+photograph of one opening against a row of photographs of every opening.
+
+`source_mouth_o` was **not** on the list until the first measurement. Its
+whole-clip figure — 65.6% of frames at a median share of 0.18 — reads like a
+thin wash. On the frames where the owner is actually speaking it reads
+differently:
+
+| | frames | share |
+|---|---|---|
+| `source_mouth_o`, before | **69.2%** | **0.98** |
+
+**One photograph of rounded lips, shown almost whole, for two thirds of a
+sentence.** It is driven by `mouthPucker` and `mouthFunnel`, which sit above
+`_EXPRESSION_FULL` through ordinary speech — so it is the fourth family to
+behave exactly as the four gaze photographs, the squint and the tilts did:
+active almost always, and therefore wrong almost always. The difference is that
+this time there was something strictly better to put in its place.
+
+`source_mouth_pressed` and `source_mouth_wide` stay. Pressed lips are a *closed*
+mouth, which is the ladder's foot and the portrait's own photograph; it wins
+18.8% of speech at a share of **0.10**, a thin wash on frames the ladder does
+not want. `source_mouth_wide` never won a frame.
+
+### What it bought, on the frames it was built for
+
+Frames 1560-1799 of `driving.mkv`, named by hand because the clip's own map
+cannot be trusted (backlog 31):
+
+| | before | after |
+|---|---|---|
+| photographs carrying the mouth | **1** | **12** |
+| share of speech frames they carry | 69.2% | 67.9% |
+| how much of them is on screen | 0.98 | **1.00** |
+
+The same two thirds of the sentence, and instead of one rounded mouth held
+through all of it, twelve photographs of this face at the parting each frame
+asks for, each shown whole with no portrait underneath. Rendered side by side in
+`recordings/speech-ladder-before-after.png`: before, the same pout on every
+frame; after, the lip shape changes between them.
+
+### And it cost nothing on the whole clip — it gave some back
+
+| | before | after |
+|---|---|---|
+| warp residual, all | 7.30 | 7.30 |
+| warp residual, turned | 7.36 | **7.29** |
+| near-eye sharpness | 359 | 358 |
+| face sharpness | 171 | 172 |
+| **animate mean** | 21.81 ms | **21.02 ms** |
+| **animate p95** | 24.88 ms | **24.41 ms** |
+
+Both runs on a rested machine — the probe read 0.392 and 0.388 ms, within 1.2%
+of each other, neither erratic — so the frame cost is a comparison the tool
+accepts. It is **faster**, by 0.79 ms, and the reason is visible in the same
+table: `source_mouth_o` was being blended into 65.6% of frames and now nothing
+is blended into most of them.
+
+### The floor that was being advanced twice, fixed
+
+Named in the first pass, fixed here because the speech ladder made it a third
+caller on one frame. `_smile_amount` now reads the resting floor through
+`_Neutral.floor_of` instead of advancing it a second time, and `_widened` is the
+one place that decides. `_smile_share`, inside `_source_weights`, remains the
+caller that learns. The seeding path stays for a tracker that returns no
+blendshapes, where `_smile_share` is never reached at all.
+
+### Two costs, recorded rather than hidden
+
+*   **Avatar load: 16.1 s -> 18.9 s.** Fourteen rungs are fourteen more face
+    detections, and startup was already on day 13's list of debts at 21 seconds
+    with no feedback. This makes the debt bigger, and it is now the largest
+    thing standing between this engine and a customer opening an `.exe`.
+*   **The speech rungs are 36-40 of 255 from the portrait's exposure**, where
+    the correction caps at 12. The 720p clip was generated on its own day under
+    its own light. It is the strongest argument yet for the 1080p 9:16 re-shoot
+    of the speech clip, beside the turn clips.
+
+### Also settled: what the octagon cost
+
+Day 13's only outstanding unknown in a change that shipped, measured here on a
+rested machine and accepted by the tool's own comparison:
+
+| | before the octagon | after |
+|---|---|---|
+| animate mean | 19.51 ms | **21.81 ms** |
+| animate p95 | 22.02 ms | 24.88 ms |
+| near-eye sharpness | 336 | **359** |
+| near-eye sharpness, turned | 447 | **483** |
+
+**+2.30 ms**, against the +1.5 ms that was the honest expectation. It buys the
+sharpness it was measured to buy. `animate` at 21.02 ms after today's work still
+fits a 33.3 ms budget at 30 fps and does not fit 16.7 ms at 60.
+
+### And a one-character bug in the instrument
+
+`measure_quality.py --help` crashed — `TypeError: %o format: an integer is
+required, not dict` — because the `--segment` help text contained a literal `%`
+and argparse interpolates. It has been broken since the flag was written. Fixed,
+and the same text now says the flag is not to be trusted on this clip.
+
+**A note on credit for backlog 31:** `replay_clip.py`'s own docstring already
+said *"the prompts during recording were a guide and the owner could not keep up
+with them, so the behaviour is not where the labels say"* — and it finds its own
+moments for exactly that reason. What is new today is the measurement of how far
+off the map is, and the finding that `measure_quality.py --segment` trusts it
+anyway.
+
 ## What day 13 owes, and did not do
 
-*   **The frame cost after the octagon.** 245 triangles against 229 is +7.0% at
-    one OpenCV call each, so the honest expectation is about +1.5 ms on
-    `animate`'s 21.4 ms — but the machine was 52% warm and the tool refused the
-    comparison. **Needs a rested run.** This is the only unknown in a change
-    that shipped.
+*   ~~**The frame cost after the octagon.**~~ **Paid, day 14:** +2.30 ms mean and
+    +2.86 ms p95 on a rested machine, against the +1.5 ms that was expected. It
+    buys the sharpness it was measured to buy — 336 to 359 near the eye, and 447
+    to 483 on turned frames.
 *   **Why the warp residual rose**, 7.07 → 7.30. The candidate is that it is an
     average over mesh points and the mesh gained eight that are deliberately
     displaced by gaze. Not verified.

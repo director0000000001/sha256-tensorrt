@@ -150,6 +150,22 @@ class AssetRef(BaseModel):
         ),
     )
 
+    speech: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=4.0,
+        description=(
+            "How far this asset's lips are parted: 0 with them together, about "
+            "0.5 at an ordinary speaking vowel and 1 at a wide one. The fourth "
+            "axis, and the one the owner ranks first — `smile` covers a mouth "
+            "that *widens*, and speech is a mouth that *parts* without widening. "
+            "Measured over the frames of a recording where he is speaking, the "
+            "two move together at r = -0.05 and 98% of the movement is parting, "
+            "which is why this is an axis of its own rather than a second "
+            "dimension on `smile`."
+        ),
+    )
+
     @field_validator("path")
     @classmethod
     def _reject_unsafe_paths(cls, value: str) -> str:

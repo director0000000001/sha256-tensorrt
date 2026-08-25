@@ -127,6 +127,29 @@ _SMILE_PREFIX = "smile@"
 # smile. Measured against rest, like every other expression.
 _SMILE_LADDER_START = 0.08
 
+# And the fourth axis, which the owner ranks first of all: the lips parting.
+#
+# *"When I am talking it almost does not follow me at all."* Day 13 measured
+# that the mouth does follow — parting gain 1.04, r 0.99 on a re-tracked render
+# — and that on 65.6% of frames the photograph it followed with was
+# `source_mouth_o` at a median share of 0.18 over the portrait's own *closed*
+# mouth. Two thirds of a conversation rendered as a closed mouth stretched open
+# by the mesh, which is what "it does not follow me" looks like from outside.
+#
+# **Its own axis rather than a second dimension on the smile**, and that is a
+# measurement. Over the frames of `driving.mkv` where the owner is speaking, the
+# mouth's widening and its parting move together at r = -0.049, and one
+# direction carries 98.4% of the demand: (-0.006 widened, +1.000 parted). A
+# speaking mouth parts and barely widens. See `scripts/measure_speech_plane.py`.
+_SPEECH_PREFIX = "speech@"
+
+# Below this the lips are together and the portrait is already the best
+# photograph of that — it is the rung at zero, as it is on every other axis.
+# Low, because it has to be: an ordinary consonant closes the lips completely
+# several times a second, and a threshold high enough to be safe would take the
+# mouth region out and put it back at syllable rate.
+_SPEECH_LADDER_START = 0.05
+
 # And the third axis, which the owner ranks first: the lids closing.
 #
 # The eyes have been the standing complaint since day 8 — *"wrong far more often
@@ -763,6 +786,27 @@ _REGION_ROLES: dict[str, tuple[str, ...]] = {
 # The named smile photographs, which a smile ladder replaces entirely.
 _SMILE_ROLES: tuple[str, ...] = ("source_smile", "source_smile_closed")
 
+# And what the speech ladder replaces. One photograph of one shape against a row
+# of photographs of every shape the mouth passes through — the smile ladder's
+# argument on the axis next door.
+#
+# **`source_mouth_o` is here, and it was measured onto this list rather than
+# reasoned onto it.** On the 240 frames of `driving.mkv` where the owner is
+# speaking, it won the mouth on **69.2% of them at a median share of 0.98** —
+# one photograph of rounded lips, shown almost whole, for two thirds of a
+# sentence. It is driven by `mouthPucker` and `mouthFunnel`, which sit above
+# `_EXPRESSION_FULL` through ordinary speech, so it is the fourth family to
+# behave the way the gaze photographs, the squint and the tilts did: active
+# almost always, and therefore wrong almost always. The difference is that this
+# time there is something strictly better to put in its place.
+#
+# **`source_mouth_pressed` and `source_mouth_wide` are not here.** Pressed lips
+# are a *closed* mouth, which is the ladder's foot and the portrait's own
+# photograph; it wins 13.3% of speech at a share of 0.12, which is a thin wash
+# on frames the ladder does not want. `source_mouth_wide` never won a frame at
+# all. Neither is in the ladder's way.
+_SPEECH_ROLES: tuple[str, ...] = ("source_mouth_open", "source_mouth_o")
+
 # And the two an eye ladder replaces. Both, because the ladder is signed: a
 # resting eye is its zero, a shut one its top, and an eye held wide is the same
 # axis in the other direction. Measured on the owner's own recording, the
@@ -846,7 +890,7 @@ def _region_of(role: str) -> str | None:
     region, and the prefix is how a rung says so without needing a role name of
     its own for every step of a smile.
     """
-    if role.startswith(_SMILE_PREFIX):
+    if role.startswith((_SMILE_PREFIX, _SPEECH_PREFIX)):
         return "mouth"
     if role.startswith(_EYES_PREFIX):
         return "eyes"
@@ -1621,6 +1665,7 @@ class _LoadedAvatar:
         "smile_ladder",
         "source_points",
         "sources",
+        "speech_ladder",
         "triangles",
     )
 
@@ -1638,6 +1683,7 @@ class _LoadedAvatar:
         smile_ladder: tuple[tuple[float, str | None], ...] = (),
         eye_ladder: tuple[tuple[float, str | None], ...] = (),
         brow_ladder: tuple[tuple[float, str | None], ...] = (),
+        speech_ladder: tuple[tuple[float, str | None], ...] = (),
     ) -> None:
         self.full_gap = full_gap
 
@@ -1688,6 +1734,12 @@ class _LoadedAvatar:
 
         # And the brows: zero at rest, positive raised, negative drawn down.
         self.brow_ladder = brow_ladder
+
+        # And the lips parting, which is speech: zero with them together, about
+        # 0.5 at an ordinary vowel. It shares the mouth region with the smile
+        # ladder and the two are separated by which way the mouth is moving —
+        # see :func:`_variant_weights`.
+        self.speech_ladder = speech_ladder
         self.descriptor = descriptor
         self.image = image
         self.points = points
@@ -1812,7 +1864,7 @@ class WarpAvatarEngine:
         # triangulation computed from that is wrong for every frame after.
         _contain_irises(points)
         triangles = _triangulate(points, image.shape[1], image.shape[0])
-        sources, source_points, gaps, ladder, smiles, eyes, brows = self._align_variants(
+        sources, source_points, gaps, ladder, smiles, eyes, brows, speech = self._align_variants(
             descriptor, image, points, triangles
         )
         full_gap = gaps.get(_OPENING_REFERENCE_ROLE, _LIP_GAP_FULL)
@@ -1830,11 +1882,12 @@ class WarpAvatarEngine:
             smiles,
             eyes,
             brows,
+            speech,
         )
         _LOG.info(
             "Loaded avatar %s: %dx%d portrait, %d mesh points, %d triangles, "
             "%d extra source(s), %d turn rung(s) from %+.0f to %+.0f degrees, "
-            "%d smile rung(s): %s",
+            "%d smile rung(s), %d speech rung(s): %s",
             descriptor.id,
             image.shape[1],
             image.shape[0],
@@ -1845,8 +1898,13 @@ class WarpAvatarEngine:
             ladder[0][0] if ladder else 0.0,
             ladder[-1][0] if ladder else 0.0,
             max(len(smiles) - 1, 0),
+            max(len(speech) - 1, 0),
             ", ".join(
-                sorted(r for r in sources if not r.startswith((_LADDER_PREFIX, _SMILE_PREFIX)))
+                sorted(
+                    r
+                    for r in sources
+                    if not r.startswith((_LADDER_PREFIX, _SMILE_PREFIX, _SPEECH_PREFIX))
+                )
             )
             or "none",
         )
@@ -1861,6 +1919,7 @@ class WarpAvatarEngine:
         dict[str, np.ndarray],
         dict[str, np.ndarray],
         dict[str, float],
+        tuple[tuple[float, str | None], ...],
         tuple[tuple[float, str | None], ...],
         tuple[tuple[float, str | None], ...],
         tuple[tuple[float, str | None], ...],
@@ -1957,9 +2016,22 @@ class WarpAvatarEngine:
         brows = self._align_axis(
             descriptor, base_points, width, height, aligned, aligned_points, "brows", _BROWS_PREFIX
         )
+        speech = self._align_axis(
+            descriptor,
+            base_points,
+            width,
+            height,
+            aligned,
+            aligned_points,
+            "speech",
+            _SPEECH_PREFIX,
+        )
         # A rung's own lip gap, like every other mouth photograph's: it is what
-        # says whether this one has an interior to show through the lips.
-        for _, key in smiles:
+        # says whether this one has an interior to show through the lips. The
+        # speech rungs need it most of all — a rung chosen at a wide parting is
+        # the one photograph on the mouth that frame, and if nothing records
+        # that it has teeth behind the lips, nothing will paint them.
+        for _, key in (*smiles, *speech):
             if key is not None:
                 gaps[key] = _lip_gap_of(aligned_points[key])
 
@@ -1974,7 +2046,7 @@ class WarpAvatarEngine:
                 source, aligned_points[key], reference, key, descriptor.id
             )
 
-        return aligned, aligned_points, gaps, ladder, smiles, eyes, brows
+        return aligned, aligned_points, gaps, ladder, smiles, eyes, brows, speech
 
     def _align_axis(
         self,
@@ -3151,13 +3223,56 @@ def _smile_amount(tracking: FaceTrackingResult, neutral: _Neutral) -> float:
     Where a mouth rests is a fact about the person: the owner's sits at 0.53 of
     an eye span and someone else's will not.
     """
-    above = neutral.relative_expression("smileAmount", _smiling(tracking))
+    above = _widened(tracking, neutral)
     if above <= 0.0:
         return 0.0
 
     widened = above / _SMILE_WIDEN_SPAN
-    parted = (_lip_parting(tracking) - _SMILE_LIP_CLOSED) / _SMILE_OPEN_SPAN
-    return widened * (1.0 + max(parted, 0.0))
+    return widened * (1.0 + _speech_amount(tracking))
+
+
+def _widened(tracking: FaceTrackingResult, neutral: _Neutral) -> float:
+    """How much wider than rest this mouth is. **Read, not learn.**
+
+    :func:`_smile_share` has already advanced this floor for the frame, inside
+    `_source_weights`, so everything that reads it afterwards reads it. Until
+    2026-08-25 they did not: `_smile_amount` called
+    :meth:`_Neutral.relative_expression` a second time on the same frame and
+    advanced the floor again, so it fell at ``_FLOOR_FALL`` twice — 0.15
+    becoming 0.2775 — and the value the ladder chose its rung by was
+    systematically smaller than the value the share was computed from. It
+    picked a rung slightly too low.
+
+    That is the hazard :meth:`_Neutral.floor_of` exists to prevent, and the head
+    pose is careful about it a screen further down: *"Read, not learn:
+    `_source_weights` has already advanced the resting angle for this frame."*
+    The mouth was not. Now it is, and the speech ladder reads it as well, which
+    is a third caller on one frame.
+
+    The seeding path stays, for the frame where nothing has advanced it yet: an
+    avatar whose tracker returned no blendshapes never reaches
+    :func:`_smile_share`, and a mouth axis that silently read zero for such a
+    face would be a regression rather than a fix.
+    """
+    floor = neutral.floor_of("smileAmount")
+    if floor is None:
+        return neutral.relative_expression("smileAmount", _smiling(tracking))
+    return max(_smiling(tracking) - floor, 0.0)
+
+
+def _speech_amount(tracking: FaceTrackingResult) -> float:
+    """How far apart the lips are, on the axis the speech ladder is filed by.
+
+    Absolute rather than against rest, and that is the difference between this
+    axis and every other one. Where a mouth *rests* is a fact about the person —
+    the owner's sits at 0.53 of an eye span wide — but where lips *touch* is not:
+    they touch at zero on every face, and :data:`_SMILE_LIP_CLOSED` is how much
+    of a gap the landmarks still report when they do.
+
+    So there is nothing to learn here and nothing to warm up, which is worth
+    having on the one axis that moves several times a second.
+    """
+    return max(_lip_parting(tracking) - _SMILE_LIP_CLOSED, 0.0) / _SMILE_OPEN_SPAN
 
 
 def _source_weights(
@@ -3377,7 +3492,7 @@ def _source_weights(
 
 def _is_rung(role: str) -> bool:
     """Whether this source is one of a ladder rather than a named expression."""
-    return role.startswith((_SMILE_PREFIX, _EYES_PREFIX, _LADDER_PREFIX))
+    return role.startswith((_SMILE_PREFIX, _SPEECH_PREFIX, _EYES_PREFIX, _LADDER_PREFIX))
 
 
 def _commit(weight: float, region: str = "") -> float:
@@ -4023,15 +4138,24 @@ def _nearest_rung(
     start: float,
     held: str | None = None,
     freeze: bool = False,
+    weight: float | None = None,
 ) -> dict[str, float]:
     """The one rung nearest ``amount``, at a weight of how much there is.
 
-    Shared by the smile and the lids, which want the same thing and for the same
-    reason. **One rung, not two**: unlike yaw, where a head passes through every
-    angle on its way and a jump would read as a flick, these are stages of one
-    movement whose neighbours differ little — and what the owner objected to was
-    two photographs on screen at once. The change from one to the next is
-    carried by :func:`_eased`.
+    Shared by the smile, the lips and the lids, which want the same thing and
+    for the same reason. **One rung, not two**: unlike yaw, where a head passes
+    through every angle on its way and a jump would read as a flick, these are
+    stages of one movement whose neighbours differ little — and what the owner
+    objected to was two photographs on screen at once. The change from one to
+    the next is carried by :func:`_eased`.
+
+    ``weight`` splits *which rung* from *how much of it*, and only the speech
+    ladder needs it. Everywhere else the amount answers both — the eye ladder's
+    0.3 rung is a photograph of an eye three tenths shut, so how far into the
+    movement it is and how much of it there is are one number. Speech shares the
+    mouth with the smile, and the two are separated by which way the mouth is
+    moving rather than by how far; scaling the *amount* would pick a rung at the
+    wrong parting, so the scaling goes on the weight alone.
     """
     if len(ladder) < 2:
         return {}
@@ -4066,7 +4190,7 @@ def _nearest_rung(
 
     if nearest[1] is None:
         return {}
-    return {nearest[1]: min(abs(amount), 1.0)}
+    return {nearest[1]: min(abs(amount if weight is None else weight), 1.0)}
 
 
 def _carried_share(region: str, share: float, trust: float) -> float:
@@ -4155,6 +4279,20 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
                 _ladder_weights(avatar.ladder, avatar.neutral.pose_offset("yaw", pose.yaw))
             )
 
+    if avatar.smile_ladder or avatar.speech_ladder:
+        # **Two ladders on one mouth, and what separates them is which way the
+        # mouth is moving.** The engine already draws that line for the named
+        # photographs — `source_smile` takes `opening * smiling` and
+        # `source_mouth_open` takes `opening * (1 - smiling)` — and the same
+        # line is drawn here, on the same quantity, so a mouth cannot be a
+        # smile and a word at once. Measured on the owner: `_smile_share` sits
+        # near 0.12 while he speaks and reaches 0.80 at a broad smile.
+        #
+        # `_one_per_region` then keeps whichever scores higher, and shows it
+        # whole. Nothing new decides between them.
+        smiling = min(max(_widened(tracking, avatar.neutral) / _SMILE_WIDEN_FULL, 0.0), 1.0)
+        held = avatar.holding.get("mouth")
+
     if avatar.smile_ladder:
         # The smile ladder owns the smile the way the turn ladder owns yaw. The
         # two named smile roles go with it: one of them is a photograph the
@@ -4162,7 +4300,31 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
         # smile back in competition with the right-sized one.
         for role in _SMILE_ROLES:
             weights.pop(role, None)
-        weights.update(_nearest_smile(avatar.smile_ladder, _smile_amount(tracking, avatar.neutral)))
+        weights.update(
+            _nearest_smile(avatar.smile_ladder, _smile_amount(tracking, avatar.neutral), held)
+        )
+
+    if avatar.speech_ladder:
+        # And the speech ladder owns the parting. `source_mouth_open` goes with
+        # it for the smile ladder's reason word for word: it is one photograph
+        # of one opening, the ladder holds a photograph of every opening, and
+        # leaving it in would put a fully open mouth in competition with the
+        # right-sized one at exactly the widths where the ladder matters most.
+        #
+        # Its *gap* is kept — `_OPENING_REFERENCE_ROLE` reads the asset, not the
+        # weight, and it is still what says how far open "fully open" is.
+        for role in _SPEECH_ROLES:
+            weights.pop(role, None)
+        parted = _speech_amount(tracking)
+        weights.update(
+            _nearest_rung(
+                avatar.speech_ladder,
+                parted,
+                _SPEECH_LADDER_START,
+                held,
+                weight=parted * (1.0 - smiling),
+            )
+        )
 
     # The lids, measured once: the brows are read against them as well as the
     # eye ladder being chosen by them.

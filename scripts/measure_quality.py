@@ -1176,8 +1176,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Measure only the frames of the recorded segment whose instruction contains "
-            "this text — 'turn your head', 'blink'. The recorded clip is frontal for 97% "
-            "of its length, so a turn measured across the whole of it barely moves."
+            "this text — 'turn your head', 'blink'. NOT TRUSTWORTHY on driving.mkv: its "
+            "map is off by up to 450 frames, see backlog 31. Name frames instead."
         ),
     )
     parser.add_argument("--first", type=int, default=None, help="First frame to measure.")
