@@ -3,7 +3,7 @@
 **Living document.** Update it at the end of each working day. For the frozen
 record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
-**Last updated:** 2026-08-25 · **Day 14 — the speech ladder: one photograph replaced by twelve, and the driving clip is mislabelled**
+**Last updated:** 2026-08-25 · **Day 14 — the speech ladder, and the clock that ran backwards through every ladder ever built**
 
 ---
 
@@ -2105,6 +2105,136 @@ moments for exactly that reason. What is new today is the measurement of how far
 off the map is, and the finding that `measure_quality.py --segment` trusts it
 anyway.
 
+## Day 14, third pass — the owner tested it, and three separate faults came out
+
+He ran it within the hour and reported, with two screenshots: *"it follows the
+mouth movements badly"*, *"the difference between these two photos is the beard
+colour"*, *"the lips are also a little thicker when you open your mouth
+slightly"*, and — decisively — *"the beard colour differs and that makes a big
+difference."*
+
+He was right on all of it, and the three faults underneath turned out to be
+independent. Two were mine from the second pass; the third has been in every
+ladder this project has built.
+
+### One: every multi-folder ladder was built with the clock running backwards
+
+**The largest of the three, and it is not confined to the mouth.**
+
+`timestamp_of` reads the millisecond out of the dumped frame's file name, which
+starts again at zero for each folder. The builders hand every folder to *one*
+tracker, so from the second folder onward MediaPipe is given timestamps earlier
+than the ones before — and MediaPipe in VIDEO mode reasons about how far a face
+can have moved from the gap between timestamps.
+
+Measured, on the same file, in the same run:
+
+| `video-10/0057_02850ms.jpg` | lip parting |
+|---|---|
+| measured after the speech folder | **0.35** |
+| measured on its own | **0.51** |
+
+Two thirds of a band, on a frame that then wins one. The effect on the ladder
+was not subtle: with a fresh tracker per folder, `video-10` yields **six 4K
+rungs reaching a parting of 0.56**, where before it appeared to stop at 0.38 and
+gave three.
+
+This is the second half of a defect whose first half was fixed on 2026-08-21 —
+`timestamp_of` exists because every builder used to pass a *constant* timestamp,
+and the eye ladder was built out of the tracker's own lag. The constant is gone;
+the reset was not seen.
+
+**The fix is one line in each of five builders, and it is applied to all five.**
+The eye and smile ladders that are installed today were both built from two
+folders and carry whatever this cost them. **Rebuilding them is not done here**
+— each needs its own before-and-after, and doing it in the same pass as this
+one would mix three changes into one number.
+
+### Two: the ladder was picking 720p frames over 4K ones
+
+`best_per_band` ranked candidates by Laplacian variance alone, the way the other
+four builders do. That is right when every candidate comes from clips of one
+resolution and wrong the moment they do not: **a sharpness is a property of the
+pixels a face was drawn with**, so a 389 px face and a 1009 px face cannot be
+compared by it.
+
+Ranking that way put eleven 720p rungs into a library whose every other source
+is 4K. Both of the owner's visual complaints are that one cause: a 389 px face
+scaled up to the portrait's 455 is soft, its beard smears into the skin — *"the
+beard colour differs"* — and the generator drew that face with fuller lips —
+*"the lips are a little thicker."*
+
+Now the widest face in a band wins, and sharpness only breaks ties within a
+tenth of it. Combined with the clock fix:
+
+| | first ladder | now |
+|---|---|---|
+| rungs from 4K material | 3 | **6** |
+| the 4K rungs reach a parting of | 0.38 | **0.56** |
+| speech frames carried by a 4K rung | — | **74% of the ladder's frames** |
+
+`source_mouth_open` came back off `_SPEECH_ROLES` with it: it is a 4K photograph
+of a mouth open 0.50, which is wider than the sharp part of the ladder reaches,
+and **the ladder's weight is now capped at the chosen rung's own parting** so it
+hands the region over where it runs out of photographs instead of holding it
+with one that has stopped opening.
+
+### Three: the tone match was fitted on the wrong pixels, and clamped
+
+Two faults in one function, both measured.
+
+**The clamp.** `_SKIN_SHIFT_LIMIT` was a single 12 of 255, set when every source
+came from one sitting. The speech clip does not: it is uniformly **36 of 255**
+darker than the portrait. Measured across all 95 sources, the *spread* between
+the three channels' corrections is at most **8** — nothing in this library is a
+colour shift, they are exposures. So the limit is now split: a correction whose
+channels agree gets `_SKIN_SHIFT_FLAT_LIMIT`, 60; one whose channels disagree
+keeps 12, because that is a different light rather than a different exposure.
+
+**The sample.** A whole-face median is the right sample for a turn rung, which
+*is* the whole head, and the wrong one for a region: a face is not lit evenly.
+Applied in full it left the mouth region 12 to 17 of 255 too *bright*, where
+clamping it had left the same region 20 to 26 too dark.
+
+So each region now matches each of its photographs on a **ring** — inside the
+region, outside the portrait's own feature and outside that photograph's. Skin
+in both pictures by construction, so no cavity, no teeth and no shut lid can
+reach the estimate. **Per photograph, and that is not a detail**: one ring
+avoiding every rung's open mouth at once came to *five pixels* on this avatar.
+
+### What is left, and it is material rather than code
+
+Above a parting of about 0.6 — **21% of speech frames** — the 720p clip is still
+the only material in the library. `video-10` has no frame there at all. Those
+rungs are still soft and their beard still smears, and no tone transform will
+fix it: offset, gain, and gain-and-offset together were all fitted on the ring
+and all three left the same 3 to 15 of residual over the beard, because the two
+generations simply drew that beard differently.
+
+**The speech clip needs regenerating at 1080p 9:16**, beside `turn-frame-right`
+and `turn-frame-left`. This is now the strongest item on that list rather than
+an argument in a footnote.
+
+### And what it looks like
+
+`recordings/speech-ladder-three-ways.png`, four rows on the same eight frames:
+the driver, before any ladder, the ladder the owner tested, and now. The beard
+is consistent across all eight frames again and the lips are back to the
+portrait's.
+
+`recordings/speech-rungs.png` shows every rung composited on the portrait at
+full share, in ladder order, which is where the 720p rungs above 0.6 can be seen
+for what they are.
+
+### The mouth, measured on the speech frames
+
+| | before the ladder | the tested ladder | now |
+|---|---|---|---|
+| photographs carrying the mouth | 1 | 12 | **12** |
+| share of the window they carry | 69.2% | 67.9% | 66.7% |
+| how much of them is on screen | 0.98 | 1.00 | 1.00 |
+| of those frames, from 4K material | — | ~0% | **74%** |
+
 ## What day 13 owes, and did not do
 
 *   ~~**The frame cost after the octagon.**~~ **Paid, day 14:** +2.30 ms mean and
@@ -2127,6 +2257,10 @@ anyway.
 
 ## Still waiting on the owner
 
+**The `speech` clip, regenerated at 1080p 9:16** — new on 2026-08-25 and now
+the strongest item here. The one on disk is 720p with a 389 px face; above a
+parting of 0.6, which is 21% of speech, it is the only material the library has,
+and the owner identified both of its faults on sight. Then
 `brows-up-steps`, `brows-down-steps`, `smile-steps`, and — still blocking the
 largest open item — **`turn-frame-right` and `turn-frame-left`**. 9:16 at 1080p,
 which gives a 496 px face; 16:9 at 720p gave 320 px and every frame was refused.

@@ -805,7 +805,14 @@ _SMILE_ROLES: tuple[str, ...] = ("source_smile", "source_smile_closed")
 # photograph; it wins 13.3% of speech at a share of 0.12, which is a thin wash
 # on frames the ladder does not want. `source_mouth_wide` never won a frame at
 # all. Neither is in the ladder's way.
-_SPEECH_ROLES: tuple[str, ...] = ("source_mouth_open", "source_mouth_o")
+#
+# **`source_mouth_open` came back off this list on 2026-08-25**, once it turned
+# out that the 4K material stops at a parting of 0.38 and everything wider is
+# 720p. It is a 4K photograph of a mouth open 0.50, which is further than the
+# sharp part of the ladder reaches, and with the weight capped at the rung's own
+# parting it takes the region back exactly where the ladder runs out of
+# photographs rather than competing with it where it has them.
+_SPEECH_ROLES: tuple[str, ...] = ("source_mouth_o",)
 
 # And the two an eye ladder replaces. Both, because the ladder is signed: a
 # resting eye is its zero, a shut one its top, and an eye held wide is the same
@@ -1146,10 +1153,48 @@ _GAZE_ON, _GAZE_FULL = 0.12, 0.25
 # other, both of which sit on the hull itself.
 _SKIN_ERODE = 15
 
-# The largest exposure correction a source may be given, per channel of 255.
-# Twelve is far above the 3 to 6 the owner's library actually needs and far
-# below a photograph that is simply of something else.
+# The largest correction a source may be given when its channels *disagree*,
+# per channel of 255. Twelve is far above the 3 to 6 a library generated in one
+# sitting needs, and a mismatch that is different on each channel is a different
+# *light* rather than a different exposure — dragging one onto the other would
+# hide that rather than fix it.
 _SKIN_SHIFT_LIMIT = 12.0
+
+# And the largest correction when they agree, which is a far weaker claim and
+# earns a far larger allowance.
+#
+# **Measured across the owner's whole library on 2026-08-25, 95 sources.** The
+# spread between the three channels' corrections is at most **8 of 255** and its
+# median is 1 to 4 — on every family, including the eleven speech rungs that
+# need 36 to 40. Nothing in this library is a colour shift. They are frames of
+# one face under one lighting setup, generated on different days at different
+# exposures, and an exposure difference is flat by definition.
+#
+# The old single limit of 12 was set when every source came from one sitting.
+# The speech clip does not, and the cost of clamping it was the defect the owner
+# reported the day the ladder shipped: *"the beard colour differs, and that makes
+# a big difference"* — the mouth region arriving 24 of 255 dark, appearing and
+# vanishing as the lips parted. Sixty is chosen to clear the 40 this library
+# needs with room, and to stay far below a photograph of something else.
+_SKIN_SHIFT_FLAT_LIMIT = 60.0
+
+# How close the three channels' corrections have to be to count as one exposure
+# rather than one light, per channel of 255. Ten: above the 8 of the worst
+# source in this library, below any real colour cast.
+_SKIN_SHIFT_AGREE = 10.0
+
+# Where a region samples its own tone: inside the mask, outside every feature
+# its photographs describe. See :func:`_match_ring`.
+#
+# `_RING_SOLID` is how much of the mask has to be present for a pixel to count —
+# well past the feather, so nothing half-faded and therefore half-portrait
+# enters the estimate. `_RING_CLEARANCE` is how far the features are held off in
+# pixels, because a lip's edge is a gradient and the pixel beside it is still
+# lip. `_RING_MINIMUM` is the fewest pixels a median may be taken over before
+# the whole-face match is left to stand on its own.
+_RING_SOLID = 0.9
+_RING_CLEARANCE = 9
+_RING_MINIMUM = 200
 
 # Below this the correction is invisible and is not applied at all.
 _SKIN_SHIFT_FLOOR = 1.0
@@ -3844,6 +3889,7 @@ def _build_regions(
         # it 30 px from where the mesh says the chin is. The margin exists to
         # blur the join around the *base's* features and has no business
         # extending an opening the mesh has never seen.
+        #
         for extra in extras:
             cv2.fillConvexPoly(grown, cv2.convexHull(extra[:, :2].astype(np.int32)), 255)
         if name == "eyes":
@@ -3866,14 +3912,50 @@ def _build_regions(
         np.clip(mask - claimed, 0.0, 1.0, out=mask)
         np.clip(claimed + mask, 0.0, 1.0, out=claimed)
 
+        # **And each photograph is put on the portrait's tone over the skin this
+        # region will actually show.** :func:`_match_to_portrait` has already
+        # matched the whole face, which is the right sample for a turn rung
+        # because a turn rung *is* the whole head. It is the wrong one for a
+        # region: measured on the owner's speech rungs, a correction fitted on
+        # the face median and applied in full left the mouth region 12 to 17 of
+        # 255 too bright, where clamping it had left the same region 20 to 26
+        # too dark. The clip is not uniformly darker than the portrait — it is
+        # lit from a slightly different place, so the lower face and the whole
+        # face do not want the same number.
+        #
+        # The sample is a **ring, drawn per photograph**: inside the region,
+        # outside the portrait's own feature and outside this photograph's. Skin
+        # in both pictures by construction, so nothing the photograph was taken
+        # for — no cavity, no teeth, no shut lid — can reach the estimate. Per
+        # photograph and not once for the region, because one ring avoiding
+        # *every* rung's open mouth at once is no ring at all: on this avatar it
+        # came to five pixels.
+        clearance = _RING_CLEARANCE | 1
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (clearance, clearance))
+        solid = mask[y0:y1, x0:x1] > _RING_SOLID
+        base_patch = image[y0:y1, x0:x1]
+        cropped = {}
+        for role in present:
+            patch = np.ascontiguousarray(sources[role][y0:y1, x0:x1])
+            own = filled.copy()
+            if role in source_points:
+                cv2.fillConvexPoly(
+                    own,
+                    cv2.convexHull(source_points[role][positions][:, :2].astype(np.int32)),
+                    255,
+                )
+            ring = solid & ~cv2.dilate(own, kernel)[y0:y1, x0:x1].astype(bool)
+            if int(ring.sum()) >= _RING_MINIMUM:
+                reference = np.median(base_patch[ring].reshape(-1, 3), axis=0)
+                patch = _match_ring(patch, ring, reference, name, role)
+            cropped[role] = patch
+
         built.append(
             _Region(
                 name=name,
                 box=(x0, y0, x1, y1),
                 mask=np.ascontiguousarray(mask[y0:y1, x0:x1])[:, :, None],
-                sources={
-                    role: np.ascontiguousarray(sources[role][y0:y1, x0:x1]) for role in present
-                },
+                sources=cropped,
                 positions=list(positions),
             )
         )
@@ -4316,13 +4398,22 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
         for role in _SPEECH_ROLES:
             weights.pop(role, None)
         parted = _speech_amount(tracking)
+
+        # **Weighed by the rung's own parting, not the driver's, once the driver
+        # is past the top of the ladder.** A weight says how much of *this
+        # photograph* there is, and a photograph of a mouth open 0.35 has 0.35
+        # of an opening in it however wide the driver's mouth goes. Without the
+        # cap the ladder's weight keeps climbing on a photograph that has
+        # stopped, and it holds the region against a named photograph that
+        # genuinely opens further.
+        top = max(amount for amount, _ in avatar.speech_ladder)
         weights.update(
             _nearest_rung(
                 avatar.speech_ladder,
                 parted,
                 _SPEECH_LADDER_START,
                 held,
-                weight=parted * (1.0 - smiling),
+                weight=min(parted, top) * (1.0 - smiling),
             )
         )
 
@@ -4672,29 +4763,109 @@ def _match_to_portrait(
     exposure difference is. A gradient would also chase the pose, and a rung is
     a photograph of a *different pose* on purpose.
 
-    Clamped at :data:`_SKIN_SHIFT_LIMIT`. Past that the two photographs are not
-    the same face under the same light, and quietly dragging one onto the other
-    would hide that rather than fix it.
+    **How far it may be dragged depends on whether the three channels agree.**
+    A difference that is the same on all three is an *exposure*: the same face,
+    the same light, a different day's take. A difference that is not is a
+    different *light*, and quietly dragging one onto the other would hide that
+    rather than fix it. So the first gets :data:`_SKIN_SHIFT_FLAT_LIMIT` and the
+    second keeps :data:`_SKIN_SHIFT_LIMIT`.
+
+    That distinction is a measurement rather than a principle. Across the
+    owner's 95 sources the spread between the three channels' corrections is at
+    most 8 of 255 — on the turn rungs, the eye rungs, the named roles and the
+    eleven speech rungs that need 36 to 40 alike. Not one source in the library
+    is a colour shift.
+
+    It was a single limit of 12 until 2026-08-25, and what that cost was
+    reported by the owner within an hour of the speech ladder shipping: *"the
+    beard colour differs, and that makes a big difference."* The speech clip was
+    generated on its own day, 36 of 255 darker than the portrait, and 12 of that
+    was corrected — so the mouth region arrived 24 dark, and because a rung is
+    shown whole, it appeared and vanished as the lips parted.
     """
     mine = _skin_median(image, points)
     offset = reference - mine
     largest = float(np.abs(offset).max())
-    if largest > _SKIN_SHIFT_LIMIT:
+    spread = float(offset.max() - offset.min())
+    flat = spread <= _SKIN_SHIFT_AGREE
+    limit = _SKIN_SHIFT_FLAT_LIMIT if flat else _SKIN_SHIFT_LIMIT
+    if largest > limit:
         _LOG.warning(
-            "Avatar %s: %s is %.0f of 255 from the portrait's exposure, further than a "
-            "take of the same face under the same light should be; correcting by %.0f",
+            "Avatar %s: %s is %.0f of 255 from the portrait's exposure and %.0f of that is "
+            "%s, further than a take of the same face should be; correcting by %.0f",
             avatar_id,
             role,
             largest,
-            _SKIN_SHIFT_LIMIT,
+            spread,
+            "colour" if not flat else "spread across the channels",
+            limit,
         )
-        offset = np.clip(offset, -_SKIN_SHIFT_LIMIT, _SKIN_SHIFT_LIMIT)
+        offset = np.clip(offset, -limit, limit)
+    elif largest > _SKIN_SHIFT_LIMIT:
+        # Large but flat, so it is corrected in full — said out loud, because a
+        # source this far from the portrait is still worth knowing about even
+        # when it is only an exposure.
+        _LOG.info(
+            "Avatar %s: %s is %.0f of 255 darker or lighter than the portrait, flat to "
+            "within %.0f; correcting it in full",
+            avatar_id,
+            role,
+            largest,
+            spread,
+        )
     if largest < _SKIN_SHIFT_FLOOR:
         # Below a value of 255 the correction is not visible and the round trip
         # through int16 is not free. Most sources land here once a library is
         # generated in one sitting.
         return image
     shifted: np.ndarray = np.clip(image.astype(np.int16) + offset.astype(np.int16), 0, 255).astype(
+        np.uint8
+    )
+    return shifted
+
+
+def _match_ring(
+    patch: np.ndarray, ring: np.ndarray, reference: np.ndarray, region: str, role: str
+) -> np.ndarray:
+    """Put one region's copy of a photograph on the portrait's tone.
+
+    The residual after :func:`_match_to_portrait`, fitted where it matters. That
+    one samples the whole face, which is right for a whole-head photograph and
+    wrong for a region: a face is not lit evenly, so two takes that differ by an
+    exposure over the whole of it can still differ by something else over one
+    part. Measured on the owner's speech rungs — a clip generated on its own day
+    — a whole-face correction applied in full left the mouth 12 to 17 of 255 too
+    bright.
+
+    ``ring`` is skin in both pictures by construction: inside the region,
+    outside every feature any of its photographs describe. So the difference
+    over it is tone and nothing else, and a median over it is not moved by the
+    open mouth or the shut lid that the photograph exists for.
+
+    Clamped by the same rule as the whole-face match — see
+    :func:`_match_to_portrait` — because the question is the same one: whether
+    the three channels agree, and so whether this is one exposure or two lights.
+    """
+    mine = np.median(patch[ring].reshape(-1, 3), axis=0)
+    offset = (reference - mine).astype(np.float32)
+    largest = float(np.abs(offset).max())
+    if largest < _SKIN_SHIFT_FLOOR:
+        return patch
+
+    spread = float(offset.max() - offset.min())
+    limit = _SKIN_SHIFT_FLAT_LIMIT if spread <= _SKIN_SHIFT_AGREE else _SKIN_SHIFT_LIMIT
+    if largest > limit:
+        _LOG.warning(
+            "Region %s: %s is %.0f of 255 from the portrait over the skin around it, "
+            "%.0f of that spread across the channels; correcting by %.0f",
+            region,
+            role,
+            largest,
+            spread,
+            limit,
+        )
+        offset = np.clip(offset, -limit, limit)
+    shifted: np.ndarray = np.clip(patch.astype(np.int16) + offset.astype(np.int16), 0, 255).astype(
         np.uint8
     )
     return shifted

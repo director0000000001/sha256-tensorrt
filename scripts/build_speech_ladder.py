@@ -112,6 +112,12 @@ DEFAULT_MIN_FACE = 380.0
 # frame measures 0.095 against it.
 DEFAULT_MAX_DRIFT = 0.08
 
+# How close to the widest face in a band a candidate has to be before its
+# sharpness is looked at. Nine tenths: enough that two frames of one clip are
+# always compared on sharpness, and far too little for a 720p clip to reach past
+# a 4K one. See :func:`best_per_band`.
+FACE_TIE = 0.9
+
 ROLE = "source_speech_step"
 
 
@@ -186,19 +192,40 @@ def measure(
 
 
 def best_per_band(steps: list[Step], step_size: float) -> list[Step]:
-    """The sharpest frame in each band of the axis, ordered along it.
+    """The best frame in each band of the axis, ordered along it.
 
-    A frame the engine would refuse never wins a band, however sharp it is: the
+    **The bigger face wins, and sharpness only breaks ties within one clip.**
+    The other builders rank by sharpness alone, which is right when every
+    candidate comes from clips of one resolution and wrong the moment they do
+    not: a Laplacian variance is a property of the pixels a face was drawn with,
+    so a 389 px face and a 1009 px face cannot be compared by it at all.
+
+    Ranking the first ladder by sharpness alone put eleven rungs from a 720p
+    clip into a library whose every other source is 4K, and the owner named both
+    halves of what that cost within the hour: *"the beard colour differs, and
+    that makes a big difference"*, and *"the lips are also a little thicker when
+    you open your mouth slightly"*. Both are one cause — a 389 px face scaled up
+    to the portrait's 455 is soft, and its beard smears into the skin.
+
+    So: a candidate has to be within :data:`FACE_TIE` of the largest face in its
+    band before its sharpness is consulted at all. Where a 4K clip has any frame
+    in a band, that band is 4K.
+
+    A frame the engine would refuse never wins a band, however good it is: the
     band would then be empty at load and nothing would say so.
     """
-    held: dict[int, Step] = {}
+    bands: dict[int, list[Step]] = {}
     for step in steps:
         if step.refused is not None:
             continue
-        band = round(step.parted / step_size)
-        if band not in held or step.sharpness > held[band].sharpness:
-            held[band] = step
-    return sorted(held.values(), key=lambda step: step.parted)
+        bands.setdefault(round(step.parted / step_size), []).append(step)
+
+    held = []
+    for candidates in bands.values():
+        widest = max(step.candidate.face_width for step in candidates)
+        close = [s for s in candidates if s.candidate.face_width >= widest * FACE_TIE]
+        held.append(max(close, key=lambda step: step.sharpness))
+    return sorted(held, key=lambda step: step.parted)
 
 
 def rung_name(parted: float) -> str:
@@ -290,6 +317,21 @@ def main(argv: list[str] | None = None) -> int:
 
         found: list[Step] = []
         for folder in args.folders:
+            # **A fresh tracker per folder**, because each folder is its own
+            # clip and its timestamps start again at zero.
+            # :func:`timestamp_of` reads the millisecond out of the file name,
+            # so handing a second folder to the same tracker runs its clock
+            # *backwards* — and MediaPipe in VIDEO mode reasons about how far a
+            # face can have moved from the gap between timestamps.
+            #
+            # Measured, on this ladder: `video-10/0057_02850ms.jpg` reads a
+            # parting of 0.35 when it follows the speech folder and 0.51 when it
+            # is measured on its own. Two thirds of a band, on the frame that
+            # then wins one. The other four builders take several folders the
+            # same way and have the same fault; the installed eye and smile
+            # ladders were both built from two.
+            tracker.stop()
+            tracker.start()
             frames = sorted(folder.glob("*.jpg")) + sorted(folder.glob("*.png"))
             measured = [
                 measure(path, tracker, base_points, base_ratios, timestamp_of(path, index))

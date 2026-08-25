@@ -501,46 +501,46 @@
       "brows": 1.0
     },
     {
-      "path": "speech_013.png",
+      "path": "speech_011.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.132
+      "speech": 0.115
     },
     {
-      "path": "speech_017.png",
+      "path": "speech_024.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.167
+      "speech": 0.245
     },
     {
-      "path": "speech_035.png",
+      "path": "speech_025.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.346
+      "speech": 0.252
     },
     {
-      "path": "speech_040.png",
+      "path": "speech_038.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.396
+      "speech": 0.378
     },
     {
-      "path": "speech_055.png",
+      "path": "speech_051.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.549
+      "speech": 0.507
     },
     {
-      "path": "speech_065.png",
+      "path": "speech_056.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.646
+      "speech": 0.556
     },
     {
       "path": "speech_074.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.736
+      "speech": 0.737
     },
     {
       "path": "speech_079.png",
@@ -555,34 +555,34 @@
       "speech": 0.887
     },
     {
-      "path": "speech_098.png",
+      "path": "speech_099.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.984
+      "speech": 0.986
     },
     {
       "path": "speech_107.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 1.069
+      "speech": 1.068
     },
     {
-      "path": "speech_123.png",
+      "path": "speech_121.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 1.233
+      "speech": 1.21
     },
     {
-      "path": "speech_127.png",
+      "path": "speech_126.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 1.268
+      "speech": 1.255
     },
     {
       "path": "speech_141.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 1.405
+      "speech": 1.406
     }
   ],
   "engine": {

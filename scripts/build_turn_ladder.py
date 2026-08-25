@@ -256,6 +256,20 @@ def main(argv: list[str] | None = None) -> int:
     try:
         found: list[Rung] = []
         for folder in args.folders:
+            # **A fresh tracker per folder.** Each folder is its own clip and its
+            # timestamps start again at zero, so handing a second one to the
+            # same tracker runs its clock backwards — and MediaPipe in VIDEO
+            # mode reasons about how far a face can have moved from the gap
+            # between timestamps. See :func:`timestamp_of`, which fixed the
+            # constant-timestamp half of this on 2026-08-21 and left this half.
+            #
+            # Measured on the speech ladder, 2026-08-25:
+            # `video-10/0057_02850ms.jpg` reads a lip parting of 0.35 when it
+            # follows another folder and 0.51 when it is measured on its own.
+            # **The installed eye and smile ladders were both built from two
+            # folders and carry whatever this cost them.**
+            tracker.stop()
+            tracker.start()
             frames = sorted(folder.glob("*.jpg")) + sorted(folder.glob("*.png"))
             measured = [
                 measure(path, tracker, timestamp_of(path, index))
