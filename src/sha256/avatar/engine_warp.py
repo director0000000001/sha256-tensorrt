@@ -150,6 +150,19 @@ _SPEECH_PREFIX = "speech@"
 # mouth region out and put it back at syllable rate.
 _SPEECH_LADDER_START = 0.05
 
+# How much nearer a challenger has to be, on the speech plane, before it takes
+# the region from the rung in hand.
+#
+# **Four times the other ladders'** :data:`_RUNG_HOLD`, and it is a measurement
+# rather than a taste. Over the eight seconds of `driving.mkv` where the owner
+# speaks, the first version of this ladder changed its photograph **7.6 times a
+# second** and held it for a single frame on 28 of its 62 runs — and on 22 of
+# 50 moves it skipped more than a band. His words for it: *"the transition
+# between the mouth photographs is not smooth either."* A lid crosses its axis
+# once per blink and 0.05 is right for that; a mouth crosses this one at
+# syllable rate.
+_SPEECH_HOLD = 0.20
+
 # And the third axis, which the owner ranks first: the lids closing.
 #
 # The eyes have been the standing complaint since day 8 — *"wrong far more often
@@ -887,6 +900,29 @@ def refused_as_rung(prefix: str, points: np.ndarray, base_points: np.ndarray) ->
         points[:, :2].reshape(-1, 1, 2).astype(np.float32), matrix
     ).reshape(-1, 2)
     return _misplaced(prefix, placed, base_points)
+
+
+def _rung_widths(
+    descriptor: AvatarDescriptor, ladder: tuple[tuple[float, str | None], ...]
+) -> dict[str, float]:
+    """Each speech rung's own width, keyed the way the ladder keys it.
+
+    ``_align_axis`` names a rung ``speech@<index>`` after its place in the
+    manifest, and skips any it could not place — so the ladder is the list of
+    keys that survived, and the index inside the key is how each one finds its
+    asset again. Read here rather than threaded through ``_align_axis``, which
+    the smile, the eyes and the brows share and none of them wants a second
+    axis.
+    """
+    widths: dict[str, float] = {}
+    for _, key in ladder:
+        if key is None:
+            continue
+        index = int(key.removeprefix(_SPEECH_PREFIX))
+        width = descriptor.manifest.assets[index].speech_width
+        if width is not None:
+            widths[key] = float(width)
+    return widths
 
 
 def _region_of(role: str) -> str | None:
@@ -1711,6 +1747,7 @@ class _LoadedAvatar:
         "source_points",
         "sources",
         "speech_ladder",
+        "speech_width",
         "triangles",
     )
 
@@ -1729,6 +1766,7 @@ class _LoadedAvatar:
         eye_ladder: tuple[tuple[float, str | None], ...] = (),
         brow_ladder: tuple[tuple[float, str | None], ...] = (),
         speech_ladder: tuple[tuple[float, str | None], ...] = (),
+        speech_width: dict[str, float] | None = None,
     ) -> None:
         self.full_gap = full_gap
 
@@ -1785,6 +1823,12 @@ class _LoadedAvatar:
         # ladder and the two are separated by which way the mouth is moving —
         # see :func:`_variant_weights`.
         self.speech_ladder = speech_ladder
+
+        # And how wide each of its rungs is, above the portrait's resting mouth.
+        # A second axis rather than a second ladder: a parting on its own does
+        # not say which sound is being made, and a rung picked on parting alone
+        # had whatever shape the sharpest frame in that band happened to have.
+        self.speech_width = speech_width if speech_width is not None else {}
         self.descriptor = descriptor
         self.image = image
         self.points = points
@@ -1928,6 +1972,7 @@ class WarpAvatarEngine:
             eyes,
             brows,
             speech,
+            _rung_widths(descriptor, speech),
         )
         _LOG.info(
             "Loaded avatar %s: %dx%d portrait, %d mesh points, %d triangles, "
@@ -4214,6 +4259,56 @@ def _nearest_smile(
     return _nearest_rung(ladder, smiling, _SMILE_LADDER_START, held)
 
 
+def _nearest_speech(
+    ladder: tuple[tuple[float, str | None], ...],
+    widths: dict[str, float],
+    parted: float,
+    widened: float,
+    weight: float,
+    held: str | None = None,
+) -> dict[str, float]:
+    """The rung nearest this mouth **on both axes**, at ``weight``.
+
+    Speech is the one family where how far the movement has gone does not
+    describe the movement. An "oo" and an "ah" can part the lips by the same
+    amount and are not the same mouth, and the difference between them is the
+    width. Filed on parting alone, the rung chosen at a given opening had
+    whatever width the sharpest frame in that band happened to have — measured
+    on the owner's speech clip, anything from 0.25 narrower than his resting
+    mouth to 0.22 wider — and he reported the result on sight: *"in the first
+    photo I am saying O, in the second A"*, with the O rendered as a wide A.
+
+    Both axes are in the engine's own normalised units, so a unit of width and a
+    unit of parting are the same size and the distance between them is plain
+    Euclidean.
+
+    **The hold is larger than the other ladders'** — see
+    :data:`_SPEECH_HOLD`. A lid crosses its axis once per blink; a mouth crosses
+    this one several times a second, and measured over eight seconds of speech
+    the chosen photograph changed 7.6 times a second and was held for a single
+    frame on 28 runs out of 62. That is not a mouth moving, it is a mouth
+    flickering.
+    """
+    rungs = [(amount, key) for amount, key in ladder if key is not None]
+    if not rungs:
+        return {}
+    if parted < _SPEECH_LADDER_START:
+        return {}
+
+    def distance(rung: tuple[float, str | None]) -> float:
+        amount, key = rung
+        return float(np.hypot(amount - parted, widths.get(str(key), 0.0) - widened))
+
+    nearest = min(rungs, key=distance)
+    if held is not None:
+        current = next((rung for rung in rungs if rung[1] == held), None)
+        if current is not None and distance(current) <= distance(nearest) + _SPEECH_HOLD:
+            nearest = current
+
+    key = nearest[1]
+    return {} if key is None else {key: min(abs(weight), 1.0)}
+
+
 def _nearest_rung(
     ladder: tuple[tuple[float, str | None], ...],
     amount: float,
@@ -4408,12 +4503,13 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
         # genuinely opens further.
         top = max(amount for amount, _ in avatar.speech_ladder)
         weights.update(
-            _nearest_rung(
+            _nearest_speech(
                 avatar.speech_ladder,
+                avatar.speech_width,
                 parted,
-                _SPEECH_LADDER_START,
+                _widened(tracking, avatar.neutral) / _SMILE_WIDEN_SPAN,
+                min(parted, top) * (1.0 - smiling),
                 held,
-                weight=min(parted, top) * (1.0 - smiling),
             )
         )
 

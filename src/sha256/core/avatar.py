@@ -158,11 +158,24 @@ class AssetRef(BaseModel):
             "How far this asset's lips are parted: 0 with them together, about "
             "0.5 at an ordinary speaking vowel and 1 at a wide one. The fourth "
             "axis, and the one the owner ranks first — `smile` covers a mouth "
-            "that *widens*, and speech is a mouth that *parts* without widening. "
-            "Measured over the frames of a recording where he is speaking, the "
-            "two move together at r = -0.05 and 98% of the movement is parting, "
-            "which is why this is an axis of its own rather than a second "
-            "dimension on `smile`."
+            "that *widens*, and speech is a mouth that *parts*."
+        ),
+    )
+
+    speech_width: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=4.0,
+        description=(
+            "How much wider than the portrait's resting mouth this asset is, on "
+            "the same scale `smile` uses. Carried beside `speech` because a "
+            "parting on its own does not say which sound is being made: an 'oo' "
+            "and an 'ah' can part the lips by the same amount and are a "
+            "different mouth. Measured on the owner's own speech clip, frames "
+            "sharing one band of parting run from 0.25 narrower than his "
+            "resting mouth to 0.22 wider — so a rung picked by parting alone "
+            "has an essentially arbitrary shape, which is what he saw when an "
+            "'O' came out as an 'A'."
         ),
     )
 

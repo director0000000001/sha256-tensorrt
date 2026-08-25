@@ -14,32 +14,39 @@ That is the smile's old failure and the eyes' old failure, for the third time,
 and it has the same answer: a row of photographs of the movement, and the
 nearest one shown whole.
 
-**The axis is lip parting alone, and that is a measurement rather than a
-choice.** Speech was expected to need a grid — an eye is open or shut, but a
-mouth's width and its parting move independently, and the engine computes both.
-`scripts/measure_speech_plane.py` measured what the owner's mouth actually does
-over the 240 frames of `driving.mkv` where he is speaking, in the engine's own
-normalised units:
+**It is a grid on two axes, and the one-axis version was wrong.** The first
+build of this ladder filed rungs by lip parting alone, on a measurement that
+said speech was one-dimensional: over the frames of `driving.mkv` where the
+owner speaks, the widening carried 1.6% of the demand and the parting 98.4%.
 
-    widened   p5/50/95   0.000 / 0.046 / 0.118
-    parted    p5/50/95   0.000 / 0.202 / 0.947
+**That measurement was taken through a clamp and the clamp hid half the
+movement.** ``_smiling`` above rest is floored at zero, so every mouth *narrower*
+than rest — which is what an "oo" and an "o" are — reads as exactly the same
+value as a resting one. Measured again without it, on the speech clip: **20% of
+its frames are narrower than the portrait's resting mouth**, and within a single
+band of parting the width runs from 0.25 narrower to 0.22 wider.
 
-They move together at r = -0.049, and one direction carries **98.4%** of the
-demand: (-0.006 widened, +1.000 parted). Speech parts the lips and barely widens
-the mouth. So: one ladder, on parting, and no grid.
+So a rung chosen by parting alone has an essentially arbitrary shape, and the
+owner reported precisely that within the hour of the first build: *"in the first
+photo I am saying O, in the second A"* — with an O rendered as a wide open A.
 
-**Two clips, on purpose.** The same tool measured that the `speech` clip covers
-every band the driver visits with no holes — worst nearest-photograph distance
-0.066, against 0.567 for the whole installed library — but it is 720p with a 389
-px face, where `video-10` is 4K with 1009 against a portrait of 455. `video-10`
-reaches only to parted 0.6. So the sharpest frame per band wins, which gives the
-4K clip the bottom of the ladder and the 720p clip the top, and the top is the
-part that did not exist at all before.
+Both axes are now filed and both are matched, on the engine's own units:
+
+*   ``speech`` — the lips parted, over ``_SMILE_OPEN_SPAN``.
+*   ``speech_width`` — the mouth wider than the portrait's rest, over
+    ``_SMILE_WIDEN_SPAN``, clamped at zero on both sides so the driver's floor
+    and the portrait's rest mean the same thing.
+
+**Two clips, on purpose, and the bigger face wins a cell.** The `speech` clip
+covers every band of parting the driver visits, but it is 720p with a 389 px
+face where `video-10` is 4K with 1009, against a portrait of 455. A Laplacian
+variance cannot compare those, so face size decides and sharpness only breaks
+ties — see :func:`best_per_cell`.
 
 Usage::
 
-    python scripts/build_speech_ladder.py avatars/my_avatar/frames/speech
-    python scripts/build_speech_ladder.py .../speech .../video-10 --install
+    python scripts/build_speech_ladder.py avatars/my_avatar/frames/video-10
+    python scripts/build_speech_ladder.py .../video-10 .../speech --install
 """
 
 from __future__ import annotations
@@ -69,6 +76,7 @@ from extract_avatar_frames import (  # noqa: E402
 from sha256.avatar.engine_warp import (  # noqa: E402
     _SMILE_LIP_CLOSED,
     _SMILE_OPEN_SPAN,
+    _SMILE_WIDEN_SPAN,
     _SPEECH_PREFIX,
     _lip_gap,
     _lip_parting,
@@ -118,6 +126,17 @@ DEFAULT_MAX_DRIFT = 0.08
 # a 4K one. See :func:`best_per_band`.
 FACE_TIE = 0.9
 
+# One cell per this much of the width axis. Measured on the owner's speech clip,
+# the widening above his portrait's resting mouth runs 0 to 0.22 once it is
+# clamped, so three cells cover it — enough to tell an "oo" from an "ah", and few
+# enough that the grid does not spend a face detection at load on a shape the
+# mouth barely makes.
+DEFAULT_WIDTH_STEP = 0.08
+
+# The fewest frames a cell needs before it becomes a rung. One frame is a moment
+# of the clip rather than a shape the mouth makes.
+CELL_MINIMUM = 2
+
 ROLE = "source_speech_step"
 
 
@@ -125,6 +144,7 @@ ROLE = "source_speech_step"
 class Step:
     path: Path
     parted: float
+    widened: float
     width: float
     gap: float
     sharpness: float
@@ -138,6 +158,7 @@ def measure(
     tracker: MediaPipeFaceTracker,
     base_points: np.ndarray,
     base_ratios: dict[str, float],
+    base_width: float,
     timestamp: float = 0.0,
 ) -> tuple[Step, float] | None:
     """One frame's lip parting, mouth width and sharpness, with its yaw.
@@ -181,6 +202,7 @@ def measure(
     step = Step(
         path=path,
         parted=max(_lip_parting(result) - _SMILE_LIP_CLOSED, 0.0) / _SMILE_OPEN_SPAN,
+        widened=max(_smiling(result) - base_width, 0.0) / _SMILE_WIDEN_SPAN,
         width=_smiling(result),
         gap=_lip_gap(result),
         sharpness=candidate.sharpness,
@@ -191,8 +213,13 @@ def measure(
     return step, float(result.head_pose.yaw)
 
 
-def best_per_band(steps: list[Step], step_size: float) -> list[Step]:
-    """The best frame in each band of the axis, ordered along it.
+def best_per_cell(steps: list[Step], step_size: float, width_step: float) -> list[Step]:
+    """The best frame in each cell of the grid, ordered along the parting axis.
+
+    **A cell, not a band**: one band of parting and one of width. Filing by
+    parting alone left the width of the chosen rung to whatever the sharpest
+    frame in the band happened to have, and on this clip that is anything from
+    0.25 narrower than the resting mouth to 0.22 wider.
 
     **The bigger face wins, and sharpness only breaks ties within one clip.**
     The other builders rank by sharpness alone, which is right when every
@@ -208,28 +235,36 @@ def best_per_band(steps: list[Step], step_size: float) -> list[Step]:
     to the portrait's 455 is soft, and its beard smears into the skin.
 
     So: a candidate has to be within :data:`FACE_TIE` of the largest face in its
-    band before its sharpness is consulted at all. Where a 4K clip has any frame
-    in a band, that band is 4K.
+    cell before its sharpness is consulted at all. Where a 4K clip has any frame
+    in a cell, that cell is 4K.
 
-    A frame the engine would refuse never wins a band, however good it is: the
-    band would then be empty at load and nothing would say so.
+    A frame the engine would refuse never wins a cell, however good it is: the
+    cell would then be empty at load and nothing would say so.
+
+    Cells holding fewer than :data:`CELL_MINIMUM` frames are dropped. A cell with
+    one frame in it is a moment of the clip rather than a shape the mouth makes,
+    and installing it spends a face detection at load on a rung that will win
+    almost nothing.
     """
-    bands: dict[int, list[Step]] = {}
+    cells: dict[tuple[int, int], list[Step]] = {}
     for step in steps:
         if step.refused is not None:
             continue
-        bands.setdefault(round(step.parted / step_size), []).append(step)
+        key = (round(step.parted / step_size), round(step.widened / width_step))
+        cells.setdefault(key, []).append(step)
 
     held = []
-    for candidates in bands.values():
+    for candidates in cells.values():
+        if len(candidates) < CELL_MINIMUM:
+            continue
         widest = max(step.candidate.face_width for step in candidates)
         close = [s for s in candidates if s.candidate.face_width >= widest * FACE_TIE]
         held.append(max(close, key=lambda step: step.sharpness))
-    return sorted(held, key=lambda step: step.parted)
+    return sorted(held, key=lambda step: (step.parted, step.widened))
 
 
-def rung_name(parted: float) -> str:
-    return f"speech_{round(parted * 100):03d}.png"
+def rung_name(parted: float, widened: float) -> str:
+    return f"speech_{round(parted * 100):03d}_{round(widened * 100):02d}.png"
 
 
 def install(chosen: list[Step], avatar: Path) -> None:
@@ -261,7 +296,7 @@ def install(chosen: list[Step], avatar: Path) -> None:
         print(f"\nretired {before - len(meta['assets'])} manifest entrie(s)")
 
     for step in chosen:
-        name = rung_name(step.parted)
+        name = rung_name(step.parted, step.widened)
         cv2.imwrite(str(avatar / name), crop_around_face(step.candidate))
         meta["assets"].append(
             {
@@ -269,6 +304,7 @@ def install(chosen: list[Step], avatar: Path) -> None:
                 "role": ROLE,
                 "optional": True,
                 "speech": round(step.parted, 3),
+                "speech_width": round(step.widened, 3),
             }
         )
 
@@ -281,6 +317,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("folders", type=Path, nargs="+")
     parser.add_argument("--avatar", type=Path, default=REPO_ROOT / "avatars" / "my_avatar")
     parser.add_argument("--step", type=float, default=DEFAULT_STEP)
+    parser.add_argument("--width-step", type=float, default=DEFAULT_WIDTH_STEP)
     parser.add_argument("--min-parted", type=float, default=DEFAULT_MIN_PARTED)
     parser.add_argument("--max-parted", type=float, default=DEFAULT_MAX_PARTED)
     parser.add_argument("--max-yaw", type=float, default=DEFAULT_MAX_YAW)
@@ -313,7 +350,8 @@ def main(argv: list[str] | None = None) -> int:
         base_ratios = identity_ratios(
             base_result.landmarks.points, portrait_image.shape[1], portrait_image.shape[0]
         )
-        print(f"portrait: resting mouth {_smiling(base_result):.4f} of an eye span")
+        rest = _smiling(base_result)
+        print(f"portrait: resting mouth {rest:.4f} of an eye span")
 
         found: list[Step] = []
         for folder in args.folders:
@@ -334,7 +372,7 @@ def main(argv: list[str] | None = None) -> int:
             tracker.start()
             frames = sorted(folder.glob("*.jpg")) + sorted(folder.glob("*.png"))
             measured = [
-                measure(path, tracker, base_points, base_ratios, timestamp_of(path, index))
+                measure(path, tracker, base_points, base_ratios, rest, timestamp_of(path, index))
                 for index, path in enumerate(frames)
             ]
             usable = [
@@ -358,12 +396,14 @@ def main(argv: list[str] | None = None) -> int:
         print("\nNo parted lips in any of those folders.")
         return 1
 
-    chosen = best_per_band(found, args.step)
-    print(f"\n{len(chosen)} rung(s), one per {args.step:g} of the axis")
-    print(f"{'parted':>7}{'width':>7}{'lip gap':>9}{'sharp':>7}{'face px':>9}{'drift':>7}  frame")
+    chosen = best_per_cell(found, args.step, args.width_step)
+    print(
+        f"\n{len(chosen)} rung(s), one per {args.step:g} of parting by {args.width_step:g} of width"
+    )
+    print(f"{'parted':>7}{'widened':>9}{'lip gap':>9}{'sharp':>7}{'face px':>9}{'drift':>7}  frame")
     for step in chosen:
         print(
-            f"{step.parted:>7.2f}{step.width:>7.3f}{step.gap:>9.3f}{step.sharpness:>7.0f}"
+            f"{step.parted:>7.2f}{step.widened:>9.3f}{step.gap:>9.3f}{step.sharpness:>7.0f}"
             f"{step.candidate.face_width:>9.0f}{step.drift:>7.3f}  "
             f"{step.path.parent.name}/{step.path.name}"
         )

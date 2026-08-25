@@ -13,6 +13,21 @@ one axis. Speech was assumed to have two — the mouth's width and the lips'
 parting move independently, and the engine already computes both. If that is
 true, a ladder is the wrong shape and it needs a grid.
 
+**And on 2026-08-25 this tool answered that question wrongly, so it now answers
+it twice.** It reported that the widening carries 1.6% of the demand and the
+parting 98.4%, and a ladder was built on parting alone. Within the hour the
+owner had an "O" rendered as an "A". The fault is the clamp: ``widened`` is
+floored at zero, so every mouth *narrower* than rest — which is what an "oo" and
+an "o" are — reads as exactly the same value as a resting one. **50% of the
+driver's speech frames and 20% of the clip's sit below rest**, and all of them
+were being reported as a single value.
+
+So the width is now reported **signed as well as clamped**, and the question a
+one-axis ladder actually turns on is asked directly: *within one band of
+parting, how much does the width vary?* On this driver it varies by up to 0.23
+and on the clip by up to 0.42 — which is the span an "oo" and an "ah" are apart,
+and it is what a ladder filed on parting alone leaves to chance.
+
 **Two: does the material already exist?** If the `speech` clip on disk already
 visits every part of the plane the driver visits, this is a builder and can be
 done today. If it does not, it is a clip, which means money and a wait.
@@ -415,6 +430,28 @@ def main(argv: list[str] | None = None) -> int:
     print("\nwhat speech asks the mouth for")
     print(f"  widened   {percentiles(demand[:, 0])}")
     print(f"  parted    {percentiles(demand[:, 1])}")
+
+    # **Signed, because the clamped one hid half the movement and cost a day.**
+    # A mouth narrower than rest is an "oo"; clamped, it is indistinguishable
+    # from a mouth doing nothing.
+    rest = float(np.median([frame.width for frame in speech]))
+    signed = np.array([(frame.width - rest) / _SMILE_WIDEN_SPAN for frame in speech])
+    print(f"  width, signed and against this clip's own median: {percentiles(signed)}")
+    print(f"  frames narrower than that median: {100 * float(np.mean(signed < 0)):.0f}%")
+
+    # And the question a one-axis ladder turns on: at one opening, how many
+    # different mouths is the driver making?
+    print("\n  within one band of parting, how far the width still moves")
+    for index in range(int(np.ceil(demand[:, 1].max() / args.step))):
+        low, high = index * args.step, (index + 1) * args.step
+        inside = (demand[:, 1] >= low) & (demand[:, 1] < high)
+        if int(inside.sum()) < 4:
+            continue
+        band = signed[inside]
+        print(
+            f"    {low:5.2f}-{high:<5.2f} {int(inside.sum()):4d} frames   "
+            f"{band.min():+.3f} to {band.max():+.3f}   span {band.max() - band.min():.3f}"
+        )
     print(f"  the two move together at r = {np.corrcoef(demand[:, 0], demand[:, 1])[0, 1]:+.3f}")
     first_share, second_share, direction = dimensions(demand)
     print(

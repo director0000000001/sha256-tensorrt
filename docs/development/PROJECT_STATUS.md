@@ -3,7 +3,7 @@
 **Living document.** Update it at the end of each working day. For the frozen
 record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
-**Last updated:** 2026-08-25 · **Day 14 — the speech ladder, and the clock that ran backwards through every ladder ever built**
+**Last updated:** 2026-08-25 · **Day 14 — the speech grid: two axes, because the clamp hid the second one**
 
 ---
 
@@ -2234,6 +2234,128 @@ for what they are.
 | share of the window they carry | 69.2% | 67.9% | 66.7% |
 | how much of them is on screen | 0.98 | 1.00 | 1.00 |
 | of those frames, from 4K material | — | ~0% | **74%** |
+
+## Day 14, fourth pass — speech is two-dimensional after all, and the clamp is why I said it was not
+
+The owner sent two frames: *"in the first photo I am saying O, in the second
+A"*, with the O rendered as a wide open mouth showing teeth. And: *"the lip
+colour and thickness change"*, *"more frames need to be taken from the speech
+videos"*, *"the transition between the mouth photographs is not smooth either"*,
+*"the result is still at a low level."*
+
+He is right about all of it, and the first item overturns this morning's central
+finding.
+
+### The morning's measurement was taken through a clamp
+
+It said speech is one-dimensional: over the frames of `driving.mkv` where he
+speaks, the widening carried **1.6%** of the demand and the parting 98.4%, at
+r = -0.049. A ladder, not a grid.
+
+**That was measured on `_widened`, which is floored at zero.** Every mouth
+*narrower* than rest reads as exactly the same value as a resting one — and a
+narrower mouth is precisely what an "oo" and an "o" are. Measured again with the
+floor taken off:
+
+| | narrower than the portrait's rest | width within one band of parting |
+|---|---|---|
+| the speech clip | **20% of frames** | runs 0.25 narrower to 0.22 wider |
+| the driver, speaking | **50% of frames** | 0.03 to 0.23 wide |
+
+So half of the driver's speech and a fifth of the clip's sat at the same value,
+and the axis could not see any of it. **A rung chosen by parting alone therefore
+had an essentially arbitrary width** — anything within a span of 0.42 — which is
+an O rendered as an A, exactly as reported.
+
+**The tool is what was wrong, not the reasoning applied to it.**
+`measure_speech_plane.py` placed both the demand and the supply through the
+engine's own clamped quantity, because using the engine's own arithmetic is the
+rule this project works by. Here that rule hid the answer: the engine could not
+see the second axis either, which is the defect rather than the measurement's
+excuse for missing it.
+
+### So: a grid, on two axes
+
+`speech_width` joins `speech` on the asset, both in the engine's own normalised
+units, so a unit of width and a unit of parting are the same size and the
+nearest rung is a plain Euclidean distance on the plane. `_nearest_speech`
+replaces `_nearest_rung` for this family alone.
+
+**32 rungs**, one per 0.10 of parting by 0.08 of width, from `video-10`,
+`video-09` and the speech clip, with the bigger face still winning a cell and
+sharpness only breaking ties. Cells holding a single frame are dropped: one
+frame is a moment of the clip rather than a shape the mouth makes.
+
+### And the transitions, which he was also right about
+
+Measured over his eight seconds of speech, on the one-axis ladder:
+
+| | one axis | the grid |
+|---|---|---|
+| the mouth photograph changes | **7.6 a second** | **3.9 a second** |
+| held, at the median | 2 frames, 67 ms | **6 frames, 183 ms** |
+| runs lasting a single frame | **28 of 62** | **4 of 32** |
+
+A photograph held for one frame is not a mouth moving, it is a mouth flickering.
+The fix is `_SPEECH_HOLD`, four times the other ladders' `_RUNG_HOLD`, and it was
+chosen from a sweep rather than by taste:
+
+| hold | changes/s | median held | single-frame runs | median jump |
+|---|---|---|---|---|
+| 0.00 | 12.5 | 1 fr | 57 | 0.11 |
+| 0.05 | 9.4 | 2 fr | 30 | 0.15 |
+| 0.10 | 6.9 | 3 fr | 19 | 0.19 |
+| 0.15 | 5.6 | 4 fr | 9 | 0.28 |
+| **0.20** | **4.8** | **4 fr** | **3** | **0.31** |
+| 0.30 | 4.0 | 5 fr | 2 | 0.41 |
+
+**The target is not as few changes as possible.** Ordinary speech opens the
+mouth three to five times a second, so a mouth that changes photograph four
+times a second is changing at the rate the speech does. 7.6 was above syllable
+rate, which means most of the excess was the tracker's noise rather than his
+mouth. Past 0.20 the rung is held so long that the move, when it comes, jumps
+a third of the axis and then a half.
+
+### And on the frames it was built for
+
+| | before any ladder | one axis | the grid |
+|---|---|---|---|
+| photographs carrying the mouth | 1 | 12 | **15** |
+| share of the window they carry | 69.2% | 66.7% | 67.9% |
+| how much of them is on screen | 0.98 | 1.00 | 1.00 |
+
+### What it cost
+
+| | before any ladder | now |
+|---|---|---|
+| warp residual, all | 7.30 | 7.37 |
+| warp residual, turned | 7.36 | **7.29** |
+| near-eye sharpness | 359 | 360 |
+| face sharpness | 171 | **174** |
+| **animate mean** | 21.81 ms | **21.15 ms** |
+| animate p95 | 24.88 ms | 24.86 ms |
+| avatar load | 16.1 s | **19.4 s** |
+
+Still faster per frame than before the ladder existed, because
+`source_mouth_o` was being blended into 65.6% of frames and now nothing is
+blended into most of them. Load is up 3.3 s for 32 rungs — about a tenth of a
+second each — on a startup that is already the worst thing standing between this
+engine and a customer opening an `.exe`.
+
+### What is still his to decide
+
+**He proposed taking more frames from the speech videos, and he is right, but
+not for the reason the grid needed.** The grid is filled where the material
+exists; what it cannot fix is that above a parting of 0.6 the only material is
+the 720p clip, at a 389 px face against the portrait's 455. Both of the faults
+he named an hour earlier — the beard and the lip thickness — are that clip, and
+no colour transform reaches them: offset, gain, and gain-and-offset all leave
+the same 3 to 15 of residual over the beard, because the two generations drew
+that beard differently.
+
+**A longer speech clip at 1080p 9:16 fills the grid and fixes the appearance at
+once**, and it is one generation. That is now the first item on the list of what
+is waiting on him.
 
 ## What day 13 owes, and did not do
 
