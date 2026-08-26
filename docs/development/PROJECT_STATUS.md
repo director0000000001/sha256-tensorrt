@@ -3,7 +3,7 @@
 **Living document.** Update it at the end of each working day. For the frozen
 record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
-**Last updated:** 2026-08-25 · **Day 14 — the speech grid: two axes, because the clamp hid the second one**
+**Last updated:** 2026-08-25 · **Day 14 — the speech grid, and the owner's verdict: *"a small difference, but no progress at all"*.* **Day 15 starts at the section of that name.**
 
 ---
 
@@ -2356,6 +2356,92 @@ that beard differently.
 **A longer speech clip at 1080p 9:16 fills the grid and fixes the appearance at
 once**, and it is one generation. That is now the first item on the list of what
 is waiting on him.
+
+## Where day 15 starts — the owner's verdict on day 14, and what it means
+
+**His words, at the end of the day:** *"There is a small difference, but there is
+no progress at all. Let us rest today."*
+
+**Written down as he said it, because it is the most important measurement of
+the day and it disagrees with every other one.** The numbers all moved the right
+way — one photograph on the mouth became fifteen, each shown whole instead of a
+fifth of one washed over a closed mouth; the photograph stopped changing 7.6
+times a second and now changes at the rate speech does; the frame cost fell
+0.7 ms. He looked at it and saw almost nothing. **A day's measured improvement
+that a person cannot see is a result about the method, not about the day.**
+
+### The honest reading, and it is a decision rather than a task
+
+Three things could be true, and they are separable:
+
+1.  **The material is the binding constraint.** The grid is filled where the
+    photographs exist; above a parting of 0.6 the only source is a 720p clip
+    whose face is 389 px against the portrait's 455, and he identified both of
+    its faults on sight. This is testable for the price of one generation.
+2.  **The mouth needs more than choosing a photograph.** Every family so far —
+    the turn, the smile, the lids, the brows — was fixed by replacing a blend
+    with a choice. The mouth has now had that treatment and it moved the numbers
+    without moving the impression. That is what a ceiling looks like.
+3.  **It is right and the rest of the face is what he is seeing.** Nothing in
+    day 14 touched the iris colour, the forehead or the startup, and all three
+    were on his own list from the day before.
+
+**The plan already anticipated this.** The four-week plan was chosen on
+2026-08-15 precisely because *"what is left is the method's ceiling"*, and its
+centre is the neural refiner, not the warp. Day 14 spent itself on the warp.
+The refiner has not been touched since day 13 and is **short of data by
+measurement** — the learning curve was still climbing at 853 pairs and the
+cheapest 5× is `--stride 1`.
+
+### What to do first, in order, and why
+
+1.  **Generate the speech clip at 1080p 9:16, longer than the last.** One
+    generation, and it settles reading 1 above. It fills the grid where it is
+    thin *and* removes the two faults he named. It is the first item on the list
+    of what is waiting on him.
+2.  **The iris, item 2 on his own day-14 list, untouched.** `_contain_iris`
+    holds the iris inside the lid vertically only; gaze moves it sideways into
+    the corner where the fan collapses. Off-iris chroma has a median of 14.1
+    over 1847 frames and reaches 22.7. **The proposed fix is written and small:
+    lateral containment against the lid's own outline.**
+3.  **The forehead, item 3, untouched.** First step is one measurement: how much
+    of his forehead the mask actually covers. Above 95% it is tuning; near 70%
+    it is not. The code claims one and he says the other.
+4.  **Startup, item 5 of day 13's debts, and now worse.** 21 seconds with no
+    feedback became 19.4 seconds of avatar load alone with 32 rungs. A customer
+    opening an `.exe` will conclude it has failed, exactly as he did.
+5.  **Push the refiner instead of the warp**, if the answer to 1 is that the
+    material was not the constraint. `--stride 1` for 5× the pairs, then measure
+    against the 22% / 35% ceiling already established.
+
+### Debts day 14 created, and did not pay
+
+*   **The eye and smile ladders were built with the clock running backwards** —
+    both from two folders, before the fix. Rebuilding them is a build and a
+    before-and-after each, and it was deliberately not folded into day 14 so the
+    numbers stayed readable.
+*   **`recordings/driving.json` is wrong and `driving.mkv` has no completed
+    turn** — backlog 31. Every "turned" number this project has published rests
+    on 34 frames of one cut-off turn at the very end of the clip. A new driving
+    clip is needed, and `record_driving_clip.py` has to hold each prompt until
+    the movement is done rather than for a fixed number of seconds.
+*   **Why the warp residual rose**, 7.07 → 7.30 on day 13 and 7.37 now. Still
+    not verified.
+*   **`check_ladder` still cannot catch the browless rungs**, and the last brow
+    candidate — `_match_colour` fitting the avatar's light ginger brows to a dim
+    warm room — is still untested.
+
+### Still waiting on the owner
+
+**The `speech` clip at 1080p 9:16**, first. Then `turn-frame-right` and
+`turn-frame-left` at 9:16 1080p, which still block the largest open item, and
+`brows-up-steps`, `brows-down-steps`, `smile-steps`.
+
+### One loose end in the working tree
+
+`uv.lock` picked up entries during day 14 for packages already installed in the
+venv. It was deliberately left out of every commit that day and is still
+uncommitted — look at it before it is carried along by something else.
 
 ## What day 13 owes, and did not do
 
