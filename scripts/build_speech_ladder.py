@@ -57,6 +57,7 @@ import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -305,10 +306,58 @@ def best_per_cell(steps: list[Step], step_size: float, width_step: float) -> lis
 
 
 def rung_name(parted: float, widened: float) -> str:
-    return f"speech_{round(parted * 100):03d}_{round(widened * 100):02d}.png"
+    """A name that says where the rung sits, and no two of them the same.
+
+    **Three decimals, not two, and that is a 2026-08-28 fix.** The name was
+    ``round(x * 100)`` on both axes, which is coarser than the grid: at a step
+    of 0.035 by 0.04 two rungs from different cells rounded to the same name and
+    the second overwrote the first. It cost three rungs of a 268-rung build —
+    silently, because the manifest still listed both and one of them then
+    described a photograph it was not.
+    """
+    return f"speech_{round(parted * 1000):04d}_{round(widened * 1000):+05d}.png"
 
 
-def install(chosen: list[Step], avatar: Path) -> None:
+# The face width a rung is written at, as a multiple of the portrait's own.
+#
+# **One, and it is not a compromise.** `engine_warp._reduce_to` already shrinks
+# every source to exactly the portrait's face width at load, with `INTER_AREA`,
+# because "every source is warped onto the base portrait's landmark layout, so
+# the base fixes the working resolution". A rung written at 4K is therefore
+# decoded, reduced, and the reduction thrown away again on the next run.
+#
+# Measured on the grid as it stood: each rung is a **2160x2673 PNG of 5.7 MB**,
+# 67 of them for 273 MB, and the avatar takes **24 seconds to load**. The
+# portrait's face is 455 px. Writing the rung at that scale is the same
+# operation the engine performs anyway, done once, and it is what makes a grid
+# of two hundred rungs cost less than a grid of sixty-seven did.
+WRITE_FACE_SCALE = 1.0
+
+
+def _written(candidate: Any, portrait_face: float) -> np.ndarray:
+    """The rung as it goes to disk: cropped, and reduced to the portrait's scale.
+
+    Not resized *up*: a source smaller than the portrait is already the day-15
+    complaint — *"the beard colour differs"* — and stretching it here would only
+    hide where that came from.
+    """
+    import cv2
+
+    image = crop_around_face(candidate)
+    wanted = portrait_face * WRITE_FACE_SCALE
+    ratio = candidate.face_width / max(wanted, 1e-6)
+    if ratio < 1.0:
+        return image
+    scale = 1.0 / ratio
+    reduced: np.ndarray = cv2.resize(
+        image,
+        (max(int(image.shape[1] * scale), 1), max(int(image.shape[0] * scale), 1)),
+        interpolation=cv2.INTER_AREA,
+    )
+    return reduced
+
+
+def install(chosen: list[Step], avatar: Path, portrait_face: float) -> None:
     """Write the rungs in and replace the manifest's speech entries.
 
     **The named mouth photographs stay.** The smile ladder retired
@@ -338,7 +387,7 @@ def install(chosen: list[Step], avatar: Path) -> None:
 
     for step in chosen:
         name = rung_name(step.parted, step.widened)
-        cv2.imwrite(str(avatar / name), crop_around_face(step.candidate))
+        cv2.imwrite(str(avatar / name), _written(step.candidate, portrait_face))
         meta["assets"].append(
             {
                 "path": name,
@@ -466,7 +515,11 @@ def main(argv: list[str] | None = None) -> int:
         print("\nNo holes: every band between the lowest rung and the highest has one.")
 
     if args.install:
-        install(chosen, args.avatar)
+        install(
+            chosen,
+            args.avatar,
+            float(base_points[:, 0].max() - base_points[:, 0].min()),
+        )
     else:
         print("\nNothing written. Pass --install to give the avatar a speech ladder.")
     return 0

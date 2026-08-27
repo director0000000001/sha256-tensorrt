@@ -3,7 +3,7 @@
 **Living document.** Update it at the end of each working day. For the frozen
 record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
-**Last updated:** 2026-08-28 · **Day 16 — the mouth, in seven passes. The fourth was a cross-fade and it was wrong: it went soft, and soft reads as not moving. The fifth took the hold off the speech grid, which is what had been making the mouth passive since the day it was added.** Start at **"Day 16, seventh pass"** and read upwards, then **"What `test001.mkv` actually shows"** for the rest of the open list.
+**Last updated:** 2026-08-28 · **Day 16 — the mouth, in eight passes. The fourth was a cross-fade and it was wrong: it went soft, and soft reads as not moving. The fifth took the hold off the speech grid, which is what had been making the mouth passive since the day it was added.** Start at **"Day 16, eighth pass"** and read upwards, then **"What `test001.mkv` actually shows"** for the rest of the open list.
 
 ---
 
@@ -2480,6 +2480,119 @@ shape rather than the worse one — though after this fix either can be filed.
     7.37 -> 7.38, near-eye sharpness 360 -> 360, face sharpness 174 -> 172. What
     changed is which photograph is chosen, which that tool does not score.
 
+## Day 16, eighth pass — the grid rebuilt, 67 rungs to 268, and a startup it cannot keep
+
+**He said it plainly:** *"Start. We must get the best quality. Analyse what you
+are doing first, then build."*
+
+### Every clip on the desktop, measured against the builder's own gates
+
+| clip | usable | face px | parting p50/max | s corner | sh corner |
+|---|---|---|---|---|---|
+| `video (10)` | 192/192 | 1009 | 0.57 / 2.00 | **9** | 20 |
+| `Generated video 1` | 192/192 | 970 | 0.81 / 1.93 | **8** | 13 |
+| `video (13)` | 192/192 | 491 | 0.60 / **2.21** | 3 | 7 |
+| `video (3)` | 192/192 | 993 | 0.56 / 5.28 | 2 | **25** |
+| `video (4)` | 192/192 | 962 | 0.00 / 0.00 | 0 | **43** |
+| `video (12)` | 192/192 | 496 | 0.00 / 0.01 | 0 | 17 |
+| `video (9)` | 187/192 | 1108 | 1.14 / 2.31 | 0 | 0 |
+| `video (2)` | 191/192 | 1019 | 0.00 / 0.01 | 1 | 3 |
+| `video (1)`, `(5)`, `(6)`, `(7)`, `(8)` | — | — | no speech | 0 | 0 |
+| `video (11)` | **0/192** | — | yaw, face or drift refuses all of it | — | — |
+
+**Two things this found.**
+
+`video (4)` holds **43 frames of a rounded, closed mouth** and has never been in
+the speech grid. The clamp is why: its parting is 0.00 and its width read 0.00
+too, so `--min-parted` and `--min-widened` both refused every frame of it. **The
+signed axis unlocked material that was already on disk.**
+
+And `speech-1080` was never lost — it is in `avatars/my_avatar/frames/` as 160
+dumped stills. The risk flagged in the seventh pass is void.
+
+**`Sales_manager_speaking_on_video` is the same character and is excluded
+anyway.** Its face is **389 px against the portrait's 455**, and day 15 paid for
+exactly that: *"the beard colour differs, and that makes a big difference"*.
+Filling the two empty corners with the softest material in the library would
+have repeated it. **The rule is now explicit: a clip's face must be at least the
+portrait's own.**
+
+### The parameters, chosen on his own path rather than on a rung count
+
+2,900 frames measured once and cached, then every setting tried on them. The
+metric is the gap between the two nearest rungs **where his mouth actually goes**
+— his 873 frames that ask for a photograph — because that gap is the step he
+sees when the photograph changes.
+
+| step / width | rungs | s | sh | gap p50 | gap p95 | load |
+|---|---|---|---|---|---|---|
+| 0.10 / 0.08 (today's shape) | 125 | 3 | 11 | 0.017 | 0.066 | 34 s |
+| 0.05 / 0.05 | 218 | 6 | 21 | 0.010 | 0.039 | 50 s |
+| **0.035 / 0.04** | **268** | **9** | **24** | 0.011 | **0.034** | 59 s |
+| 0.025 / 0.06 | 267 | 10 | 22 | 0.009 | 0.034 | 59 s |
+
+Below a step of 0.05 the gap stops improving — but the **s corner keeps
+filling**, and that is his named failure.
+
+### Two defects the build exposed
+
+**Rung names collided.** The name was `parted x 100` by `widened x 100`, which is
+coarser than a grid stepping 0.035 by 0.04: two rungs from different cells
+produced the same filename and the second overwrote the first. **Three rungs of
+268 were lost silently** — the manifest listed both and one then described a
+photograph it was not. The name carries three decimals now:
+`speech_0035_-0040.png`.
+
+**Rungs were stored at 4K.** Each was a **2160x2673 PNG of 5.7 MB**, 67 of them
+for 273 MB — while `_reduce_to` shrinks every source to the portrait's own 455 px
+at load, with `INTER_AREA`, because *"the base fixes the working resolution"*.
+Twenty-two times the pixels were being written, decoded, and thrown away every
+run. `WRITE_FACE_SCALE` writes them at the portrait's scale: **1.1 MB each**, and
+268 rungs cost 299 MB against the old 67's 273.
+
+### What the grid holds now
+
+| | before | after |
+|---|---|---|
+| rungs | 67 | **268** |
+| the width axis | -0.13 to +0.40 | **-0.36 to +0.46** |
+| rungs narrower than rest | 6 | **74** |
+| the s corner | **0** | **9** |
+| the sh corner | **0** | **24** |
+| nearest-neighbour spacing | 0.058 | **0.031** |
+
+And through the engine, on his five captures:
+
+| | gain | r | travels | changes/s | step p50 | error p50 |
+|---|---|---|---|---|---|---|
+| `201806` | 0.96 | 1.00 | 97% | 14.2 | 0.136 → **0.100** | 0.035 → **0.016** |
+| `201814` | 1.05 | 0.99 | 92% | 3.8 | 0.088 → **0.032** | 0.030 → **0.016** |
+| `214327` | 0.98 | 1.00 | **103%** | 7.3 | 0.111 → **0.090** | 0.023 → 0.026 |
+| `231503` | 0.99 | 1.00 | **102%** | 5.4 | 0.143 → **0.109** | 0.020 → **0.012** |
+
+`201745` — the capture of him sitting still — puts a photograph on the mouth for
+**4 frames of 300**, which is the correct answer and the one the resting-width
+fix bought.
+
+### And a startup it cannot keep: 24 seconds to 66
+
+**339 sources now, and the avatar takes 66 to 73 seconds to load.** The cause is
+not the pixels — it is that `WarpAvatarEngine._landmarks_of` **constructs and
+destroys a MediaPipe tracker for every source**, 339 times, at about 0.2 s each.
+It is written that way for a good reason: a tracker in VIDEO mode carries state
+between stills, which is the very thing that corrupted the pucker measurement
+this same day. A fresh tracker per still is correct; a fresh *task* per still is
+not.
+
+**This is not shippable and it is the next thing.** Two ways out, and the first
+is smaller than it looks:
+
+1.  **Detect stills in `IMAGE` mode**, with one tracker reused for the whole
+    load. IMAGE mode carries no state, so it is correct *and* stateless, and it
+    pays the model-loading cost once instead of 339 times.
+2.  **Cache each rung's landmarks at build time.** The builder has already
+    measured them; the engine re-derives them on every run.
+
 ## Day 16, seventh pass — the delay was a fade, and the letters that fail are a corner of the grid nobody built
 
 **What he said**, and it is the first report of this run with progress in it:
@@ -2647,17 +2760,28 @@ looks at agree about which photographs are rounded**, which is the check on it.
 
 ### Measured: does a rounded mouth now get a rounded photograph
 
-`mouthPucker` is the test precisely because the choosing never reads it.
+**The number first published here — r 0.22 to 0.42 — is withdrawn.** It was
+measured by reading `mouthPucker` off the installed rungs with one tracker, in a
+row. The tracker runs in **VIDEO mode and carries state between the frames it is
+given** — `timestamp_of` says exactly that, two files away — so a run of stills
+poisons the blendshapes. The same file reads **0.997 in a run of thirteen and
+0.000 in a run of 268**. Every pucker number taken that way is noise.
 
-| | r(his rounding, the photograph's) | pucker when he rounds | when he does not |
-|---|---|---|---|
-| clamped | 0.22 | 0.297 | 0.142 |
-| **signed** | **0.42** | **0.396** | 0.138 |
+Re-measured with a fresh tracker for each photograph, which is the only way to
+read a still, the relationship the signed axis was built on holds:
 
-The correlation nearly doubles and the separation between rounding and not goes
-from 0.155 to **0.258**. Not solved — 0.42 is not 0.9, and the grid has only six
-rungs on the negative side — but the axis now carries the sound instead of
-discarding it.
+| the rung's width | rungs | its `mouthPucker`, p50 |
+|---|---|---|
+| -0.40 to -0.15 | 22 | **0.943** |
+| -0.15 to -0.05 | 45 | 0.173 |
+| -0.05 to +0.05 | 57 | 0.007 |
+| +0.05 to +0.50 | 144 | 0.004 |
+
+**r(width, pucker) = -0.69.** The signed width axis *is* the rounding axis, which
+is what this pass claimed; the claim stands on this measurement rather than on
+the one it was published with. The rest of the pass — 48% of his speaking frames
+below rest, 43% of the width discarded, thirteen rungs in one bag — never
+depended on a blendshape.
 
 ### What is still out of reach, and what he was right about
 
