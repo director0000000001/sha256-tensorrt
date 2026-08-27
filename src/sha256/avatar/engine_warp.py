@@ -3546,6 +3546,25 @@ def _widened(tracking: FaceTrackingResult, neutral: _Neutral) -> float:
     The mouth was not. Now it is, and the speech ladder reads it as well, which
     is a third caller on one frame.
 
+    **Signed, from 2026-08-28.** It was clamped at zero, so a mouth *narrower*
+    than rest — every "oo", "w" and "sh", and most of an "s" — read exactly what
+    a resting mouth reads, and the grid filed them all in one column. The owner
+    found it from the outside: *"when I say S, Th and other letters in words, the
+    mouth does not follow them."*
+
+    On his own five captures, of the 839 frames where his lips are parted,
+    **400 — 48% — are narrower than his own rest**, and the clamp throws away
+    **43% of all the width there is**. Signed, the axis runs -0.37 to +0.44 on
+    the same frames. The library was never short of the material: the 67 rungs
+    carry a pucker of 0.001 to 0.911, and **thirteen of them are filed at a width
+    of exactly 0.00** — one bag holding a rounded "oo" and a resting mouth.
+
+    `scripts/measure_speech_plane.py` wrote this defect down on 2026-08-25 —
+    *"the clamp is why I said it was not [two-dimensional] ... 50% of the
+    driver's speech frames and 20% of the clip's sit below rest, and all of them
+    were being reported as a single value"* — and fixed its own reporting. The
+    engine and the builder kept the clamp.
+
     The seeding path stays, for the frame where nothing has advanced it yet: an
     avatar whose tracker returned no blendshapes never reaches
     :func:`_smile_share`, and a mouth axis that silently read zero for such a
@@ -3578,7 +3597,7 @@ def _widened(tracking: FaceTrackingResult, neutral: _Neutral) -> float:
     rest = neutral.level_of("smileAmount")
     if rest is None:
         rest = neutral.track_level("smileAmount", width)
-    return max(width - rest, 0.0)
+    return width - rest
 
 
 def _speech_amount(tracking: FaceTrackingResult) -> float:
@@ -4530,7 +4549,7 @@ def _nearest_speech(
     # widening of 0.046, which clears a threshold of 0.05 on its own, so the
     # grid took the region on frames where the mouth is at rest and the portrait
     # is the right photograph. That cost 10 ms a frame and bought nothing.
-    if parted < _SPEECH_LADDER_START and widened < _SPEECH_WIDTH_START:
+    if parted < _SPEECH_LADDER_START and abs(widened) < _SPEECH_WIDTH_START:
         return {}
 
     def distance(rung: tuple[float, str | None]) -> float:
@@ -4754,7 +4773,7 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
         # stopped, and it holds the region against a named photograph that
         # genuinely opens further.
         top = max(amount for amount, _ in avatar.speech_ladder)
-        top_width = max(avatar.speech_width.values(), default=0.0)
+        top_width = max((abs(w) for w in avatar.speech_width.values()), default=0.0)
         weights.update(
             _nearest_speech(
                 avatar.speech_ladder,
@@ -4768,7 +4787,7 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
                 # however wide the driver's goes, and past the top of the grid
                 # the region belongs to a named photograph that genuinely opens
                 # further.
-                float(np.hypot(min(parted, top), min(widened, top_width))),
+                float(np.hypot(min(parted, top), min(abs(widened), top_width))),
             )
         )
 

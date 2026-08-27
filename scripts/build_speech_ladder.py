@@ -33,7 +33,7 @@ photo I am saying O, in the second A"* — with an O rendered as a wide open A.
 Both axes are now filed and both are matched, on the engine's own units:
 
 *   ``speech`` — the lips parted, over ``_SMILE_OPEN_SPAN``.
-*   ``speech_width`` — the mouth wider than the portrait's rest, over
+*   ``speech_width`` — the mouth's width against the portrait's rest, over
     ``_SMILE_WIDEN_SPAN``, clamped at zero on both sides so the driver's floor
     and the portrait's rest mean the same thing.
 
@@ -113,8 +113,11 @@ DEFAULT_MIN_PARTED = 0.05
 # covered a median of 17% of the opening drawn for it, and he reported it as
 # teeth that show "very badly".
 #
-# One width step above rest, so a mouth that is merely resting is still the
-# portrait's own.
+# One width step away from rest — **either way, since 2026-08-28**. It was
+# "above rest", on a reading clamped at zero, so every mouth narrower than rest
+# was filed as though it were resting: a rounded "oo" and a mouth doing nothing
+# had the same coordinate. Thirteen of the 67 rungs this built sat at exactly
+# 0.00 with a pucker running from 0.001 to 0.911.
 DEFAULT_MIN_WIDENED = 0.08
 
 # And the top. The owner's widest opening while speaking is around 1.2 and the
@@ -240,7 +243,7 @@ def measure(
     step = Step(
         path=path,
         parted=max(_lip_parting(result) - _SMILE_LIP_CLOSED, 0.0) / _SMILE_OPEN_SPAN,
-        widened=max(_smiling(result) - base_width, 0.0) / _SMILE_WIDEN_SPAN,
+        widened=(_smiling(result) - base_width) / _SMILE_WIDEN_SPAN,
         width=_smiling(result),
         gap=_lip_gap(result),
         sharpness=candidate.sharpness,
@@ -417,7 +420,7 @@ def main(argv: list[str] | None = None) -> int:
             usable = [
                 step
                 for step, yaw in (m for m in measured if m is not None)
-                if (args.min_parted <= step.parted or args.min_widened <= step.widened)
+                if (args.min_parted <= step.parted or args.min_widened <= abs(step.widened))
                 and step.parted <= args.max_parted
                 and abs(yaw) <= args.max_yaw
                 and step.candidate.face_width >= args.min_face

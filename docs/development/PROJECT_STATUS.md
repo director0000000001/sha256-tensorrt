@@ -3,7 +3,7 @@
 **Living document.** Update it at the end of each working day. For the frozen
 record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
-**Last updated:** 2026-08-28 · **Day 16 — the mouth, in five passes. The fourth was a cross-fade and it was wrong: it went soft, and soft reads as not moving. The fifth took the hold off the speech grid, which is what had been making the mouth passive since the day it was added.** Start at **"Day 16, fourth and fifth passes"** and read upwards, then **"What `test001.mkv` actually shows"** for the rest of the open list.
+**Last updated:** 2026-08-28 · **Day 16 — the mouth, in six passes. The fourth was a cross-fade and it was wrong: it went soft, and soft reads as not moving. The fifth took the hold off the speech grid, which is what had been making the mouth passive since the day it was added.** Start at **"Day 16, sixth pass"** and read upwards, then **"What `test001.mkv` actually shows"** for the rest of the open list.
 
 ---
 
@@ -2479,6 +2479,107 @@ shape rather than the worse one — though after this fix either can be filed.
 *   `measure_quality.py` shows geometry unchanged as expected — warp residual
     7.37 -> 7.38, near-eye sharpness 360 -> 360, face sharpness 174 -> 172. What
     changed is which photograph is chosen, which that tool does not score.
+
+## Day 16, sixth pass — the width axis was cut in half, and half of his speech was in the half that was cut
+
+**What he said:** *"When I say S, Th and other letters in words, the mouth
+movement does not follow them. I think more screenshots should be taken from the
+videos where the speaking happens. What do you think, how do we fix this?"*
+
+**Half right, and the half that does not work is the interesting one.**
+
+### More photographs cannot separate an S from an "oo", because the grid cannot
+
+The grid is filed on parting and width. Measured over his five captures, on the
+signals those two axes do *not* carry — how much of each blendshape's spread
+survives inside a single cell of the grid:
+
+| | spread over all speaking frames | spread **inside one cell** |
+|---|---|---|
+| **`mouthPucker`** | **0.189** | **0.178 — 94% of it** |
+| `mouthFunnel` | 0.064 | 0.055 — 86% |
+| `mouthClose` | 0.061 | 0.049 — 81% |
+| `jawOpen` | 0.152 | 0.057 — 38% |
+
+**`mouthPucker` is the largest single source of variation in his speaking mouth
+— larger than the jaw — and 94% of it survives inside one cell.** The grid is
+blind to it. `jawOpen` keeps 38%, which is what a signal the grid *can* see
+looks like. More photographs filed on axes that cannot tell an "s" from an "oo"
+are more photographs in the same cell.
+
+### And the reason is a clamp, not a shortage
+
+The library already holds rounded mouths: across the 67 rungs `mouthPucker` runs
+**0.001 to 0.911**. But `_widened` and `build_speech_ladder` both read the width
+as ``max(width - rest, 0)``, so **a mouth narrower than rest reads exactly what a
+resting mouth reads.**
+
+*   Of the 839 frames in his captures where his lips are parted, **400 — 48% —
+    are narrower than his own rest**. Every one of them read 0.00.
+*   Signed, the axis runs **-0.37 to +0.44** on those frames. The clamp was
+    throwing away **43% of all the width there is**.
+*   **Thirteen of the 67 rungs were filed at exactly 0.00** — one bag holding a
+    strongly rounded "oo" (pucker 0.911) and a mouth doing nothing (0.001).
+
+`scripts/build_speech_ladder.py` has said this in its own docstring since
+2026-08-25 — *"``_smiling`` above rest is floored at zero, so every mouth
+narrower than rest — which is what an 'oo' and an 'o' are — reads as exactly the
+same value as a resting one"* — and kept the floor in the line below it.
+`measure_speech_plane.py` fixed its own reporting the same day. Neither the
+engine nor the builder followed.
+
+### The axis is signed now, on both sides
+
+`_widened` returns the signed difference; the builder files the signed
+difference; `AssetRef.speech_width` accepts negatives; the grid's foot asks
+``abs(widened)``, because a rounded mouth with its lips together is as far from
+rest as a spread one.
+
+**The installed grid was re-filed rather than rebuilt.** A rebuild would also
+*add* rungs — cells that were one bag under the clamp are two under a signed
+axis — but it needs the source folders, and `speech-1080`, which supplied the top
+of this grid, is no longer on disk. Re-filing loses nothing:
+
+*   The **52 rungs filed above the clamp keep the builder's own numbers.**
+    Re-measuring them from the installed cut-out would swap a good number for
+    one that agrees with it only to within 0.03.
+*   The **15 at or under it carry no information at all**, so for those the
+    re-measurement is the only thing there is. The two measurements are the same
+    up to a constant — over the 52 clear rungs, ``stored = 1.027 x measured +
+    0.017``, r = 0.946, median difference 0.026 — and that constant, which is
+    what placing a cut-out on the portrait's frame costs, is added back.
+
+Nine of the fifteen turn out to be genuinely narrower than rest, and they are
+the rounded ones: `speech_101_00` (pucker 0.911) to **-0.125**, `speech_107_00`
+(0.513) to -0.091, `speech_122_00` (0.427) to -0.094, `speech_083_00` (0.686) to
+-0.074. **The recovered coordinate and a blendshape nothing in the choosing
+looks at agree about which photographs are rounded**, which is the check on it.
+
+### Measured: does a rounded mouth now get a rounded photograph
+
+`mouthPucker` is the test precisely because the choosing never reads it.
+
+| | r(his rounding, the photograph's) | pucker when he rounds | when he does not |
+|---|---|---|---|
+| clamped | 0.22 | 0.297 | 0.142 |
+| **signed** | **0.42** | **0.396** | 0.138 |
+
+The correlation nearly doubles and the separation between rounding and not goes
+from 0.155 to **0.258**. Not solved — 0.42 is not 0.9, and the grid has only six
+rungs on the negative side — but the axis now carries the sound instead of
+discarding it.
+
+### What is still out of reach, and what he was right about
+
+**Th cannot be measured at all.** MediaPipe's 52 blendshapes contain no tongue,
+so a tongue between the teeth is invisible to this tracker. That shape can only
+ever arrive by luck.
+
+**And his screenshots are the right next step**, for the other problem: the
+median step between consecutive photographs is 0.106 to 0.147 where the grid's
+own spacing is 0.058. That is density, and density is material. It comes after
+this, not before: the signed axis changes where every frame is filed, so a build
+done first would have to be thrown away.
 
 ## Day 16, fourth and fifth passes — a cross-fade that was wrong, and the hold that was the passivity
 

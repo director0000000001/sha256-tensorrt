@@ -3247,7 +3247,7 @@ class TestARoundedMouthDoesNotBecomeTheRestingWidth:
 
     def test_a_face_at_rest_reads_as_resting(self):
         neutral = _Neutral()
-        assert self.show(neutral, self.REST, 90) < _SPEECH_WIDTH_START
+        assert abs(self.show(neutral, self.REST, 90)) < _SPEECH_WIDTH_START
 
     def test_and_still_does_after_the_mouth_has_rounded_an_oo(self):
         """The defect entire. Half a second of an "oo" and then rest again —
@@ -3257,7 +3257,7 @@ class TestARoundedMouthDoesNotBecomeTheRestingWidth:
         self.show(neutral, self.REST, 90)
         self.show(neutral, self.ROUNDED, 15)
 
-        after = self.show(neutral, self.REST, 3)
+        after = abs(self.show(neutral, self.REST, 3))
         assert after < _SPEECH_WIDTH_START, (
             f"a resting mouth reads {after:.3f} of a widening after an 'oo', "
             f"which holds the grid's width foot open at {_SPEECH_WIDTH_START}"
@@ -3354,3 +3354,88 @@ class TestTheAvatarKeepsItsOwnLips:
 
         assert opening > 35.0, f"the mouth closed to {opening:.0f} px"
         assert opening == pytest.approx(40.0 + _LIP_FOLLOW * 6.0, abs=1.0)
+
+
+class TestAMouthNarrowerThanRestIsNotARestingMouth:
+    """The owner, on 2026-08-28: *"When I say S, Th and other letters in words,
+    the mouth movement does not follow them. I think more screenshots should be
+    taken from the videos."*
+
+    Photographs were not what was missing. The width axis was floored at zero on
+    both sides — the engine's and the builder's — so every mouth narrower than
+    rest, which is what an "oo", a "w" and most of an "s" are, read exactly what
+    a resting mouth reads. Of the 839 frames in his captures with the lips
+    parted, **400 are narrower than his own rest**, and thirteen of the grid's 67
+    rungs were filed at exactly 0.00 with a pucker running from 0.001 to 0.911.
+
+    `build_speech_ladder`'s own docstring had said so since 2026-08-25 and the
+    line below it kept the floor.
+    """
+
+    REST = 0.53
+    ROUNDED = 0.42
+    SPREAD = 0.64
+
+    def mouth(self, reach: float) -> Any:
+        tracking = expressive_tracking(gap=0.001)
+        points = tracking.landmarks.points
+        span = float(abs(points[263, 0] - points[33, 0]))
+        points[61, :2] = (0.5 - span * reach / 2, 0.6)
+        points[291, :2] = (0.5 + span * reach / 2, 0.6)
+        return tracking
+
+    def settled(self) -> _Neutral:
+        neutral = _Neutral()
+        for _ in range(90):
+            tracking = self.mouth(self.REST)
+            _smile_share(tracking, neutral)
+            _widened(tracking, neutral)
+        return neutral
+
+    def reading(self, neutral: _Neutral, reach: float) -> float:
+        tracking = self.mouth(reach)
+        _smile_share(tracking, neutral)
+        return _widened(tracking, neutral) / _SMILE_WIDEN_SPAN
+
+    def test_a_rounded_mouth_reads_below_rest(self):
+        neutral = self.settled()
+        assert self.reading(neutral, self.ROUNDED) < -_SPEECH_WIDTH_START
+
+    def test_a_spread_one_reads_above_it(self):
+        neutral = self.settled()
+        assert self.reading(neutral, self.SPREAD) > _SPEECH_WIDTH_START
+
+    def test_and_the_two_are_not_the_same_number(self):
+        """The whole defect in one assertion: floored at zero they were."""
+        neutral = self.settled()
+        rounded = self.reading(neutral, self.ROUNDED)
+        resting = self.reading(neutral, self.REST)
+
+        assert abs(rounded - resting) > _SPEECH_WIDTH_START
+
+
+class TestTheGridsFootIsADistanceFromRestEitherWay:
+    """A mouth rounded with its lips together is as far from the portrait's own
+    as a spread one, and the grid has photographs of both."""
+
+    LADDER = ((0.0, "speech@round"), (0.0, "speech@rest"), (0.0, "speech@wide"))
+    WIDTHS: ClassVar[dict[str, float]] = {
+        "speech@round": -0.15,
+        "speech@rest": 0.0,
+        "speech@wide": 0.15,
+    }
+
+    def chosen(self, parted: float, widened: float) -> set[str]:
+        return set(_nearest_speech(self.LADDER, self.WIDTHS, parted, widened, 1.0))
+
+    def test_a_rounded_closed_mouth_still_reaches_the_grid(self):
+        assert self.chosen(0.0, -0.20) == {"speech@round"}
+
+    def test_a_spread_one_does_too(self):
+        assert self.chosen(0.0, 0.20) == {"speech@wide"}
+
+    def test_but_a_mouth_at_rest_is_the_portrait_own(self):
+        assert self.chosen(0.0, 0.0) == set()
+
+    def test_and_rounded_is_never_answered_with_wide(self):
+        assert self.chosen(0.0, -0.20) != {"speech@wide"}

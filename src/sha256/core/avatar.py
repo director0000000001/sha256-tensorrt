@@ -170,7 +170,7 @@ class AssetRef(BaseModel):
 
     speech_width: float | None = Field(
         default=None,
-        ge=0.0,
+        ge=-4.0,
         le=4.0,
         description=(
             "How much wider than the portrait's resting mouth this asset is, on "
