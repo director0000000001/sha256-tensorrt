@@ -1475,10 +1475,43 @@ _EASE_PER_SECOND_BY_REGION: dict[str, float] = {"eyes": 10.0}
 # is the ladder itself — the rungs are a tenth of a closing apart, so the step
 # from one to the next is smaller than the fade's own first frame.
 #
-# The mouth and the brows keep theirs. A smile takes a third of a second to
-# form and its photographs are on screen while it does; nothing there is asked
-# to arrive inside the time a lid takes to fall.
-_ARRIVES_WHOLE: frozenset[str] = frozenset({"eyes"})
+# **The mouth joined them on 2026-08-28, and the sentence above is why it had
+# not.** *"A smile takes a third of a second to form"* was written when the
+# mouth's family was a smile ladder. It is a grid of speech now, and this same
+# file says at :data:`_SPEECH_LADDER_START` that *"an ordinary consonant closes
+# the lips completely several times a second"*. So the mouth is asked to arrive
+# inside a fade's own length, several times a second, and it was arriving late.
+#
+# The owner, having run it: *"it changes very fast and the mouth movements come
+# across with a delay ... it cannot follow fast speech."* Both halves of that are
+# one thing. Measured on his five captures, how much of the time the photograph
+# on the mouth is only partly there:
+#
+# | | the grid is on | **fully** on | at less than half |
+# |---|---|---|---|
+# | `231503`, ordinary speech | 55% | **15%** | 29% |
+# | `201745`, sitting still | 63% | **0%** | 62% |
+# | `214327` | 83% | 62% | 12% |
+# | `201806`, loud and continuous | 100% | 86% | 4% |
+#
+# On ordinary speech the mouth is a *ghost* of a photograph over the portrait's
+# closed one for a third to two thirds of every second — which is day 13's
+# finding word for word, *"two thirds of a conversation rendered as a closed
+# mouth stretched open by the mesh"*, arriving by a third road. The rungs that
+# fixed it for the lids fix it here for the same reason: a rung already says how
+# far open the mouth is, so there is nothing left for an opacity to express.
+#
+# The brows keep their fade. Nothing there moves at syllable rate.
+_ARRIVES_WHOLE: frozenset[str] = frozenset({"eyes", "mouth"})
+
+# **And a different list for the turn**, which is not the same question.
+# :func:`_arrives_whole` asks whether a photograph is faded *in over time*;
+# :func:`_carried_share` asks whether it is faded *down as the head moves out
+# from under it*. The mouth wants the first and not the second, and the reason
+# is in `_carried_share`'s own docstring: a misfit of 4.8 px on a 400 px face is
+# a bad number for a mouth and a small one for a lid that is shut, and a hard
+# threshold there would make an expression vanish mid-sentence.
+_CARRIED_WHOLE: frozenset[str] = frozenset({"eyes"})
 
 # The frame interval used when there is nothing to measure one from, and the
 # range a measured one is trusted in. A dropped frame or a paused debugger must
@@ -4629,8 +4662,12 @@ def _carried_share(region: str, share: float, trust: float) -> float:
     would make an expression vanish mid-sentence, and a mouth photograph differs
     from what is under it mostly in *texture*.
 
-    **The lids are shown whole or not at all**, here as everywhere else. An eye
-    photograph differs from what is under it in whether the eye is *open*, so
+    **The lids are shown whole or not at all** — see :data:`_CARRIED_WHOLE`,
+    which is deliberately not :data:`_ARRIVES_WHOLE`: the mouth is shown whole
+    when it *arrives* and still scaled when the head turns out from under it,
+    because those are two different questions and it wants opposite answers to
+    them. An eye photograph differs from what is under it in whether the eye is
+    *open*, so
     any share between nought and one is a shut lid laid over an open eye — the
     same double exposure this file has now removed twice, arriving by a third
     road.
@@ -4650,7 +4687,7 @@ def _carried_share(region: str, share: float, trust: float) -> float:
     shut. Past ``_CARRY_LOST`` — 12 px on that face — the photograph is dropped,
     as it always was.
     """
-    if region in _ARRIVES_WHOLE:
+    if region in _CARRIED_WHOLE:
         return share if trust > 0.0 else 0.0
     return share * trust
 

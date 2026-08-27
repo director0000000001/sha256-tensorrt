@@ -2164,12 +2164,24 @@ class TestTheLidsArriveWhole:
 
         assert gone == {} and holding == {} and applied == {}
 
-    def test_a_smile_rung_still_arrives_over_a_third_of_a_second(self):
-        """Nothing else on a face moves inside the time a lid takes to fall, and
-        a smile that appeared in one frame would read as a cut."""
-        seen, _, _ = self.frames({"smile@wide": 0.6}, 1)
+    def test_and_so_does_a_mouth_rung_since_2026_08_28(self):
+        """This asserted the opposite until the owner ran the speech grid:
+        *"it changes very fast and the mouth movements come across with a
+        delay."* The sentence it was written on — *"a smile takes a third of a
+        second to form"* — was true of the smile ladder that used to own this
+        region. A grid of speech is asked to arrive several times a second, and
+        measured on his captures the photograph was only partly there for a
+        third to two thirds of ordinary speech."""
+        seen, _, _ = self.frames({"speech@wide": 0.6}, 1)
 
-        assert seen[0]["smile@wide"] < 1.0
+        assert seen[0]["speech@wide"] == 1.0
+
+    def test_but_a_brow_rung_still_arrives_over_a_third_of_a_second(self):
+        """Nothing on the brows moves at syllable rate, and one that appeared in
+        a single frame would read as a cut."""
+        seen, _, _ = self.frames({"brows@up": 0.6}, 1)
+
+        assert seen[0]["brows@up"] < 1.0
 
     def test_a_named_eye_photograph_still_fades(self):
         """Which is what an avatar with no eye ladder falls back to: for one of

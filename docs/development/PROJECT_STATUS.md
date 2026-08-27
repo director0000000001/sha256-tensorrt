@@ -3,7 +3,7 @@
 **Living document.** Update it at the end of each working day. For the frozen
 record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
-**Last updated:** 2026-08-28 · **Day 16 — the mouth, in six passes. The fourth was a cross-fade and it was wrong: it went soft, and soft reads as not moving. The fifth took the hold off the speech grid, which is what had been making the mouth passive since the day it was added.** Start at **"Day 16, sixth pass"** and read upwards, then **"What `test001.mkv` actually shows"** for the rest of the open list.
+**Last updated:** 2026-08-28 · **Day 16 — the mouth, in seven passes. The fourth was a cross-fade and it was wrong: it went soft, and soft reads as not moving. The fifth took the hold off the speech grid, which is what had been making the mouth passive since the day it was added.** Start at **"Day 16, seventh pass"** and read upwards, then **"What `test001.mkv` actually shows"** for the rest of the open list.
 
 ---
 
@@ -2479,6 +2479,96 @@ shape rather than the worse one — though after this fix either can be filed.
 *   `measure_quality.py` shows geometry unchanged as expected — warp residual
     7.37 -> 7.38, near-eye sharpness 360 -> 360, face sharpness 174 -> 172. What
     changed is which photograph is chosen, which that tool does not score.
+
+## Day 16, seventh pass — the delay was a fade, and the letters that fail are a corner of the grid nobody built
+
+**What he said**, and it is the first report of this run with progress in it:
+*"It is still very unsmooth. It changes very fast and the mouth movements come
+across with a delay. For 'sh' I think we have no photograph of the mouth at all.
+There is a lot still to polish, but I do see progress. It just cannot follow
+fast speech. 'O', 'u' and 's' it manages more or less — 'o' and 'u' well, 's'
+not yet."*
+
+**"O" and "u" are the signed width axis working**, one pass old. What is left is
+two separate things, and he named them both.
+
+### The delay: the mouth's photograph was faded in, several times a second
+
+`_ARRIVES_WHOLE` held the lids and only the lids, on this reasoning: *"A smile
+takes a third of a second to form and its photographs are on screen while it
+does; nothing there is asked to arrive inside the time a lid takes to fall."*
+That was written when the mouth's family was a smile ladder. It is a grid of
+speech now, and this same file says at `_SPEECH_LADDER_START` that *"an ordinary
+consonant closes the lips completely several times a second"*.
+
+So the mouth was asked to arrive inside a 270 ms fade, several times a second.
+Measured over his five captures — how much of the time the photograph is only
+partly there:
+
+| | grid on | **fully** on | before → after |
+|---|---|---|---|
+| `231503`, ordinary speech | 55% | 15% → **23%** | 40% partial → **32%** |
+| `214327` | 78% | 62% → **73%** | 20% → **5%** |
+| `201806`, loud and continuous | 96% | 86% → **94%** | 14% → **2%** |
+| `201814` | 96% | 83% → **88%** | 17% → **8%** |
+
+**Every remaining partial frame is a named photograph, never a rung** — checked:
+`231503` is 68 whole rungs against 96 partial frames of `source_mouth_pressed`,
+`201745` is 4 against 182. A named photograph's weight *is* how much of the
+expression there is, so that fade is correct by design. Whether `mouth_pressed`
+should be winning a third to two thirds of a quiet capture at all is the next
+question — `_SPEECH_ROLES` records it winning "13.3% of speech at a share of
+0.12", and it is well past that now.
+
+**Two lists, not one.** `_carried_share` keyed off the same set, and the mouth
+must *not* be whole there: a misfit of 4.8 px on a 400 px face is a bad number
+for a mouth and a small one for a shut lid, and a hard threshold at a turn would
+make an expression vanish mid-sentence. `_CARRIED_WHOLE` is the eyes alone;
+`_ARRIVES_WHOLE` is the eyes and the mouth.
+
+### And the letters: there is no rung in the corner they live in
+
+He is right that there is no photograph for "sh", and it is worse than that —
+there is none for "s", "z", "t", "d" or "n" either. The whole low-opening corner
+of the grid is empty.
+
+**The six rungs narrower than rest all sit at a parting of 0.83 to 1.22** — wide
+open *and* rounded, which is an "o". A "sh" or a "u" is rounded with a **small**
+opening, and the grid has nothing there. Its lowest rungs are:
+
+| rung | parting | width |
+|---|---|---|
+| `speech_000_11` | 0.000 | **+0.111** |
+| `speech_000_12` | 0.000 | **+0.120** |
+| `speech_001_20` | 0.008 | **+0.202** |
+| `speech_010_00` | 0.096 | +0.085 |
+
+Every one of them wide. **There is no photograph anywhere of a barely-open mouth
+that is not spread**, which is what an "s" is.
+
+Two settings in `build_speech_ladder` put it there and neither was wrong when it
+was written:
+
+*   **`--min-parted` is 0.05**, and refuses every frame whose lips are less than
+    that apart unless the width carries it. That is the band an "s" lives in.
+    Measured on his captures: 54 frames sit at a parting of 0.03 to 0.05 and
+    **all 54** are given the portrait's own resting mouth.
+*   **`--step` is 0.1**, so everything from a closed mouth to one a tenth open is
+    *one cell*, won by whichever frame was sharpest — and a wide mouth is a
+    bigger, sharper frame than a barely-open one.
+
+**42% of all his frames fall under the grid's foot** and get the portrait. Most
+of that is correct — 589 of them are at a parting under 0.01, which is lips
+together. The 54 in the s-band are not.
+
+### What that costs to fix, and the one risk
+
+A rebuild with a finer step and a lower foot, from the folders in `extracted/`.
+It is the *material* answer he proposed, aimed at the corner the measurement
+names. **The risk is the top of the grid**: the cells at a parting of 1.94 to
+2.08 came from `speech-1080`, which is no longer on disk, and `_covering_interior`
+borrows the widest mouths' interiors. A rebuild without it loses them unless
+they are kept by hand or the clip is regenerated.
 
 ## Day 16, sixth pass — the width axis was cut in half, and half of his speech was in the half that was cut
 
