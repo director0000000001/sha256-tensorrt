@@ -3,7 +3,7 @@
 **Living document.** Update it at the end of each working day. For the frozen
 record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
-**Last updated:** 2026-08-25 · **Day 14 — the speech grid, and the owner's verdict: *"a small difference, but no progress at all"*.* **Day 15 starts at the section of that name.**
+**Last updated:** 2026-08-27 · **Day 16 — the mouth, in three passes: it froze rather than lagged, his resting mouth was being learned as the narrowest one he had just made, and the avatar was wearing his lips rather than its own.** Start at **"Day 16, third pass"** and read upwards, then **"What `test001.mkv` actually shows"** for the rest of the open list.
 
 ---
 
@@ -2356,6 +2356,688 @@ that beard differently.
 **A longer speech clip at 1080p 9:16 fills the grid and fixes the appearance at
 once**, and it is one generation. That is now the first item on the list of what
 is waiting on him.
+
+## Day 15 — the lip parting carried the frame's shape, and it was already installed
+
+**The day was planned around one generation.** The owner produced the speech
+clip at 1080p 9:16, longer material for the thin top of the grid. Measuring it
+found the defect below instead, and the clip is now the least interesting thing
+about the day.
+
+### What the clip measured
+
+`Generated video 1 (13).mp4`, 1080x1920, 8.0 s, 192 frames. Through
+`extract_avatar_frames.py`: **128 usable**, 56 motion blurred, 8 identity
+drifted, **face width median 491 px** against the portrait's 455 and the old
+720p speech clip's 389. Frames measure 200-900 of Laplacian variance where the
+old clip's measure 50-100.
+
+**And on the engine's own axis it read as a mouth that barely opens** — max 0.64
+where the old 720p take of the same sentence reaches 2.30. That is what sent the
+morning into the measure rather than into the grid.
+
+### The defect
+
+:func:`_lip_parting` divided the inner lips' gap by the **eye span**. The
+landmarks are normalised over the frame, so a vertical distance over a
+horizontal one is multiplied by the frame's aspect ratio. Proved both
+directions, sequentially, with a fresh tracker each run:
+
+| | as generated | letterboxed to the other shape |
+|---|---|---|
+| the new clip, 9:16 | parted p50 0.13, max **0.64** | to 16:9: p50 0.54, max **2.14** |
+| the old clip, 16:9 | parted p50 0.65, max **2.30** | to 9:16: p50 0.16, max **0.70** |
+
+The same frames. The aspect-free reading — the gap over face height — does not
+move at all: 0.032/0.111 for the new clip and 0.038/0.120 for the old, either
+way round. **The two clips photograph nearly the same mouth**, and one of them
+was being read at a third of it.
+
+**This file already documents this bug three times.** :func:`_eye_opening` says
+it in full — *"a height divided by a width carries the frame's aspect ratio as a
+factor"* — and the lids, the brows and `_lip_gap` were each fixed by dividing by
+face height instead. `_lip_parting` was written after them and reached for the
+eye span because it is the steadier anchor across a re-detection. It is not
+worth the frame's shape. There was no test; there is now, beside the brows'.
+
+### It was not waiting for a 9:16 clip. It was already installed
+
+**Every 4K clip in this library is 2160x3840.** `video-05` through `video-10`,
+all of them portrait. Only the old 720p speech clip is 16:9, and the camera is
+16:9.
+
+So the speech grid built on day 14 held **two incompatible scales at once**:
+`video-10`'s frames filed at a third of their real opening in the low bands, and
+the 720p clip's filed correctly in the high ones. A mouth barely open was
+answered with a photograph of one substantially open. **That was in the build
+the owner judged**, and it is the most likely reading of *"there is a small
+difference, but there is no progress at all"* that day 14 could not see.
+
+The same arithmetic ran through the smile ladder, whose axis is
+`widened x (1 + parted)`.
+
+### The fix, and what it is calibrated against
+
+`_lip_parting` now returns :func:`_lip_gap` — one measurement, under the name
+the axes read it by. `_SMILE_OPEN_SPAN` 0.19 -> **0.0514** and
+`_SMILE_LIP_CLOSED` 0.010 -> **0.0027**, both divided by 3.70, which is the map
+between the two denominators measured over 400 frames of the owner's own
+recording. **Rescaling the constants with the function leaves the live axis
+where it was** — and it does:
+
+| the driver's speech demand | day 14 | now |
+|---|---|---|
+| widened p5/50/95 | 0.000/0.046/0.118 | 0.000/0.046/0.118 |
+| parted p5/50/95 | 0.000/0.202/0.947 | 0.000/0.206/0.947 |
+| parted max | 1.212 | 1.191 |
+
+Two numbers already written in this codebase check the map independently, both
+within 3%: the teeth-showing rung (0.125 old / 2.08 = 0.0601 against the 0.0591
+`_LIP_GAP_CLOSED` recorded for the same photograph) and the portrait's resting
+mouth (0.0019 / 2.08 = 0.00091 against 0.0010).
+
+### What that changed in the library
+
+| | before | after |
+|---|---|---|
+| speech grid | 32 rungs, 0.10-1.35 | **38 rungs, 0.10-1.50** |
+| smile ladder | 10 rungs, 0.10-**0.60** | **12 rungs, 0.09-2.20** |
+
+**The smile ladder is the one to look at.** Its axis was compressed to a
+quarter of itself, so its widest rung sat at 0.60 — and over the owner's own
+recording **21.8% of the frames where he is smiling asked for more than that**.
+Every one of them was answered with the same photograph, the widest laugh in the
+library. After the rebuild nothing in the recording reaches the top rung at all.
+
+The grid is now filled almost entirely from the 4K clips, whose faces are 1000+
+px: they win a cell against the new clip's 491 px, and with correct filing they
+reach the whole range. `measure_speech_plane.py` on the new clip alone now says
+*"no holes: every band the driver visits, this clip can fill"*, and its distance
+to the nearest photograph fell from med 0.016 / p90 **0.122** / worst **0.546**
+to med 0.022 / p90 **0.049** / worst **0.083**.
+
+### What this costs the plan
+
+**The day-14 argument for re-shooting at 9:16 was an artefact of the defect.**
+*"Above a parting of 0.6 the only material is the 720p clip"* was true only
+because `video-10`'s frames were being filed three times too low to reach those
+bands. They reach them now. And the 496-vs-320 px comparison that justified 9:16
+compared 1080p against 720p, not one shape against the other: at 16:9 1080p the
+same framing gives about 583 px, larger than the 491 the 9:16 take produced.
+
+**So the shape is not the lever; the resolution is.** The turn clips still
+waiting on the owner should be asked for at 1080p, and 16:9 is now the safer
+shape rather than the worse one — though after this fix either can be filed.
+
+### Not measured, and owed
+
+*   **A before-and-after the owner can look at.** `recordings/day15-mouth-after-aspect-fix.png`
+    is the after; the before needs the old ladders rebuilt under the old code,
+    which is a revert, two builds and a replay.
+*   **The smile ladder rebuild carried day 14's timestamp debt with it**, so its
+    before-and-after mixes two changes. The eye ladder still owes its own.
+*   `measure_quality.py` shows geometry unchanged as expected — warp residual
+    7.37 -> 7.38, near-eye sharpness 360 -> 360, face sharpness 174 -> 172. What
+    changed is which photograph is chosen, which that tool does not score.
+
+## Day 16, third pass — the owner read the mesh, and he was right
+
+**What he said**, having pressed the button a fourth time: *"The size of the
+teeth changes sometimes, and the size of the lips too at some moments.
+Sometimes a thick lip, sometimes thin, and I do not like it. I think I know what
+the problem is — it is trying to fit its own lips exactly to the size of my
+lips. I do not actually have big lips, but I think it does this. So when it
+smiles, or when a person moves their mouth while talking, it is better that the
+smiling and the laughing happen at **those** sizes — the ones in the AI's own
+photographs. Because some girl might have botox, and you would not stretch the
+photograph onto her lips."*
+
+**He has described a sentence already in this file.** Three constants live
+together and two of them exist for exactly this:
+
+*   `_BROW_FOLLOW = 0.5` — *"the avatar inherits the user's **proportions**
+    where it should be inheriting only their **motion**."*
+*   `_EYE_FOLLOW = 0.2` — *"forcing the avatar's eye aperture to match the
+    user's stretches its iris to fill someone else's eye ... the single feature
+    that gives the whole picture away."*
+
+The lips had no such constant. They followed at **1.0**.
+
+### Measured, on his own four captures
+
+Lip thickness against face height, over the avatar portrait's own. `x` is how
+many times its own thickness it wears; `swing` is p95/p05 inside the ten
+seconds.
+
+| | lower lip `x` | swing | upper lip `x` | swing |
+|---|---|---|---|---|
+| `201745` | **1.27** | 1.14 | 1.06 | 1.34 |
+| `201806` | **1.40** | 1.28 | 1.21 | **1.65** |
+| `201814` | **1.43** | 1.33 | 1.31 | 1.35 |
+| `214327` | **1.34** | 1.17 | 1.03 | 1.29 |
+
+**A lower lip worn 27 to 43% thicker than the avatar's own, changing thickness
+by up to a third within ten seconds.** That is *"sometimes a thick lip,
+sometimes thin"*, and the reason it changes is that it is his lip and his was
+changing. The teeth follow from the same place: `_paint_mouth_interior` fits
+them to the upper inner lip arc, so they are sized by whatever the lips are
+doing.
+
+### `_LIP_FOLLOW = 0.3`
+
+The lips join the brows and the eyes in `_damp_brows`, and the damped points now
+go to `_paint_mouth_interior` as well as to the mesh — the teeth have to be
+painted into the opening that was actually drawn, not into the driver's.
+
+| follow | `201745` | `201806` | `201814` | `214327` |
+|---|---|---|---|---|
+| 1.0 (was) | 1.27 | 1.40 | 1.43 | 1.34 |
+| 0.5 | 1.12 | 1.18 | 1.22 | 1.16 |
+| **0.3** | **1.06** | **1.09** | **1.13** | **1.09** |
+| 0.2 | 1.03 | 1.05 | 1.09 | 1.05 |
+| 0.1 | 1.00 | 1.01 | 1.05 | 1.02 |
+
+**Not lower than 0.3, and the mouth's own opening is why.** The eyes can be
+damped almost to nothing because a photograph covers every lid position they
+have. The mouth's photographs are a grid of 67 and it has to move *between*
+rungs. The opening at each candidate:
+
+| | 1.0 | 0.3 | 0.0 |
+|---|---|---|---|
+| `201806`, speaking | 0.0397 | 0.0433 | 0.0446 |
+| `214327`, speaking | 0.0612 | 0.0643 | 0.0664 |
+| `201814`, speaking gently | 0.0192 | **0.0127** | **0.0097** |
+
+Three of the four keep their opening or gain it — the rungs carry it, which is
+what a grid of openings is for. The fourth is the quiet capture, where his lips
+barely part and the grid's foot is the nearest rung; there the mesh was
+supplying the difference and damping takes a third of it away. 0.3 is where the
+thickness has stopped being his and that third is still mostly there.
+
+`recordings/day16-lips-before-after.png` is the same four moments of
+`214327` rendered both ways, and `day16-lips-ten-seconds.png` is the whole ten
+seconds.
+
+### What this does not fix
+
+**The dark seam and the missing cavity are still there** — visible in both rows
+of the comparison. Damping the lips makes the teeth the right *size*; it does
+not give the mouth an interior. That remains the first item.
+
+## Day 16, second half — he pressed the button, and the width axis was the fault
+
+**Three captures**, 20:17:45, 20:18:06 and 20:18:14 on 2026-08-27, 300 frames
+each, a face detected on every one of the 900. The first live test where a
+complaint arrived as data rather than as a sentence. `scripts/replay_capture.py`
+replays them; `captures/moment-20260827-*` holds them.
+
+**They found something bigger than the hold did.**
+
+### The resting mouth was learned as the narrowest mouth recently made
+
+`_widened` — the grid's second axis, and the gate that decides whether the mouth
+region is taken from the portrait at all — measures the mouth against a *rest*
+learned per face. Rest was :meth:`_Neutral.relative_expression`: down to a new
+low at :data:`_FLOOR_FALL` in a quarter of a second, back up at
+:data:`_FLOOR_RISE` over twenty. **A running minimum.**
+
+That is the right estimator for a signal that only rises from rest, and the
+mouth is not one. **A mouth is narrower than rest every time it rounds an "oo"
+or an "o"**, several times a sentence, and the floor parks there and stays for
+twenty seconds — longer than anyone sits still.
+
+His resting mouth is 0.57 of an eye span across. What the three captures found:
+
+| | rest, as learned | the width axis, lips *together* | the grid's foot |
+|---|---|---|---|
+| `moment-...-201745` | **0.476** | **0.153** | open on **99%** of them |
+| `moment-...-201806` | **0.409** | 0.227 | open on 88% |
+| `moment-...-201814` | 0.539 | 0.065 | closed, correctly |
+
+**The first capture is the defect entire.** He is sitting with his mouth shut
+and the engine reads him as three quarters of the way into a closed smile
+(a closed smile is 0.2 on this axis). So `_SPEECH_WIDTH_START` never closes, and
+a widened photograph — `speech@75`, a mouth open 0.00 and widened 0.12 — is
+held over his closed mouth at full opacity for **9.6 seconds**.
+
+The third capture is the same engine with a floor that happened to land near his
+rest, and it behaves. It is the control, and it is why this is the estimator and
+not the axis.
+
+### Rest is a level now, not a floor
+
+:meth:`_Neutral.track_level` — a slow two-sided mean with a warm-up, which is
+what the brows moved to on 2026-08-24 **for this exact reason** and what its own
+docstring already described: *"for a measurement that moves both ways around
+rest and has no preferred direction ... the asymmetric estimators above would
+drift toward whichever way the face happened to move most."* The mouth was left
+on the asymmetric one.
+
+Measured, the same three captures, yesterday's engine against today's:
+
+| | | yesterday | today |
+|---|---|---|---|
+| `201745` | a grid photograph over shut lips | **289 of 296 frames** | **1 of 296** |
+| | the width axis, p50 | 0.15 | **0.04** |
+| | longest one photograph | **9600 ms** | 1400 ms |
+| `201806` | the width axis, p50 | 0.29 | **0.09** |
+| | a grid photograph over shut lips | 19 of 19 | 14 of 19 |
+| | longest one photograph | 2133 ms | **867 ms** |
+| | it froze while his parting moved | 0.63 | **0.27** |
+| | parting error, p50 | 0.13 | **0.06** |
+| | photographs used | 28 | **44** |
+| `201814` | longest one photograph | **6633 ms** | 2767 ms |
+| | it froze while his parting moved | 0.42 | **0.29** |
+
+`201806`'s remaining 14 of 19 are the region *fading out* — `holding` keeps a
+name until :func:`_eased` has taken it off screen — not a photograph being
+chosen. `201745`'s 1 of 296 is the honest number for the fix.
+
+**The trade-off taken, and it is the brows':** a level is slow in both
+directions, so a smile held for several seconds decays about a fifth into the
+estimate, and an application started while smiling learns the smile as rest
+until it relaxes. The floor had the mirror of this and it was worse, because a
+mouth rounds far more often than it smiles.
+
+### And the release was re-tuned on top of it
+
+With the width axis no longer inflated, the release was swept again over the
+captures. `201745` is untouched by it (the mouth is correctly gated off now).
+The other two:
+
+| release | `201806` changes/s · single-frame · froze · err | `201814` longest · froze · err |
+|---|---|---|
+| 0.20 | 6.6 · 24 of 65 · 0.34 · 0.07 | 6567 ms · 0.28 · 0.08 |
+| **0.15** | **7.8 · 35 of 77 · 0.27 · 0.06** | **2767 ms · 0.29 · 0.05** |
+| 0.12 | 9.5 · 54 of 94 · 0.27 · 0.05 | 3133 ms · 0.20 · 0.04 |
+| 0.10 | 10.2 · 57 of 101 · 0.27 · 0.04 | 2467 ms · 0.18 · 0.04 |
+| 0.08 | 11.0 · 73 of 109 · 0.27 · 0.04 | 2633 ms · 0.13 · 0.04 |
+
+**0.15 stands.** Below it the parting error stops improving — 0.06 to 0.04 —
+while the single-frame runs go from 45% of runs to two thirds, and a 33 ms flash
+is the thing he named on day 15. The two captures also want opposite things,
+which is the sign that a distance threshold is the wrong instrument for the
+last of this: see the open item below.
+
+### What the frames he pressed on actually show
+
+`seen.png` is the frame that was on screen at the moment of each press, and all
+three share one defect that is *not* movement:
+
+**A hard dark seam across the mouth with a sliver of teeth in it, and no
+cavity.** At `201745` the lips are shut and there are white specks in the seam.
+At `201806` and `201814` the teeth are a thin band with a hard black edge above
+and below and flat lip colour under it. This is the coverage item — the opening
+is the driver's, the interior reaches only as far as the photograph's own lips —
+still open at 14.6% of parted frames.
+
+**He was asked for the mouth's movement and the movement is what was measured.
+The seam is the next thing, and it is what these three pictures are of.**
+
+### Still open on the mouth, in order
+
+1.  **The seam and the missing interior.** Above. It is in every frame he
+    marked.
+2.  **A dwell rather than a distance — measured, and it is not the answer as
+    stated.** The two captures want opposite release values because a distance
+    threshold cannot express *"do not change photograph twice in three frames"*.
+    A minimum time on screen can, so it was simulated over both captures at
+    three and four frames:
+
+    | release · dwell | changes/s | single-frame runs | it froze while his parting moved | err |
+    |---|---|---|---|---|
+    | 0.15 · none (ships) | 7.8 | 35 of 77 | **0.27** | 0.06 |
+    | 0.15 · 3 frames | 5.1 | **0 of 50** | 1.18 | 0.08 |
+    | 0.15 · 4 frames | 4.2 | **0 of 41** | 1.72 | 0.09 |
+    | 0.10 · none | 10.2 | 57 of 101 | **0.27** | 0.04 |
+    | 0.10 · 3 frames | 5.9 | **0 of 58** | 1.27 | 0.05 |
+
+    **It removes every 33 ms flash and pays for them at the fastest moment of
+    the movement.** A hundred milliseconds is nothing while a mouth is holding a
+    vowel and it is a whole opening while a mouth is opening: the frozen
+    stretches go from 0.27 of the parting axis to 1.2 and 1.7. That is the
+    defect this day started with, re-introduced at a smaller scale and in the
+    one place it shows most.
+
+    A dwell that scales with how fast the mouth is moving might still be right.
+    A flat one is not, and the flat one is the only one that has been measured.
+3.  **`source_mouth_open` competes with the grid**, on an argument that expired
+    when day 15 took the grid to a parting of 2.19. Unmeasured since.
+
+## Day 16 — the mouth, and why it stops following
+
+**The owner, before anything else was touched:** *"There were a lot of problems
+with the mouth movements too. Better we tend to the mouth fully first. When I am
+talking it does not follow my mouth at all. You should have looked properly at
+what was happening with the mouth in test001."*
+
+He is right that it was not looked at. Day 15's reading of `test001.mkv` listed
+the pale patch, the blackouts, the eyes and the turn, and said of the mouth only
+that *"the teeth are real and in the right place"*. The mouth's **movement** was
+not read at all.
+
+### What could still be read, and what could not
+
+**`test001.mkv` is no longer on the machine** — not on the desktop, not anywhere
+under the user profile. What survives of it is the 27 frames in
+`recordings/day15-review/`, one per second, and they are frames of the *window*:
+the avatar as it was drawn, with no picture of the face that drove it. **No
+recording of the application can answer "does it follow me"** — the driver is
+not in it. So the question was put to the material that does hold both sides:
+`recordings/driving.mkv`, the owner's own face, frames 1560 to 1799, the eight
+seconds of speech verified by eye on day 12.
+
+### The measurement: the photograph is not lagging, it is stationary
+
+The grid is chosen by nearest rung on two axes, and the rung in hand is kept
+until a challenger is `_SPEECH_HOLD` = **0.20** nearer. Over those eight seconds,
+against the installed 67-rung grid:
+
+| | |
+|---|---|
+| stretches where the photograph did not change at all | 26 |
+| his own parting moved, while it did not, at the median | **0.24** |
+| and at worst | **0.46** |
+| the longest single photograph | **800 ms** |
+| photographs used, of the 67 installed | **14** |
+| parting error against the driver, p50 | 0.103 |
+| follow | gain 0.84, r 0.90 |
+
+**0.46 of the parting axis is nearly half the way from closed lips to teeth
+showing.** For 800 ms — a whole word — the mouth on screen was one photograph
+while his own mouth crossed half its range. That is his sentence, arrived at
+from the other end: it is not that the mouth lags, it is that it *stops*.
+
+### Why a margin alone cannot see this
+
+`_SPEECH_HOLD` asks one question — *is a challenger clearly nearer than the rung
+in hand?* While a mouth walks away from its rung one syllable at a time, every
+rung it passes is nearer by **less than the margin**, so the answer is no on
+every single frame, and the sum of a hundred noes is a photograph that never
+changes. Nothing in the test was watching how far wrong the photograph on screen
+had become.
+
+Day 15 set the margin to four times the other ladders' for a real reason — the
+first version of this ladder changed photograph 7.6 times a second and held one
+for a single frame on 28 runs of 62, and the owner saw it: *"the transition
+between the mouth photographs is not smooth either."* The margin is right about
+flicker. It was missing a ceiling.
+
+### The fix, and what it costs
+
+**`_SPEECH_RELEASE` = 0.15.** The incumbent keeps the region while it is clearly
+nearest *and* while it is still within this far of the mouth being made. Same
+eight seconds, through the engine's own `_nearest_speech`:
+
+| | before | after |
+|---|---|---|
+| his mouth moved while the photograph froze, worst | **0.46** | **0.25** |
+| and at the median | 0.24 | **0.11** |
+| longest single photograph | 800 ms | **500 ms** |
+| parting error, p50 | 0.103 | **0.037** |
+| parting error, p95 | 0.227 | **0.132** |
+| follow | gain 0.84, r 0.90 | **gain 0.96, r 0.98** |
+| photographs used of 67 | 14 | **23** |
+| changes of photograph | 4.2 a second | 6.6 a second |
+| single-frame runs | 6 of 34 | 14 of 53 |
+
+The last two rows are the price and they are the whole argument for a ceiling
+rather than a smaller margin. **Dropping `_SPEECH_HOLD` to 0.05 buys the same
+following and costs twice as much flicker** — 8.6 changes a second and 30
+single-frame runs of 69, against 6.6 and 14 of 53. A 33 ms flash is what he
+objected to; those are the runs that produce it.
+
+### What was tried and does not work here
+
+**Smoothing the measurement instead**, which is what the brows do and what
+`_Neutral.smooth` was written for. Measured over the same window at rates 0.6,
+0.4 and 0.3, it takes the amplitude off the movement without buying smoothness:
+at 0.4 the follow falls to gain 0.79, r 0.90 and the changes stay at 9.2 a
+second. A brow drifts; a mouth is fast, and a low-pass on a fast signal is just
+a smaller mouth.
+
+### What the 27 frames do show about the mouth, and is not fixed
+
+Cropped to the mouth and enlarged, `sheet0-4.png` say three things:
+
+*   **The interior is missing on the open frames.** At 09, 10, 12, 16, 20 and
+    22 s the gap between the upper teeth and the lower lip is flat lip colour
+    with no cavity in it, and the teeth end in a hard horizontal edge. This is
+    the coverage day 15 measured and improved but did not close: on **14.6%** of
+    parted frames the chosen photograph still covers less than half the opening.
+*   **The teeth are a full smiling row on frames where he is speaking** — 07,
+    09, 10, 22 s. Consistent with the same cause.
+*   **26 s is the turn melting**, already on the list, and blocked on the two
+    1080p clips.
+
+### Still open on the mouth, in order
+
+1.  **The interior.** 14.6% of parted frames under half coverage is what the
+    flat pink gap is. It needs either a rung whose own lips reach further or a
+    cavity that is drawn rather than copied.
+2.  **A recording that has both sides in it.** Every number above rests on
+    `driving.mkv`, which is eight months of this project old and mislabelled
+    (backlog 31). The application can already write one — `save_moment` keeps
+    the last 300 frames of tracking beside the rendered frame — and using it
+    during a live test would let a complaint be checked against the frames that
+    caused it. Nothing was captured during `test001`.
+3.  **`source_mouth_open` competes with the grid.** It was taken off
+    `_SPEECH_ROLES` on 2026-08-25 on the argument that the ladder ran out at a
+    parting of 0.38. Day 15 took the grid to **2.19**, so that argument has
+    expired and has not been re-measured. Its weight rarely wins — it is under
+    the rung's through the driver's whole speaking range — but "rarely" is not a
+    measurement.
+
+## What `test001.mkv` actually shows — the open list, in order
+
+**The owner recorded the running application at 23:09 and said, in Georgian:
+*"I do not like it at all. We have a lot of mistakes."*** He asked for every
+second of it to be looked at. This is what is in it. `test001.mkv` is on his
+desktop: 1920x1080, 60 fps, 27.8 s of the app window, the app reporting 27.7 to
+29.7 fps throughout. One frame per second is in `recordings/day15-review/`
+(`sheet0-4.png`), and the eye crops are in `eyes.png` beside them.
+
+**These are frames of his own face and they are kept only while this list is
+open.** Delete the folder when it is closed.
+
+### 1. The pale patch around the mouth — FIXED the same evening
+
+On almost every frame where the mouth moves: the skin around the lips is lighter
+than the cheeks and the moustache washes out inside it. **His own log names it:**
+
+```
+Region mouth: speech@94  is 18 of 255 from the portrait ... correcting by 12
+Region mouth: speech@127 is 30 of 255 ... correcting by 12
+Region mouth: speech@140 is 32 of 255 ... correcting by 12
+```
+
+Six rungs 17 to 32 of 255 off their own ring, corrected by 12, **5 to 20 left
+standing.** The clamp was `_SKIN_SHIFT_LIMIT`, chosen by whether the three
+channels agree — one exposure or two lights. That question is real over a whole
+face and meaningless over a mouth ring of a few hundred pixels, where three
+channels disagreeing says only that the patch is a different colour from the
+skin it is set into. `_match_ring` now clamps by magnitude alone, at 60, and the
+warnings are gone.
+
+### 2. The picture goes black six times in 28 seconds — NOT DIAGNOSED
+
+Measured on the picture area, mean brightness falling to the widget's own
+background:
+
+| at | for |
+|---|---|
+| 3.88 s | 50 ms |
+| 8.75 s | 50 ms |
+| 18.97 s | 67 ms |
+| 20.15 s | 33 ms |
+| 20.38 s | 50 ms |
+| 21.65 s | 50 ms |
+
+18 frames, **1.1% of the clip**, roughly one every four seconds. The area is a
+flat 16 of 255 with no structure in it under a 6x boost — the preview widget
+with **no pixmap at all** — while the toolbar still draws and the app still
+reports 29.7 fps. Nothing is logged. `PreviewWidget.show_frame` never sets the
+pixmap to `None` and `clear_frame` has one caller, `_on_stop`, so the mechanism
+is not yet understood.
+
+**What this recording cannot say is whether the virtual camera blanks too.** It
+is a capture of the *window*. The test that settles it is one recording of the
+**OBS Virtual Camera** source instead — five minutes, and it decides whether
+this is cosmetic or the first thing to fix.
+
+### 3. The eyes
+
+*   **A violet cast under both eyes**, on nearly every frame — 09, 13, 15, 16 s.
+    This is the family the owner listed on day 12 as *"a greenish tint over the
+    eyes"* and it has never been fixed.
+*   **16 s: the lids are asymmetric** — one eye a slit, the other open, which is
+    not a movement he made.
+*   **13 s: almost no white in the eye**, the eye reading as a dark oval.
+
+### 4. Turned frames melt
+
+26 s and 27 s: one side of the face goes flat and stretched and the brow becomes
+a smear. This is the open item the turn clips block — and after today, they
+should be asked for at **1080p**, where the shape matters less than the
+resolution.
+
+### What is good in it, and worth saying
+
+The teeth are real and in the right place at 07, 09, 10, 22, 23 and 25 s. That
+is today's work showing. The face shape, the hair and the brows are right on
+still frames.
+
+### The order to take it
+
+**Reordered by the owner on 2026-08-27:** *"Better we tend to the mouth fully
+first."* The mouth was not on this list at all — see **"Day 16 — the mouth, and
+why it stops following"** for what it holds now. The rest keeps its order:
+
+1.  **The mouth**, fully, before anything below it.
+2.  **The blackouts**, starting with the virtual-camera recording that says
+    whether they reach a call at all.
+3.  **The violet under the eyes**, which is on more frames than anything else
+    left.
+4.  **The turn**, which needs the two clips at 1080p.
+
+## Day 15, second half — the owner looked, and both of his words were right
+
+**What he said**, having run it: *"There is not a big difference. There are
+still a lot of problems. The teeth show in the mouth when smiling, but very
+badly. And I think we are not using all the pictures we need for the smile and
+for the movement of the mouth."*
+
+Both halves measured out.
+
+### The teeth: the opening is the driver's, the interior is the photograph's
+
+The mouth opening on screen is drawn from the **driver's** lips. The interior
+can only be copied as far as the **photograph's** own lips reach. Everything
+between the two was flat cavity colour — a band of real teeth with a maroon
+patch under it.
+
+Measured over his own recording, on the 438 frames where his lips are apart:
+
+| | before | after |
+|---|---|---|
+| the chosen photograph covers **less than half** the opening | **39.7%** of frames | **14.6%** |
+| coverage at p10 | 16% | **44%** |
+| worst | 6% | **43%** |
+| on the frames the smile ladder won | **100%** under half, median **17%** | the family is gone |
+
+### And the reason it was that bad: the smile ladder's axis was a product
+
+`widened x (1 + parted)`. **A product cannot tell a wide mouth from an open
+one**, so the ladder answered a mouth open 0.10 with a photograph whose lips
+were 0.018 apart. It is the same defect the speech family had before day 14 —
+*"in the first photo I am saying O, in the second A"* — left standing in the
+family next door, and the owner found it by eye within a day of the other one
+being fixed.
+
+**So the mouth is one grid now, on the two axes it actually has.** The smile
+ladder is not consulted while a grid exists and its twelve rungs are retired;
+`smiling`, the line that decided whether a mouth was a smile or a word, is gone
+from the choice. A smile is a corner of the plane speech moves in.
+
+### He was right about the pictures too, and the reason was the nose
+
+`build_speech_ladder` refuses a frame whose proportions have drifted from the
+portrait's, at 0.08. `identity_ratios` holds three, and **the nose flares when
+the mouth widens**. Measured over the 98 frames of `video-09` where the mouth is
+0.20 wider than rest:
+
+| | median drift |
+|---|---|
+| face width | 0.008 |
+| eye spacing | 0.047 |
+| **nose width** | **0.152** |
+
+**All 98 were refused, every one of them, and not one wide smile could enter the
+grid.** That is why the smile had to be a second family and why it could stay
+one. The nose is now left out of the judgement for this builder — the same
+lesson as the brow anchor, moved off the nose bridge on 2026-08-24 for moving
+with the thing it was measuring.
+
+Two more gates were wrong for the same reason:
+
+*   **The grid only accepted a parted mouth.** A closed smile parts the lips
+    barely at all. `--min-widened` now admits a mouth one width step above rest
+    whatever its parting, and `_SPEECH_WIDTH_START` is the matching foot in the
+    engine.
+*   **`--max-parted` was 1.5**, the driver's own maximum, on the argument that
+    rungs past the demand are unused. They are not unused any more: the interior
+    of the widest mouth in the library is what a frame wider than the grid
+    borrows from. Raised to 2.5, and the widest opening the avatar owns went
+    from 0.080 of face height to 0.115.
+
+### What the grid holds now
+
+**67 rungs**, from 38, covering a parting of 0.00 to 2.19 and a widening of
+0.000 to 0.390 — where the speech grid alone reached 0.164 of widening and no
+closed smile at all.
+
+**And the owner's own clip from this morning earns the top of it.** The cells at
+a parting of 1.94 to 2.08 are `speech-1080`'s, at 431 to 569 of sharpness with a
+505 px face, against the 720p clip's 74 at 385 px. It lost every cell it
+contested against the 4K material and won the ones nothing else could reach.
+
+### Measured
+
+| | day 14 | now |
+|---|---|---|
+| warp residual, all | 7.37 | **7.11** |
+| face sharpness | 174 | **178** |
+| near-eye sharpness | 360 | 360 |
+| animate, the floor | 16.38 ms | 16.37 ms |
+
+**The frame cost rose to 31.1 ms of mean and the cause was found, but the
+rested-machine number is still owed.** Three things say what happened. The floor
+did not move — 16.38 ms on day 14, 16.37 ms now — so no frame became more
+expensive. What changed was **how many frames had a photograph on the mouth**:
+
+| | frames with a mouth photograph |
+|---|---|
+| day 14, two ladders | 292 speech + 409 smile = **701** |
+| the grid, gated on the plane distance | **895** |
+| the grid, gated per axis | **704** |
+
+The first version of the width foot was a distance on the plane, and an ordinary
+speaking mouth widens 0.046 — which clears a threshold of 0.05 on its own. The
+grid took the mouth on 194 frames where the portrait was the right photograph
+and paid a composition for each. Per-axis feet put it back to where day 14 was.
+
+**What is owed is the confirming mean on a rested machine.** Every run since has
+warmed 48-55% inside its own duration against day 14's 6%, and a mean measured
+through that is not a number. The floor and the frame count are both unchanged,
+so the expected answer is day 14's, plus one affine warp on the frames where the
+interior borrows a backdrop.
+
+### One defect this uncovered, fixed
+
+`_align_axis` sorted its rungs as plain tuples, so two rungs carrying the same
+amount fell through to comparing their keys — and the portrait's own rung is
+keyed `None`. A grid holding any rung at exactly zero, which a closed smile is,
+**could not load the avatar at all**. Sorted by the amount alone now.
 
 ## Where day 15 starts — the owner's verdict on day 14, and what it means
 

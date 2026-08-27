@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 from itertools import pairwise
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 import pytest
@@ -35,6 +35,7 @@ from sha256.avatar.engine_warp import (
     _IRIS_POSITIONS,
     _LADDER_CROSSFADE_DEGREES,
     _LEVEL_WARMUP_FRAMES,
+    _LIP_FOLLOW,
     _MASK_FEATHER,
     _NEAR_CHEEK_START,
     _NOSE_TIP_POSITION,
@@ -44,6 +45,11 @@ from sha256.avatar.engine_warp import (
     _ROLE_REGION,
     _SMILE_LADDER_START,
     _SMILE_REFERENCE,
+    _SMILE_WIDEN_SPAN,
+    _SPEECH_HOLD,
+    _SPEECH_LADDER_START,
+    _SPEECH_RELEASE,
+    _SPEECH_WIDTH_START,
     _STABLE_POSITIONS,
     _SWITCH_MARGIN,
     MESH_INDICES,
@@ -62,17 +68,22 @@ from sha256.avatar.engine_warp import (
     _eye_opening,
     _ladder_weights,
     _lid_aspect,
+    _lip_parting,
     _misplaced,
     _nearest_rung,
     _nearest_smile,
+    _nearest_speech,
     _Neutral,
     _one_per_region,
     _pixel_points,
     _shut,
     _smile_amount,
+    _smile_share,
     _source_weights,
+    _speech_amount,
     _trim_forehead,
     _turn_bias,
+    _widened,
     refused_as_rung,
 )
 from sha256.avatar.engine_warp import _OVAL_SLICE as OVAL_COUNT_SLICE
@@ -1750,6 +1761,55 @@ class TestTheBrowReadingSurvivesBeingTakenAgain:
         assert square == pytest.approx(widescreen, abs=1e-6)
 
 
+class TestTheSpeechAxisSurvivesTheFrameShape:
+    """The same defect as the two tests above, in the last measure that had it.
+
+    :func:`_lip_parting` divided the lips' gap by the eye span until 2026-08-26,
+    which multiplied the reading by the frame's aspect ratio. Live it cancelled,
+    and every clip the library was built from happened to be 16:9, so nothing
+    saw it. The first 9:16 source clip broke it: the same sentence reached 0.64
+    of the axis where the 16:9 take reached 2.30, and the grid would have
+    installed a wide open mouth as a barely parted rung — answering a mouth that
+    is hardly open with a photograph of one wide open.
+
+    The lids and the brows were fixed the same way and hold the same guard.
+    """
+
+    def face(self, *, gap: float = 0.10, stretch: float = 1.0):
+        from sha256.avatar.engine_warp import _LOWER_INNER_LIP, _UPPER_INNER_LIP
+
+        points = synthetic_landmarks()
+        points[10, 1], points[152, 1] = 0.2, 0.8  # forehead and chin
+        points[_UPPER_INNER_LIP, 1] = 0.55 - gap / 2
+        points[_LOWER_INNER_LIP, 1] = 0.55 + gap / 2
+        # As in the brow tests: x is normalised by the frame's width and y by
+        # its height, so stretching x is what a wider frame does to a face.
+        points[:, 0] *= stretch
+        return tracking_from(points)
+
+    def test_a_change_of_aspect_ratio_cannot_move_it(self):
+        square = _lip_parting(self.face())
+        widescreen = _lip_parting(self.face(stretch=16 / 9))
+
+        assert square == pytest.approx(widescreen, abs=1e-6)
+
+    def test_the_lips_still_move_it(self):
+        """A guard on the test above: a reading nothing can move is not a fix."""
+        assert _lip_parting(self.face(gap=0.16)) > _lip_parting(self.face(gap=0.04))
+
+    def test_the_axis_a_rung_is_filed_on_carries_both(self):
+        """:func:`_speech_amount` is the reading a rung is filed by, over two constants.
+
+        The constants were rescaled with the fix so that the live axis did not
+        move. Asserting on them here would test the rescale; what has to hold is
+        that the shape of the frame is gone and the mouth is still in.
+        """
+        assert _speech_amount(self.face(gap=0.16, stretch=16 / 9)) == pytest.approx(
+            _speech_amount(self.face(gap=0.16)), abs=1e-6
+        )
+        assert _speech_amount(self.face(gap=0.16)) > _speech_amount(self.face(gap=0.04)) > 0.0
+
+
 class TestTheBrowsHoldStillThroughABlink:
     """The owner, twice: two brows and an angry face, *"for a very short time"*,
     while the eyes open.
@@ -3096,3 +3156,207 @@ class TestRelightingStability:
         many = engine.animate("avatar_test", tracking, self._scene(200))
 
         assert float(many.data[110:130, 150:170].mean()) > float(one.data[110:130, 150:170].mean())
+
+
+class TestTheSpeechGridLetsGoOfAMouthTheFaceHasLeft:
+    """The owner, on the running application: *"when I am talking it does not
+    follow my mouth at all."*
+
+    Measured on the eight seconds of `driving.mkv` where he speaks, the margin
+    alone froze the photograph for up to 800 ms while his own lips travelled
+    0.46 of the parting axis — nearly half the way from closed to teeth showing.
+    A margin asks whether a challenger is clearly nearer, and while a mouth
+    walks away one rung at a time the answer stays no on every single step.
+    """
+
+    # Rungs a fifth of the axis apart, which is the grid's own spacing near the
+    # foot of it, and no width on any of them so the distance is the parting.
+    LADDER = ((0.2, "speech@a"), (0.4, "speech@b"), (0.6, "speech@c"), (0.8, "speech@d"))
+    WIDTHS: ClassVar[dict[str, float]] = dict.fromkeys(
+        ("speech@a", "speech@b", "speech@c", "speech@d"), 0.0
+    )
+
+    def chosen(self, parted: float, held: str | None) -> set[str]:
+        return set(_nearest_speech(self.LADDER, self.WIDTHS, parted, 0.0, parted, held))
+
+    def test_the_rung_in_hand_still_survives_a_boundary(self):
+        """The margin's own job, and it is not being taken away: a mouth that has
+        barely moved must not change photograph, or every crossing is a flicker."""
+        assert self.chosen(0.31, "speech@a") == {"speech@a"}
+
+    def test_but_it_is_let_go_once_it_is_no_longer_this_mouth(self):
+        """Past the release the incumbent is not a candidate at all, however
+        little the challenger beats it by."""
+        assert self.chosen(0.55, "speech@a") == {"speech@c"}
+
+    def test_the_release_is_what_decides_it_rather_than_the_margin(self):
+        """At this parting the nearest rung beats the incumbent by less than the
+        margin, so the margin alone would have kept it."""
+        parted = 0.2 + _SPEECH_RELEASE + 0.02
+        distances = sorted(abs(amount - parted) for amount, _ in self.LADDER)
+        assert distances[0] > distances[1] - _SPEECH_HOLD, "the margin would have released it"
+        assert self.chosen(parted, "speech@a") != {"speech@a"}
+
+    def test_a_mouth_walking_away_one_step_at_a_time_is_still_followed(self):
+        """The failure as it was found. Each frame moves the lips too little for
+        any challenger to clear the margin; the release is what keeps the
+        photograph from sitting still through the whole movement."""
+        held: str | None = "speech@a"
+        parted = 0.2
+        while parted < 0.8:
+            parted += 0.02
+            got = self.chosen(parted, held)
+            held = next(iter(got), None)
+            assert held is not None
+            amount = next(a for a, key in self.LADDER if key == held)
+            assert abs(amount - parted) <= _SPEECH_RELEASE, (
+                f"at a parting of {parted:.2f} the mouth on screen is {held}"
+            )
+
+    def test_and_a_mouth_at_rest_is_still_the_portrait_own(self):
+        assert self.chosen(_SPEECH_LADDER_START / 2, "speech@a") == set()
+
+
+class TestARoundedMouthDoesNotBecomeTheRestingWidth:
+    """Found in the owner's own captures on 2026-08-27. He sits with his mouth
+    shut, and the engine reads him as three quarters of the way into a closed
+    smile — so the grid's width foot never closes and a widened photograph is
+    held over a closed mouth for **9.6 seconds**.
+
+    Rest was learned as a *floor*: down to a new low in a quarter of a second,
+    back up over twenty. That is right for a signal that only rises from rest,
+    and a mouth is not one. It narrows every time it rounds an "oo", several
+    times a sentence, and the floor parked there.
+    """
+
+    REST = 0.53  # of the eye span, the owner's own resting mouth
+    ROUNDED = 0.40  # and an "oo", which is narrower than rest, not wider
+
+    def mouth(self, reach: float) -> Any:
+        """One frame of a face at rest, with the mouth this wide."""
+        tracking = expressive_tracking(gap=0.001)
+        points = tracking.landmarks.points
+        span = float(abs(points[263, 0] - points[33, 0]))
+        points[61, :2] = (0.5 - span * reach / 2, 0.6)
+        points[291, :2] = (0.5 + span * reach / 2, 0.6)
+        return tracking
+
+    def show(self, neutral: _Neutral, reach: float, frames: int) -> float:
+        """``frames`` of this mouth, read the way the engine reads them: the
+        share advances the estimate, the axis reads it after."""
+        widened = 0.0
+        for _ in range(frames):
+            tracking = self.mouth(reach)
+            _smile_share(tracking, neutral)
+            widened = _widened(tracking, neutral) / _SMILE_WIDEN_SPAN
+        return widened
+
+    def test_a_face_at_rest_reads_as_resting(self):
+        neutral = _Neutral()
+        assert self.show(neutral, self.REST, 90) < _SPEECH_WIDTH_START
+
+    def test_and_still_does_after_the_mouth_has_rounded_an_oo(self):
+        """The defect entire. Half a second of an "oo" and then rest again —
+        which is every second sentence — and the mouth that follows must not
+        read as a widening."""
+        neutral = _Neutral()
+        self.show(neutral, self.REST, 90)
+        self.show(neutral, self.ROUNDED, 15)
+
+        after = self.show(neutral, self.REST, 3)
+        assert after < _SPEECH_WIDTH_START, (
+            f"a resting mouth reads {after:.3f} of a widening after an 'oo', "
+            f"which holds the grid's width foot open at {_SPEECH_WIDTH_START}"
+        )
+
+    def test_but_a_real_smile_is_still_a_widening(self):
+        """The estimate is slow in both directions, so it must not learn away a
+        smile either. The owner's widest rung is 0.72 of the eye span."""
+        neutral = _Neutral()
+        self.show(neutral, self.REST, 90)
+
+        assert self.show(neutral, 0.72, 30) > _SPEECH_WIDTH_START
+
+
+class TestTheAvatarKeepsItsOwnLips:
+    """The owner, watching the application on 2026-08-27: *"the size of the
+    teeth changes sometimes, and the size of the lips too. Sometimes a thick
+    lip, sometimes thin ... I think it is trying to fit its own lips exactly to
+    the size of my lips. I do not actually have big lips. Some girl might have
+    botox — you would not stretch the photograph onto her lips."*
+
+    He had read the mesh correctly. It maps the avatar's landmarks onto the
+    driver's, so the lips on screen were his outline at his thickness, changing
+    as his changed. Measured over his four captures the avatar wore his lower
+    lip 27 to 43% thicker than its own.
+    """
+
+    OUTER_UPPER, INNER_UPPER, INNER_LOWER, OUTER_LOWER = 0, 13, 14, 17
+
+    def mesh(self, *, lip: float, opening: float) -> np.ndarray:
+        """A mesh whose lips are ``lip`` thick and ``opening`` apart, in pixels.
+
+        Everything else is left where :func:`synthetic_landmarks` put it, so a
+        rigid fit between two of these is an identity and what the damping does
+        to the lips is the only thing measured.
+        """
+        seat = {original: row for row, original in enumerate(MESH_INDICES)}
+        built = _pixel_points(synthetic_landmarks(), 400, 400)
+        assert built is not None
+        points: np.ndarray = built
+        middle = 260.0
+        for index, offset in (
+            (self.OUTER_UPPER, -opening / 2 - lip),
+            (self.INNER_UPPER, -opening / 2),
+            (self.INNER_LOWER, opening / 2),
+            (self.OUTER_LOWER, opening / 2 + lip),
+        ):
+            points[seat[index], 1] = middle + offset
+        return points
+
+    def measured(self, points: np.ndarray) -> tuple[float, float]:
+        """That mesh's lip thickness and mouth opening, read back."""
+        seat = {original: row for row, original in enumerate(MESH_INDICES)}
+        lip = float(points[seat[self.OUTER_LOWER], 1] - points[seat[self.INNER_LOWER], 1])
+        opening = float(points[seat[self.INNER_LOWER], 1] - points[seat[self.INNER_UPPER], 1])
+        return lip, opening
+
+    def test_a_thick_lipped_driver_does_not_thicken_the_avatar(self):
+        """The defect as he described it. The avatar's lip is 10 px, the
+        driver's is 30, and what is drawn must be the avatar's."""
+        from sha256.avatar.engine_warp import _damp_brows
+
+        avatar = self.mesh(lip=10.0, opening=4.0)
+        driver = self.mesh(lip=30.0, opening=4.0)
+
+        lip, _ = self.measured(_damp_brows(avatar, driver))
+
+        assert lip == pytest.approx(10.0 + _LIP_FOLLOW * 20.0, abs=1.0)
+        assert lip < 20.0, "the avatar is still wearing more than half of his lip"
+
+    def test_and_a_thin_lipped_one_does_not_thin_it(self):
+        """The other direction, which is the one that matters for someone whose
+        lips are fuller than the driver's."""
+        from sha256.avatar.engine_warp import _damp_brows
+
+        avatar = self.mesh(lip=30.0, opening=4.0)
+        driver = self.mesh(lip=10.0, opening=4.0)
+
+        lip, _ = self.measured(_damp_brows(avatar, driver))
+
+        assert lip == pytest.approx(30.0 - _LIP_FOLLOW * 20.0, abs=1.0)
+
+    def test_but_the_photograph_own_opening_survives_the_damping(self):
+        """**The thing this must not cost.** The opening arrives in the chosen
+        rung, and the rung is what ``source`` is: an open mouth damped toward an
+        open mouth stays open. If this ever fails, the mouth has been damped
+        shut and the speech grid is drawing nothing."""
+        from sha256.avatar.engine_warp import _damp_brows
+
+        rung = self.mesh(lip=10.0, opening=40.0)
+        driver = self.mesh(lip=10.0, opening=46.0)
+
+        _, opening = self.measured(_damp_brows(rung, driver))
+
+        assert opening > 35.0, f"the mouth closed to {opening:.0f} px"
+        assert opening == pytest.approx(40.0 + _LIP_FOLLOW * 6.0, abs=1.0)

@@ -150,6 +150,14 @@ _SPEECH_PREFIX = "speech@"
 # mouth region out and put it back at syllable rate.
 _SPEECH_LADDER_START = 0.05
 
+# And the same foot on the width axis, which the grid gained on 2026-08-26 when
+# the smile ladder was folded into it. One width step above the portrait's
+# resting mouth, matching `build_speech_ladder.DEFAULT_MIN_WIDENED`: below it a
+# mouth is merely resting and the portrait is its own best photograph. The
+# owner's ordinary speaking widening is 0.046, which is deliberately under it —
+# speech is chosen by the parting, and the width only decides *which* opening.
+_SPEECH_WIDTH_START = 0.08
+
 # How much nearer a challenger has to be, on the speech plane, before it takes
 # the region from the rung in hand.
 #
@@ -162,6 +170,46 @@ _SPEECH_LADDER_START = 0.05
 # once per blink and 0.05 is right for that; a mouth crosses this one at
 # syllable rate.
 _SPEECH_HOLD = 0.20
+
+# And how far wrong the rung in hand is allowed to be while it is being held.
+#
+# **A margin alone cannot say this, and that is what the hold above got wrong.**
+# It asks whether a challenger is *clearly nearer*, which stays false while the
+# mouth walks away from the incumbent and every rung it passes is nearer by less
+# than the margin. Nothing in it is watching how far wrong the photograph on
+# screen has become.
+#
+# Measured on the same eight seconds of `driving.mkv` the hold was measured on,
+# frames 1560 to 1799, against the 67-rung grid:
+#
+# | | shipped, margin only | margin + this release |
+# |---|---|---|
+# | the photograph froze while his own parting moved, at worst | **0.46** | 0.25 |
+# | and at the median of the 26 stretches it froze for | 0.24 | 0.07 |
+# | longest single photograph | **800 ms** | 500 ms |
+# | parting error, p50 | 0.103 | **0.038** |
+# | follow | gain 0.84, r 0.90 | **gain 0.95, r 0.98** |
+#
+# 0.46 of the parting axis is nearly half the way from closed lips to teeth
+# showing. That is the owner's *"when I am talking it does not follow me at
+# all"*, arrived at from the other direction: the mouth on screen was not
+# lagging, it was **stationary** for the better part of a second at a time.
+#
+# **Why not simply a smaller hold.** Dropping the margin to 0.05 buys the same
+# following and costs more than this does: 8.6 changes of photograph a second
+# against 6.6, and 30 single-frame runs out of 69 against 14 out of 53. Those
+# 33 ms flashes are what the owner called *"the transition between the mouth
+# photographs is not smooth"*. The margin is right about flicker; it was only
+# ever missing a ceiling.
+#
+# **Re-measured on 2026-08-27 over the owner's own captures**, after
+# :func:`_widened` stopped inflating the width axis — every number above was
+# taken with the inflated one. It survived: below 0.15 the parting error stops
+# improving, 0.06 to 0.04, while the single-frame runs go from 45% of runs to
+# two thirds. The two captures want opposite values, which is the sign that the
+# last of this wants a minimum time on screen rather than a distance. See
+# `docs/development/PROJECT_STATUS.md`, "Day 16, second half".
+_SPEECH_RELEASE = 0.15
 
 # And the third axis, which the owner ranks first: the lids closing.
 #
@@ -429,22 +477,45 @@ _SMILE_WIDEN_SPAN = 0.51
 # the axis for both capped the closed-smile photograph at 0.37 of itself.
 _SMILE_WIDEN_FULL = 0.19
 
-# And how far the lips part, on the same scale, for the opening half to reach
-# one. Measured on the same rungs: the ones where the teeth appear sit at 0.125
-# and the widest at 0.148, and the axis says the teeth appearing is 1.0 — which
-# with the widening already contributing a third gives 0.19.
-_SMILE_OPEN_SPAN = 0.19
+# And how far the lips part for the opening half to reach one. Measured on the
+# same rungs: the ones where the teeth appear sat at 0.125 of an eye span and
+# the widest at 0.148, and the axis says the teeth appearing is 1.0 — which with
+# the widening already contributing a third gave 0.19.
+#
+# **Divided by 3.70 on 2026-08-26, when :func:`_lip_parting` stopped dividing by
+# the eye span.** That is the map between the two denominators on the driver's
+# own frames — 400 of them, median 3.70 — and it is applied to this constant and
+# to `_SMILE_LIP_CLOSED` together so that the live axis does not move at all:
+# the same face on the same camera reads exactly what it read yesterday. What
+# changes is source material shot in a shape other than the camera's, which
+# until now could not be filed correctly at all.
+#
+# **Two numbers already written in this file check the map, and both land within
+# 3%.** A photograph is square, so the map for one is 3.70 / (16/9) = 2.08:
+#
+#   the teeth-showing rung      0.125 / 2.08 = 0.0601  vs  0.0591 recorded
+#   the portrait's resting mouth 0.0019 / 2.08 = 0.00091 vs 0.0010 recorded
+#
+# The recorded pair is `_LIP_GAP_CLOSED`'s own calibration, measured on the same
+# photographs against face height days before this rescale was needed.
+# Two independent measurements of the same two mouths, agreeing.
+_SMILE_OPEN_SPAN = 0.0514
 
 # Below this the lips count as together and the opening contributes nothing.
 #
 # **Without it a face doing nothing asks for a smile**, which is how it was
 # found: no mouth is ever perfectly sealed, and a tenth of a millimetre of
 # parting divided by a small number is not a tenth of a millimetre any more.
-# The portrait's own resting mouth measures 0.0019 on this scale and its closed
-# smiles 0.004 to 0.023, so a floor at 0.010 leaves a closed smile its widening
-# and nothing else. `_LIP_GAP_CLOSED` is the same idea on the other
-# denominator, and dropping it here was an oversight rather than a decision.
-_SMILE_LIP_CLOSED = 0.010
+# The portrait's own resting mouth measured 0.0019 on the old eye-span scale and
+# its closed smiles 0.004 to 0.023, so a floor at 0.010 left a closed smile its
+# widening and nothing else. `_LIP_GAP_CLOSED` is the same idea on the same
+# denominator this now uses, and dropping it here was an oversight rather than a
+# decision.
+#
+# Divided by the same 3.70 as `_SMILE_OPEN_SPAN`, and for the same reason: both
+# are compared against :func:`_lip_parting`, so rescaling them together leaves
+# every live reading exactly where it was.
+_SMILE_LIP_CLOSED = 0.0027
 
 # How far the eyelids have to close, as a fraction of their own resting
 # opening, before the closed-eye photograph starts to apply and where it fully
@@ -1136,6 +1207,56 @@ _BROW_FOLLOW = 0.5
 # geometry placed rigidly on the live head, and the small remainder exists only
 # so that expressions no photograph covers are not frozen out entirely.
 _EYE_FOLLOW = 0.2
+
+# How much of the *lips'* shape the avatar copies from the user.
+#
+# **The owner found this one himself**, on 2026-08-27, watching the application:
+# *"the size of the teeth changes sometimes, and the size of the lips too.
+# Sometimes a thick lip, sometimes thin... I think it is trying to fit its own
+# lips exactly to the size of my lips. I do not actually have big lips. Some
+# girl might have botox — you would not stretch the photograph onto her lips."*
+#
+# He is describing this file's own sentence, three constants up: the avatar
+# inherits the user's **proportions** where it should be inheriting only their
+# **motion**. The brows were damped for it, then the eyes. The lips were not,
+# and they followed at 1.0.
+#
+# Measured over his four captures, as lip thickness against face height, over
+# the avatar portrait's own — `x` is how many times its own it wears, `swing` is
+# p95/p05 inside the ten seconds:
+#
+# |  | lower lip, x | swing | at 0.3: x | swing |
+# |---|---|---|---|---|
+# | `201745` | 1.27 | 1.14 | **1.06** | 1.05 |
+# | `201806` | 1.40 | 1.28 | **1.09** | 1.26 |
+# | `201814` | 1.43 | 1.33 | **1.13** | 1.23 |
+# | `214327` | 1.34 | 1.17 | **1.09** | 1.14 |
+#
+# **A lower lip worn 27 to 43% thicker than the avatar's own**, and swinging by
+# up to a third inside ten seconds. That is *"sometimes a thick lip, sometimes
+# thin"*, and it is his lip, not the avatar's.
+#
+# **Between the eyes' 0.2 and the brows' 0.5, and the reason is the grid.** The
+# eyes can be damped almost to nothing because a photograph covers every lid
+# position they have. The mouth's photographs are a grid of 67 and it has to
+# move *between* rungs, so some of the mesh has to stay or the mouth stops
+# between them. Measured on the same four captures, the mouth's own opening at
+# each candidate — the thing that must not be flattened along with the
+# thickness:
+#
+# |  | 1.0 | 0.3 | 0.0 |
+# |---|---|---|---|
+# | `201806`, speaking | 0.0397 | 0.0433 | 0.0446 |
+# | `214327`, speaking | 0.0612 | 0.0643 | 0.0664 |
+# | `201814`, gently | 0.0192 | **0.0127** | **0.0097** |
+#
+# Three of the four keep their opening or gain it — the rungs carry it, which is
+# what a grid of openings is for. The fourth is the quiet one, where his mouth
+# barely parts and the grid's foot is the nearest rung: there the mesh was
+# supplying the difference, and damping it takes a third of the opening away.
+# 0.3 is where the thickness is his no longer and that third is still mostly
+# there.
+_LIP_FOLLOW = 0.3
 
 # How much the eyes follow when a photograph was asked for and **could not be
 # delivered**, which is what happens at a turn: every eye photograph is of a
@@ -2203,7 +2324,13 @@ class WarpAvatarEngine:
         # ladder. Returning it as one would be enough to make callers believe
         # there is a smile ladder and stop using the named smile photographs —
         # see the same guard on the turn ladder, where it was a real defect.
-        return tuple(sorted(rungs)) if len(rungs) > 1 else ()
+        #
+        # **Sorted by the amount alone.** A plain sort falls through to the key
+        # when two rungs carry the same amount, and the portrait's own rung is
+        # keyed ``None`` — so a grid holding any rung at exactly zero, which a
+        # closed smile is, compared a string with None and the avatar would not
+        # load at all.
+        return tuple(sorted(rungs, key=lambda rung: rung[0])) if len(rungs) > 1 else ()
 
     def _align_ladder(
         self,
@@ -2586,16 +2713,22 @@ def _warp_onto(
     # mouth, a closed eyelid — and warping from the base's mesh instead was what
     # crushed the teeth into a sliver and stretched the eyelids into streaks.
     source_mesh = avatar.blend_points
+    # **Once, and shared with the interior.** The mouth is drawn where
+    # `_damp_brows` puts it, so the opening the teeth are painted into has to be
+    # the same one — see `_LIP_FOLLOW`. Painting the interior at the *driver's*
+    # lips while the mesh drew the avatar's would put the teeth outside the
+    # mouth holding them.
+    damped = _damp_brows(source_mesh, local, avatar.eye_follow, avatar.lid_aspect)
     canvas = warp_mesh(
         blended,
         source_mesh,
-        _damp_brows(source_mesh, local, avatar.eye_follow, avatar.lid_aspect),
+        damped,
         avatar.triangles,
         box_w,
         box_h,
     )
 
-    _paint_mouth_interior(avatar, canvas, blended, local)
+    _paint_mouth_interior(avatar, canvas, blended, damped)
 
     alpha = _destination_mask(local, box_w, box_h)
 
@@ -2630,6 +2763,34 @@ def _cavity_colour(image: np.ndarray, points: np.ndarray) -> np.ndarray:
     darker = pixels[luminance <= float(np.median(luminance))]
     cavity: np.ndarray = darker.mean(axis=0) if len(darker) else pixels.mean(axis=0)
     return cavity
+
+
+def _covering_interior(avatar: _LoadedAvatar, opening: float) -> str | None:
+    """The narrowest photograph whose own mouth still covers this opening.
+
+    **The closest larger mouth, not the widest one.** The widest is a shout, and
+    a shout behind a smile's lips is a tongue where there should be teeth. What
+    is wanted is the least amount of somebody else's mouth that answers the
+    question, so the search is for the smallest gap at or above the live one and
+    the widest available only when nothing covers it.
+
+    Rungs are included and are usually the answer: the library's openings run
+    from a closed mouth to 0.123 of face height in twelve steps, so the frame
+    that has to borrow rarely borrows from far away.
+    """
+    covering = [
+        (gap, role)
+        for role, gap in avatar.gaps.items()
+        if gap >= max(opening, _LIP_GAP_OPEN) and role in avatar.sources
+    ]
+    if covering:
+        return min(covering)[1]
+    widest = [
+        (gap, role)
+        for role, gap in avatar.gaps.items()
+        if gap >= _LIP_GAP_OPEN and role in avatar.sources
+    ]
+    return max(widest)[1] if widest else None
 
 
 def _paint_mouth_interior(
@@ -2668,6 +2829,23 @@ def _paint_mouth_interior(
     With no such photograph in play the blend itself is used, which for a face
     with its lips together is a sliver and leaves the opening as cavity — the
     same answer as before, by the same route.
+
+    **A second photograph fills what the first cannot reach, and that is new on
+    2026-08-26.** The opening on screen is drawn from the *driver's* lips, and
+    the interior can only be copied as far as the *photograph's* own lips reach.
+    Everything between the two was flat cavity colour. Measured over the owner's
+    recording, on the 438 frames where his lips are apart, the chosen photograph
+    covered less than half the opening on **39.7%** of them — and on every one
+    of the 116 frames the smile ladder won, with a median coverage of **17%**.
+    That is his *"the teeth show when smiling, but very badly"*: a thin band of
+    real teeth and the rest a flat maroon patch.
+
+    So where the winner stops, the library's **narrowest opening that still
+    covers this frame's** is placed underneath it — the closest larger mouth
+    rather than the widest one, because the widest is a shout and this may be a
+    smile. Only what neither photograph reaches is left as cavity. The winner is
+    painted last and is never overdrawn: it decides what is seen through the
+    lips, and the backdrop decides only what would otherwise be paint.
     """
     import cv2
 
@@ -2680,14 +2858,6 @@ def _paint_mouth_interior(
         source, source_points = image, avatar.blend_points
     else:
         source_points = avatar.source_points.get(avatar.interior_role or "", avatar.blend_points)
-
-    # Fitted on the upper lip alone — see ``_UPPER_INNER_LIPS``. The teeth hang
-    # from it; the jaw drops away from it.
-    matrix: Any = cv2.estimateAffinePartial2D(
-        source_points[_UPPER_LIP_POSITIONS], target[_UPPER_LIP_POSITIONS], method=cv2.LMEDS
-    )[0]
-    if matrix is None:
-        return
 
     # Work in the mouth's own bounding box. Warping the whole photograph across
     # the entire face box to fill an opening a fifth of its size was most of
@@ -2702,9 +2872,6 @@ def _paint_mouth_interior(
         return
 
     box_w, box_h = x1 - x0, y1 - y0
-    shifted = matrix.copy()
-    shifted[0, 2] -= x0
-    shifted[1, 2] -= y0
 
     opening = np.zeros((box_h, box_w), dtype=np.uint8)
     cv2.fillPoly(opening, [(lips - (x0, y0)).astype(np.int32)], 255)
@@ -2715,24 +2882,44 @@ def _paint_mouth_interior(
     # ever show a lip or a cheek.
     region[opening > 0] = avatar.cavity.astype(np.uint8)
 
-    placed = cv2.warpAffine(
-        source,
-        shifted,
-        (box_w, box_h),
-        flags=cv2.INTER_LINEAR,
-        borderMode=cv2.BORDER_REPLICATE,
-    )
-    # Where that photograph has an interior to give: its own inner lips, moved
-    # by the same fit. Drawn as a polygon rather than warped as a mask — it is
-    # the same answer without a second resampling, and it follows the picture
-    # wherever the picture has gone, a turned head included.
-    interior = cv2.transform(source_points[_INNER_LIP_SLICE].reshape(-1, 1, 2), shifted).reshape(
-        -1, 2
-    )
-    covered = np.zeros((box_h, box_w), dtype=np.uint8)
-    cv2.fillPoly(covered, [interior.astype(np.int32)], 255)
+    def place(from_image: np.ndarray, from_points: np.ndarray) -> None:
+        """Copy one photograph's own interior into the live opening.
 
-    cv2.copyTo(placed, cv2.bitwise_and(opening, covered), region)
+        Fitted on the upper lip alone — see ``_UPPER_LIP_POSITIONS``. The teeth
+        hang from it; the jaw drops away from it.
+        """
+        fit: Any = cv2.estimateAffinePartial2D(
+            from_points[_UPPER_LIP_POSITIONS], target[_UPPER_LIP_POSITIONS], method=cv2.LMEDS
+        )[0]
+        if fit is None:
+            return
+        fit = fit.copy()
+        fit[0, 2] -= x0
+        fit[1, 2] -= y0
+
+        placed = cv2.warpAffine(
+            from_image,
+            fit,
+            (box_w, box_h),
+            flags=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_REPLICATE,
+        )
+        # Where that photograph has an interior to give: its own inner lips,
+        # moved by the same fit. Drawn as a polygon rather than warped as a
+        # mask — it is the same answer without a second resampling, and it
+        # follows the picture wherever the picture has gone, a turned head
+        # included.
+        interior = cv2.transform(
+            from_points[_INNER_LIP_SLICE].reshape(-1, 1, 2), fit
+        ).reshape(-1, 2)
+        covered = np.zeros((box_h, box_w), dtype=np.uint8)
+        cv2.fillPoly(covered, [interior.astype(np.int32)], 255)
+        cv2.copyTo(placed, cv2.bitwise_and(opening, covered), region)
+
+    backdrop = _covering_interior(avatar, _lip_gap_of(target))
+    if backdrop is not None and backdrop != avatar.interior_role:
+        place(avatar.sources[backdrop], avatar.source_points[backdrop])
+    place(source, source_points)
 
 
 def _damp_brows(
@@ -2741,11 +2928,12 @@ def _damp_brows(
     eye_follow: float = _EYE_FOLLOW,
     resting: tuple[float, ...] | None = None,
 ) -> np.ndarray:
-    """Pull the brow and eye landmarks back toward the avatar's own proportions.
+    """Pull the brow, eye and lip landmarks back toward the avatar's own
+    proportions.
 
     The mesh maps the avatar's landmarks onto the user's, so wherever it acts at
     full strength the avatar inherits the user's *shape* and not merely their
-    motion. Two places where that is visibly wrong:
+    motion. Three places where that is visibly wrong:
 
     **Brows.** Raising them moves those landmarks a long way and the triangles
     between brow and eyelid answer by stretching the eye — the owner's report
@@ -2762,8 +2950,16 @@ def _damp_brows(
     a turn: the mesh takes over exactly as much as the photograph loses, so a
     blink at an angle still reads as a blink rather than freezing.
 
-    The reference for both is where a rigid fit of the whole face would put them
-    — the avatar's own proportions, positioned on the live head.
+    **Lips**, and the owner named this one himself: *"it is trying to fit its own
+    lips exactly to the size of my lips. I do not actually have big lips."*
+    Measured on his own captures the avatar was wearing his lower lip 27 to 43%
+    thicker than its own, changing thickness by up to a third inside ten
+    seconds. The mouth needs the mesh more than the eyes do — its photographs
+    are a grid it has to move *between* — so it keeps more of the user's motion.
+    See :data:`_LIP_FOLLOW`.
+
+    The reference for all three is where a rigid fit of the whole face would put
+    them — the avatar's own proportions, positioned on the live head.
     """
     import cv2
 
@@ -2774,7 +2970,11 @@ def _damp_brows(
     rigid = cv2.transform(source.reshape(-1, 1, 2), matrix).reshape(-1, 2)
 
     damped = target.copy()
-    for where, follow in ((_BROW_SLICE, _BROW_FOLLOW), (_EYE_POSITIONS, eye_follow)):
+    for where, follow in (
+        (_BROW_SLICE, _BROW_FOLLOW),
+        (_EYE_POSITIONS, eye_follow),
+        (_MOUTH_POSITIONS, _LIP_FOLLOW),
+    ):
         anchor = rigid[where]
         damped[where] = anchor + (damped[where] - anchor) * follow
 
@@ -3123,24 +3323,37 @@ def _smiling(tracking: FaceTrackingResult) -> float:
 
 
 def _lip_parting(tracking: FaceTrackingResult) -> float:
-    """How far the lips are apart, on the same scale as :func:`_smiling`.
+    """How far the lips are apart. **The same measurement as :func:`_lip_gap`**,
+    under the name the smile and speech axes read it by.
 
-    :func:`_lip_gap` answers the same question against face height and is what
-    decides whether a photograph has an interior to show. This one exists so
-    that both halves of the smile axis are measured against one denominator,
-    and it is the crop-robust one.
+    **It divided by the eye span until 2026-08-26, and that carried the frame's
+    shape into the answer.** The landmarks are normalised over the frame, so a
+    vertical distance over a horizontal one is multiplied by the frame's aspect
+    ratio. Live it cancels — every frame is the camera's shape — and every clip
+    the library was built from happened to be 16:9, so it never showed. The
+    first 9:16 clip broke it: the same mouth read 3.3 times less open. Its
+    frames reached 0.64 of the axis where the 16:9 take of the same sentence
+    reached 2.30, and letterboxing those same frames out to 16:9 put them at
+    2.14 — while the gap measured against face height did not move at all,
+    0.111 either way. Filed as they read, they would have been installed as
+    barely-parted rungs, and a mouth hardly open would have been answered with
+    a photograph of one wide open.
+
+    **This is the fourth time this file has had this bug.** The lids, the brows
+    and the lip gap were each fixed the same way, and :func:`_eye_opening`
+    states the reason in full: two vertical distances divided by each other have
+    no such factor. The eye span is the steadier anchor across a re-detection
+    and that is why it was reached for here; it is not worth the frame's shape.
+
+    **The denominator moves with the jaw, and that is accepted rather than
+    missed.** The chin drops as the mouth opens, so a full opening reads about a
+    seventh less than proportional — measured over 400 frames of the owner's own
+    recording, the map from the old reading to this one runs 3.60 where the lips
+    rest and 4.13 where they are widest. The axis stays monotone and the driver
+    and the sources both pass through it, which is what the comparison needs.
+    The alternative was a denominator with no calibration history.
     """
-    landmarks = tracking.landmarks
-    if landmarks is None or landmarks.count <= max(
-        _UPPER_INNER_LIP, _LOWER_INNER_LIP, *_OUTER_EYE_CORNERS
-    ):
-        return 0.0
-
-    points = landmarks.points[:, :2]
-    span = float(np.linalg.norm(points[_OUTER_EYE_CORNERS[0]] - points[_OUTER_EYE_CORNERS[1]]))
-    if span <= 1e-6:
-        return 0.0
-    return abs(float(points[_UPPER_INNER_LIP][1] - points[_LOWER_INNER_LIP][1])) / span
+    return _lip_gap(tracking)
 
 
 def _eye_amount(tracking: FaceTrackingResult, neutral: _Neutral) -> float:
@@ -3282,9 +3495,21 @@ def _smile_share(tracking: FaceTrackingResult, neutral: _Neutral) -> float:
     — which is how the change was caught.
 
     So the widening above rest, on the same scale the axis uses, clamped.
+
+    **Rest is a level here, not a floor, and that is a 2026-08-27 fix.** It was
+    :meth:`_Neutral.relative_expression`, which follows a new low in a quarter
+    of a second and creeps back up over twenty — a running minimum, which is the
+    right estimator for a signal that only ever rises from rest and the wrong
+    one for a mouth. A mouth is *narrower* than rest every time it rounds an
+    "oo" or an "o", several times a sentence, so the floor parked at the
+    narrowest mouth recently made and every ordinary frame after it read as a
+    widening. See :meth:`_Neutral.track_level`, which the brows moved to on
+    2026-08-24 for this exact reason, and the measurement in
+    :func:`_widened`.
     """
-    above = neutral.relative_expression("smileAmount", _smiling(tracking))
-    return min(max(above / _SMILE_WIDEN_FULL, 0.0), 1.0)
+    width = _smiling(tracking)
+    rest = neutral.track_level("smileAmount", width)
+    return min(max((width - rest) / _SMILE_WIDEN_FULL, 0.0), 1.0)
 
 
 def _smile_amount(tracking: FaceTrackingResult, neutral: _Neutral) -> float:
@@ -3343,11 +3568,35 @@ def _widened(tracking: FaceTrackingResult, neutral: _Neutral) -> float:
     avatar whose tracker returned no blendshapes never reaches
     :func:`_smile_share`, and a mouth axis that silently read zero for such a
     face would be a regression rather than a fix.
+
+    **And rest is a slow level rather than a floor, from 2026-08-27.** It was a
+    running minimum — see :func:`_smile_share` for the shape of it — and the
+    owner's own captures are what found it. Three moments he marked wrong on
+    2026-08-27, ten seconds each, his resting mouth measuring 0.57 of an eye
+    span across:
+
+    | | the learned rest | his width axis, lips *together* | the grid's foot |
+    |---|---|---|---|
+    | `moment-...-201745` | **0.476** | **0.153** | open on 99% of them |
+    | `moment-...-201806` | **0.409** | 0.227 | open on 88% |
+    | `moment-...-201814` | 0.539 | 0.065 | closed, correctly |
+
+    The first is the defect entire: **he is sitting with his mouth shut and the
+    engine reads him as three quarters of the way into a closed smile**, so
+    :data:`_SPEECH_WIDTH_START` never closes, and a widened photograph is held
+    over a closed mouth — measured, one rung for **9.6 seconds**. The floor got
+    there in the ordinary way: it snapped down to a rounded "oo" at
+    :data:`_FLOOR_FALL` and needed twenty seconds at :data:`_FLOOR_RISE` to
+    climb back, which is longer than anyone stays still.
+
+    The third capture is the same engine with a floor that happened to land near
+    his rest, and it behaves. That is the control.
     """
-    floor = neutral.floor_of("smileAmount")
-    if floor is None:
-        return neutral.relative_expression("smileAmount", _smiling(tracking))
-    return max(_smiling(tracking) - floor, 0.0)
+    width = _smiling(tracking)
+    rest = neutral.level_of("smileAmount")
+    if rest is None:
+        rest = neutral.track_level("smileAmount", width)
+    return max(width - rest, 0.0)
 
 
 def _speech_amount(tracking: FaceTrackingResult) -> float:
@@ -4288,11 +4537,25 @@ def _nearest_speech(
     the chosen photograph changed 7.6 times a second and was held for a single
     frame on 28 runs out of 62. That is not a mouth moving, it is a mouth
     flickering.
+
+    **And it is released once it is wrong** — see :data:`_SPEECH_RELEASE`. A
+    margin asks only whether a challenger is clearly nearer, which stays false
+    for as long as the mouth walks away from the incumbent one small step at a
+    time. The ceiling is what stops the hold showing a photograph the mouth left
+    behind half a second ago.
     """
     rungs = [(amount, key) for amount, key in ladder if key is not None]
     if not rungs:
         return {}
-    if parted < _SPEECH_LADDER_START:
+    # **Either axis, not the distance between them.** A closed smile parts the
+    # lips barely at all and is not the portrait's mouth in any other way, so
+    # gating on the parting alone kept the grid out of exactly the frames the
+    # smile ladder existed to cover. A plane distance was the first answer and
+    # it was wrong in the other direction: an ordinary speaking mouth sits at a
+    # widening of 0.046, which clears a threshold of 0.05 on its own, so the
+    # grid took the region on frames where the mouth is at rest and the portrait
+    # is the right photograph. That cost 10 ms a frame and bought nothing.
+    if parted < _SPEECH_LADDER_START and widened < _SPEECH_WIDTH_START:
         return {}
 
     def distance(rung: tuple[float, str | None]) -> float:
@@ -4302,7 +4565,16 @@ def _nearest_speech(
     nearest = min(rungs, key=distance)
     if held is not None:
         current = next((rung for rung in rungs if rung[1] == held), None)
-        if current is not None and distance(current) <= distance(nearest) + _SPEECH_HOLD:
+        # **Held only while it is still a photograph of this mouth.** The margin
+        # decides between two candidates; :data:`_SPEECH_RELEASE` decides whether
+        # the incumbent is still a candidate at all. Without the second question
+        # the margin holds a rung through a movement no single step of which ever
+        # beat it — measured, up to 800 ms and 0.46 of the parting axis.
+        if (
+            current is not None
+            and distance(current) <= distance(nearest) + _SPEECH_HOLD
+            and distance(current) <= _SPEECH_RELEASE
+        ):
             nearest = current
 
     key = nearest[1]
@@ -4457,20 +4729,34 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
             )
 
     if avatar.smile_ladder or avatar.speech_ladder:
-        # **Two ladders on one mouth, and what separates them is which way the
-        # mouth is moving.** The engine already draws that line for the named
-        # photographs — `source_smile` takes `opening * smiling` and
-        # `source_mouth_open` takes `opening * (1 - smiling)` — and the same
-        # line is drawn here, on the same quantity, so a mouth cannot be a
-        # smile and a word at once. Measured on the owner: `_smile_share` sits
-        # near 0.12 while he speaks and reaches 0.80 at a broad smile.
+        # **One grid on the mouth as of 2026-08-26, where there were two ladders
+        # and a line drawn between them.** The line was `smiling`, and it was
+        # asked to say whether a mouth was a smile or a word so that the two
+        # families could each own their half. A mouth is not one or the other:
+        # it has a width and an opening, and a smile is a corner of the same
+        # plane speech moves in.
         #
-        # `_one_per_region` then keeps whichever scores higher, and shows it
-        # whole. Nothing new decides between them.
-        smiling = min(max(_widened(tracking, avatar.neutral) / _SMILE_WIDEN_FULL, 0.0), 1.0)
+        # What made this urgent is that the smile ladder's own axis was a
+        # *product* of the two, `widened x (1 + parted)`, and a product cannot
+        # tell a wide mouth from an open one. It answered a mouth open 0.10 with
+        # a photograph whose lips were 0.018 apart: over the owner's recording
+        # the chosen photograph covered a median of **17%** of the opening drawn
+        # for it on **every one** of the frames the smile ladder won. That is
+        # the same defect the speech family had before the grid — *"in the first
+        # photo I am saying O, in the second A"* — left standing in the family
+        # next door.
+        #
+        # So the grid takes the whole mouth and the smile ladder is not
+        # consulted while it exists. The two named smile roles go with it for
+        # the reason they always did: the grid holds better versions of both.
+        #
+        # `smiling` is gone with the line it drew. It survives in
+        # :func:`_source_weights`, where the *named* photographs still split a
+        # mouth between a smile and a word — an avatar with no grid still has
+        # only one photograph of each.
         held = avatar.holding.get("mouth")
 
-    if avatar.smile_ladder:
+    if avatar.smile_ladder and not avatar.speech_ladder:
         # The smile ladder owns the smile the way the turn ladder owns yaw. The
         # two named smile roles go with it: one of them is a photograph the
         # ladder holds ten better versions of, and keeping it would put a wide
@@ -4482,17 +4768,22 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
         )
 
     if avatar.speech_ladder:
-        # And the speech ladder owns the parting. `source_mouth_open` goes with
-        # it for the smile ladder's reason word for word: it is one photograph
-        # of one opening, the ladder holds a photograph of every opening, and
-        # leaving it in would put a fully open mouth in competition with the
-        # right-sized one at exactly the widths where the ladder matters most.
+        # And the speech ladder owns the parting. What goes with it is
+        # `source_mouth_o` and the two named smiles, for the smile ladder's
+        # reason word for word: each is one photograph of one shape, the grid
+        # holds a photograph of every shape the mouth passes through, and
+        # leaving them in puts one fixed mouth in competition with the
+        # right-sized one at exactly the widths where the grid matters most.
         #
-        # Its *gap* is kept — `_OPENING_REFERENCE_ROLE` reads the asset, not the
-        # weight, and it is still what says how far open "fully open" is.
-        for role in _SPEECH_ROLES:
+        # **`source_mouth_open` is deliberately not on that list** — see
+        # `_SPEECH_ROLES`, which says why it came back off it on 2026-08-25.
+        # Its *gap* is kept either way: `_OPENING_REFERENCE_ROLE` reads the
+        # asset, not the weight, and it is still what says how far open "fully
+        # open" is.
+        for role in (*_SPEECH_ROLES, *_SMILE_ROLES):
             weights.pop(role, None)
         parted = _speech_amount(tracking)
+        widened = _widened(tracking, avatar.neutral) / _SMILE_WIDEN_SPAN
 
         # **Weighed by the rung's own parting, not the driver's, once the driver
         # is past the top of the ladder.** A weight says how much of *this
@@ -4502,13 +4793,21 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
         # stopped, and it holds the region against a named photograph that
         # genuinely opens further.
         top = max(amount for amount, _ in avatar.speech_ladder)
+        top_width = max(avatar.speech_width.values(), default=0.0)
         weights.update(
             _nearest_speech(
                 avatar.speech_ladder,
                 avatar.speech_width,
                 parted,
-                _widened(tracking, avatar.neutral) / _SMILE_WIDEN_SPAN,
-                min(parted, top) * (1.0 - smiling),
+                widened,
+                # How far from rest this mouth is, on the plane the grid is
+                # filed on — and capped on each axis at how far the grid
+                # reaches, for the reason the parting alone was capped: a
+                # photograph of a mouth open 0.35 has 0.35 of an opening in it
+                # however wide the driver's goes, and past the top of the grid
+                # the region belongs to a named photograph that genuinely opens
+                # further.
+                float(np.hypot(min(parted, top), min(widened, top_width))),
                 held,
             )
         )
@@ -4938,9 +5237,23 @@ def _match_ring(
     over it is tone and nothing else, and a median over it is not moved by the
     open mouth or the shut lid that the photograph exists for.
 
-    Clamped by the same rule as the whole-face match — see
-    :func:`_match_to_portrait` — because the question is the same one: whether
-    the three channels agree, and so whether this is one exposure or two lights.
+    **Clamped by magnitude alone, and not by whether the channels agree.** The
+    whole-face match asks that question because it is a real one over a whole
+    face: three channels disagreeing there means one photograph was lit
+    differently from the other, and a flat shift would hide it rather than fix
+    it. Over one region it is not the same question. A mouth ring is a few
+    hundred pixels of skin; a light cannot fall across it unevenly enough to
+    matter, so three channels disagreeing there says only that this patch is a
+    different colour from the skin it is being set into — which is the whole job.
+
+    **It was clamped by the agreement test until 2026-08-26, and that is what
+    the owner was looking at.** Six of the mouth rungs in this library sit 17 to
+    32 of 255 from the portrait over their own ring with the channels 11 to 19
+    apart, so each was judged "two lights" and corrected by 12 — leaving 5 to 20
+    of 255 standing. On screen that is the pale patch around the mouth that
+    appears when the lips move and vanishes when they stop, with the moustache
+    washing out inside it. The magnitude limit still applies and still refuses a
+    correction large enough to mean a photograph of something else.
     """
     mine = np.median(patch[ring].reshape(-1, 3), axis=0)
     offset = (reference - mine).astype(np.float32)
@@ -4949,7 +5262,7 @@ def _match_ring(
         return patch
 
     spread = float(offset.max() - offset.min())
-    limit = _SKIN_SHIFT_FLAT_LIMIT if spread <= _SKIN_SHIFT_AGREE else _SKIN_SHIFT_LIMIT
+    limit = _SKIN_SHIFT_FLAT_LIMIT
     if largest > limit:
         _LOG.warning(
             "Region %s: %s is %.0f of 255 from the portrait over the skin around it, "
