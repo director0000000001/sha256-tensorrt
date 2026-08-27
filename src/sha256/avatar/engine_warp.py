@@ -211,6 +211,66 @@ _SPEECH_HOLD = 0.20
 # `docs/development/PROJECT_STATUS.md`, "Day 16, second half".
 _SPEECH_RELEASE = 0.15
 
+# How far apart two rungs may be and still be mixed rather than cut between.
+#
+# **The owner, on 2026-08-27, after the three fixes above:** *"It still is not
+# good. The mouth movement is not smooth at all — the different frames change
+# instantaneously and I do not like that."*
+#
+# He is describing a staircase, and it measures as one. Over his five captures,
+# how far his own mouth travels between two frames against how far the picture
+# travels when the photograph changes:
+#
+# | | his mouth, per frame | the picture's jump | one jump is worth |
+# |---|---|---|---|
+# | `201745` | 0.001 | 0.270 | **183 frames** of his motion |
+# | `201806` | 0.026 | 0.228 | 9 frames |
+# | `201814` | 0.003 | 0.164 | 55 frames |
+# | `214327` | 0.005 | 0.179 | 33 frames |
+# | `231503` | 0.003 | 0.213 | 82 frames |
+#
+# The mouth stands still, crosses a quarter of the parting axis in **one frame**,
+# and stands still again — between 0.9 and 7.8 times a second. Nothing about
+# choosing the right photograph can fix that, because the defect is the choosing:
+# a rung shown whole is a cut, and a cut several times a second is a strobe.
+#
+# **The turn ladder has never had this problem and the reason is two rungs.**
+# :func:`_ladder_weights` mixes the pair bracketing the angle, on the argument
+# that *"a rung every three degrees means the two being mixed are three degrees
+# apart, and a mix of two angles three degrees apart is indistinguishable from
+# either"*. The speech grid is 67 rungs with a median nearest-neighbour spacing
+# of **0.058** — the same density, and the same argument.
+#
+# So this is that ladder's `_LADDER_CROSSFADE_DEGREES`, in the plane's own
+# units: a pair nearer than this cross-fades in full, and a pair further apart
+# fades only across the middle of the gap and shows one photograph either side
+# of it. **A gap is not a licence to average across it** — that lesson is the
+# turn's, paid for in a face the owner called *dough*.
+#
+# **0.10 rather than the 0.058 spacing, and that is measured.** How far the
+# picture moves between two frames, over three of his captures:
+#
+# | fade | `201806` p50 | `214327` p50 | `231503` p50 |
+# |---|---|---|---|
+# | none — one photograph shown whole | 0.228 | 0.179 | 0.213 |
+# | 0.06, one rung apart | 0.016 | 0.022 | 0.112 |
+# | **0.10** | **0.013** | **0.020** | **0.081** |
+# | 0.15 | 0.011 | 0.022 | 0.080 |
+#
+# The spacing is a median and half the pairs are wider than it, so a fade set to
+# it leaves those pairs handing over in one frame; 0.10 covers most of them and
+# 0.15 buys nothing further. Two mouths 0.10 apart on the parting axis are a
+# tenth of the way from closed lips to teeth showing apart, which is the
+# *"indistinguishable from either"* the turn's argument rests on.
+#
+# **This is not the double exposure he rejected on day 10.** That was one named
+# photograph of an *open* mouth faded over the portrait's *closed* one, at a
+# weight that left both visible. These are two adjacent rungs of one grid, a
+# rung apart, and the interior still comes from a single photograph — see
+# :func:`_paint_mouth_interior`, which picks the most-parted source rather than
+# averaging what is behind the lips.
+_SPEECH_CROSSFADE = 0.10
+
 # And the third axis, which the owner ranks first: the lids closing.
 #
 # The eyes have been the standing complaint since day 8 — *"wrong far more often
@@ -3834,6 +3894,19 @@ def _is_rung(role: str) -> bool:
     return role.startswith((_SMILE_PREFIX, _SPEECH_PREFIX, _EYES_PREFIX, _LADDER_PREFIX))
 
 
+def _rung_family(role: str) -> str | None:
+    """Which ladder this rung belongs to, or ``None`` if it is not one.
+
+    ``speech@41`` and ``speech@42`` are two photographs of one mouth a rung
+    apart; ``speech@41`` and ``source_mouth_open`` are not. Only the first pair
+    may be mixed — see :func:`_one_per_region`.
+    """
+    if not _is_rung(role):
+        return None
+    family, _, _ = role.partition("@")
+    return family or None
+
+
 def _commit(weight: float, region: str = "") -> float:
     """How much of a chosen photograph is applied, against the base underneath.
 
@@ -3944,7 +4017,34 @@ def _one_per_region(
         else:
             share = _eased(region, wanted, applied, seconds)
         if share > 0.0:
-            kept[winner] = share
+            # **Two rungs of one ladder are one photograph in two parts**, and
+            # the region's share is divided between them rather than one of them
+            # being dropped. Everything above still holds: there is one winner,
+            # one incumbent and one share; what changes is that the winner may be
+            # a cross-fade. See :data:`_SPEECH_CROSSFADE` for why the mouth needs
+            # it — a rung shown whole is a cut, and a cut several times a second
+            # is what the owner saw as *"the frames change instantaneously"*.
+            #
+            # Only ever within one family: a `speech@` rung and a named
+            # photograph are not two views of the same mouth, and mixing those is
+            # the double exposure this path exists to prevent.
+            partner = max(
+                (
+                    role
+                    for role in scores
+                    if role != winner and _rung_family(role) == _rung_family(winner) is not None
+                ),
+                key=lambda role: scores[role],
+                default=None,
+            )
+            total = scores[winner] + scores[partner] if partner is not None else 0.0
+            if partner is None or total <= 1e-6:
+                kept[winner] = share
+            else:
+                mix = scores[partner] / total
+                kept[winner] = share * (1.0 - mix)
+                if share * mix > 0.0:
+                    kept[partner] = share * mix
 
     # A region with no photograph this frame still has to *leave*, and leaving
     # takes as many frames as arriving did. Only once it is gone does it stop
@@ -4578,7 +4678,43 @@ def _nearest_speech(
             nearest = current
 
     key = nearest[1]
-    return {} if key is None else {key: min(abs(weight), 1.0)}
+    if key is None:
+        return {}
+
+    amount = min(abs(weight), 1.0)
+    weights = {key: amount}
+
+    # **And the rung next to it, mixed in.** See :data:`_SPEECH_CROSSFADE`. The
+    # share is symmetric in the two distances, so at the moment the two swap
+    # rank it is exactly a half either way and nothing on screen moves: that is
+    # the whole property, and it is what turns a cut into a ramp.
+    partner = min((r for r in rungs if r[1] != key), key=distance, default=None)
+    if partner is None or partner[1] is None:
+        return weights
+
+    here, there = distance(nearest), distance(partner)
+    total = here + there
+    if total <= 1e-6:
+        return weights
+
+    share = here / total
+    span = float(
+        np.hypot(
+            nearest[0] - partner[0],
+            widths.get(str(key), 0.0) - widths.get(str(partner[1]), 0.0),
+        )
+    )
+    if span > _SPEECH_CROSSFADE:
+        # The turn ladder's rule, in the plane's units: keep the fade's width
+        # fixed and put it in the middle of the gap, rather than smearing one
+        # photograph across a distance it cannot describe.
+        width = _SPEECH_CROSSFADE / span
+        share = min(max((share - 0.5) / width + 0.5, 0.0), 1.0)
+
+    if share > 1e-6:
+        weights[key] = amount * (1.0 - share)
+        weights[partner[1]] = amount * share
+    return weights
 
 
 def _nearest_rung(
