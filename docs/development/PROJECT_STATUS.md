@@ -3,7 +3,7 @@
 **Living document.** Update it at the end of each working day. For the frozen
 record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
-**Last updated:** 2026-08-27 · **Day 16 — the mouth, in three passes: it froze rather than lagged, his resting mouth was being learned as the narrowest one he had just made, and the avatar was wearing his lips rather than its own.** Start at **"Day 16, third pass"** and read upwards, then **"What `test001.mkv` actually shows"** for the rest of the open list.
+**Last updated:** 2026-08-28 · **Day 16 — the mouth, in five passes. The fourth was a cross-fade and it was wrong: it went soft, and soft reads as not moving. The fifth took the hold off the speech grid, which is what had been making the mouth passive since the day it was added.** Start at **"Day 16, fourth and fifth passes"** and read upwards, then **"What `test001.mkv` actually shows"** for the rest of the open list.
 
 ---
 
@@ -2479,6 +2479,79 @@ shape rather than the worse one — though after this fix either can be filed.
 *   `measure_quality.py` shows geometry unchanged as expected — warp residual
     7.37 -> 7.38, near-eye sharpness 360 -> 360, face sharpness 174 -> 172. What
     changed is which photograph is chosen, which that tool does not score.
+
+## Day 16, fourth and fifth passes — a cross-fade that was wrong, and the hold that was the passivity
+
+**Two things happened here and the first one is mine.**
+
+### The cross-fade, and why my own measurement did not catch it
+
+Between the third pass and this one, the two nearest rungs were mixed rather
+than one being shown whole — the turn ladder's trick, on the argument that the
+grid is the same density. It shipped, and it was reverted within the hour. The
+owner: *"The problem is still the same. Now the model is passive. It does not
+follow the mouth often when talking ... before it followed more often."*
+
+`_blend_sources` composes **by region**, so two mouth rungs are averaged against
+each other over the same pixels — and a mouth photograph, in this file's own
+words, *"differs from what is under it mostly in texture"*. The average ghosts
+the lip edge and the teeth. It tracked geometrically and went soft as a picture,
+and soft reads as not moving.
+
+**The measurement that should have caught it:**
+
+| | one photograph | cross-faded |
+|---|---|---|
+| `231503` | gain 0.91, r 0.94, travels 94% | **gain 0.62, r 0.75, travels 77%** |
+| `214327` | travels 90% | travels 84% |
+
+A third of the amplitude gone, on the capture he made just before saying it had
+gone passive. The report at the time was that the picture's step per frame had
+fallen 2x to 43x, and it never asked whether the picture still *travelled*.
+**A metric that rewards small steps is maximised by a mouth that does not move.**
+`_nearest_rung` had already written the rule down — *"One rung, not two ... what
+the owner objected to was two photographs on screen at once"* — and it was
+overridden on a density argument that was not the point.
+
+### And then the hold went, which is what he had been describing all along
+
+Every other ladder keeps the rung in hand until a challenger is clearly nearer.
+Speech kept it at **four times** their margin, since 2026-08-26, plus
+`_SPEECH_RELEASE` added earlier the same day to stop that margin going stale.
+Both are gone. Measured on all five captures, through the engine:
+
+| | changes a second | gain | travels | error p50 |
+|---|---|---|---|---|
+| `201745` | 0.3 → 0.3 | 0.93 → 0.93 | 88% → 88% | 0.021 |
+| `201806` | 7.5 → **11.8** | 0.96 → 0.96 | 97% → 97% | 0.035 |
+| `201814` | 0.6 → **1.8** | 1.02 → 1.02 | 88% → 88% | 0.030 |
+| `214327` | 3.2 → **5.7** | 0.96 → **0.98** | 90% → **94%** | 0.023 |
+| `231503` | 2.8 → **4.4** | 0.91 → **0.99** | 94% → **100%** | 0.020 |
+
+**It follows between 1.6 and 3 times as often, and every other number moves the
+right way at the same time** — which is what says the hold was a fault and not a
+trade. A rung held until the mouth is 0.15 away from it is two or three rungs
+past its neighbour by the time it changes: the mouth moved late, and then jumped.
+
+The flicker the margin was added for is real and is now paid in single-frame
+runs — 39 of 81 becoming 91 of 126 on `201806`. **That is the trade he keeps
+choosing:** he has called the mouth passive three times and flickering once.
+
+### What is left is the grid, and it is material rather than code
+
+With no hold at all the median step is still **0.106 to 0.147** where the grid's
+own nearest-neighbour spacing is **0.058**. Along the line his mouth actually
+travels the neighbours are two or three spacings away — half the grid sits at
+widenings he never reaches, and the parting band he lives in is thinly filled.
+**No choosing rule can close that; more photographs can.** `build_speech_ladder`
+takes `--step`, currently 0.1, and the 1080p 9:16 `speech` clip has not been
+generated yet.
+
+Second candidate, cheaper and untried: **interpolate the geometry without
+interpolating the pixels.** Show one photograph, crisp, but place its lips at a
+position interpolated between the two nearest rungs. The shape would move
+continuously and there would be no double exposure, because only one photograph
+is ever on screen. It is the cross-fade's intent without the cross-fade's cost.
 
 ## Day 16, third pass — the owner read the mesh, and he was right
 

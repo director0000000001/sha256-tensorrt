@@ -46,9 +46,7 @@ from sha256.avatar.engine_warp import (
     _SMILE_LADDER_START,
     _SMILE_REFERENCE,
     _SMILE_WIDEN_SPAN,
-    _SPEECH_HOLD,
     _SPEECH_LADDER_START,
-    _SPEECH_RELEASE,
     _SPEECH_WIDTH_START,
     _STABLE_POSITIONS,
     _SWITCH_MARGIN,
@@ -3158,63 +3156,59 @@ class TestRelightingStability:
         assert float(many.data[110:130, 150:170].mean()) > float(one.data[110:130, 150:170].mean())
 
 
-class TestTheSpeechGridLetsGoOfAMouthTheFaceHasLeft:
-    """The owner, on the running application: *"when I am talking it does not
-    follow my mouth at all."*
+class TestTheMouthIsAlwaysTheNearestPhotographToIt:
+    """The owner, on 2026-08-28, having run every version of this: *"Now the
+    model is passive. It does not follow the mouth often when talking ... before
+    it followed more often and the mouth moved more."*
 
-    Measured on the eight seconds of `driving.mkv` where he speaks, the margin
-    alone froze the photograph for up to 800 ms while his own lips travelled
-    0.46 of the parting axis — nearly half the way from closed to teeth showing.
-    A margin asks whether a challenger is clearly nearer, and while a mouth
-    walks away one rung at a time the answer stays no on every single step.
+    Every other ladder holds the rung in hand until a challenger is clearly
+    nearer, and this one held it at four times their margin. Measured over his
+    five captures, taking that away makes it follow between 1.6 and 3 times as
+    often, makes each change *smaller* — 0.228 to 0.141 of the parting axis on
+    `201806` — and halves how far the photograph sits from the mouth being made.
+    All three move the right way at once, which is what says the hold was the
+    fault and not a trade.
     """
 
-    # Rungs a fifth of the axis apart, which is the grid's own spacing near the
-    # foot of it, and no width on any of them so the distance is the parting.
     LADDER = ((0.2, "speech@a"), (0.4, "speech@b"), (0.6, "speech@c"), (0.8, "speech@d"))
     WIDTHS: ClassVar[dict[str, float]] = dict.fromkeys(
         ("speech@a", "speech@b", "speech@c", "speech@d"), 0.0
     )
 
-    def chosen(self, parted: float, held: str | None) -> set[str]:
-        return set(_nearest_speech(self.LADDER, self.WIDTHS, parted, 0.0, parted, held))
+    def chosen(self, parted: float) -> set[str]:
+        return set(_nearest_speech(self.LADDER, self.WIDTHS, parted, 0.0, parted))
 
-    def test_the_rung_in_hand_still_survives_a_boundary(self):
-        """The margin's own job, and it is not being taken away: a mouth that has
-        barely moved must not change photograph, or every crossing is a flicker."""
-        assert self.chosen(0.31, "speech@a") == {"speech@a"}
+    def test_the_nearest_rung_wins_wherever_the_mouth_is(self):
+        for parted, expected in (
+            (0.22, "speech@a"),
+            (0.39, "speech@b"),
+            (0.55, "speech@c"),
+            (0.90, "speech@d"),
+        ):
+            assert self.chosen(parted) == {expected}, f"at a parting of {parted}"
 
-    def test_but_it_is_let_go_once_it_is_no_longer_this_mouth(self):
-        """Past the release the incumbent is not a candidate at all, however
-        little the challenger beats it by."""
-        assert self.chosen(0.55, "speech@a") == {"speech@c"}
+    def test_and_it_changes_the_moment_the_nearer_one_is_nearer(self):
+        """No margin, no ceiling, no incumbent. A boundary is a boundary."""
+        assert self.chosen(0.29) == {"speech@a"}
+        assert self.chosen(0.31) == {"speech@b"}
 
-    def test_the_release_is_what_decides_it_rather_than_the_margin(self):
-        """At this parting the nearest rung beats the incumbent by less than the
-        margin, so the margin alone would have kept it."""
-        parted = 0.2 + _SPEECH_RELEASE + 0.02
-        distances = sorted(abs(amount - parted) for amount, _ in self.LADDER)
-        assert distances[0] > distances[1] - _SPEECH_HOLD, "the margin would have released it"
-        assert self.chosen(parted, "speech@a") != {"speech@a"}
-
-    def test_a_mouth_walking_away_one_step_at_a_time_is_still_followed(self):
-        """The failure as it was found. Each frame moves the lips too little for
-        any challenger to clear the margin; the release is what keeps the
-        photograph from sitting still through the whole movement."""
-        held: str | None = "speech@a"
+    def test_a_mouth_walking_across_the_ladder_is_never_shown_a_far_photograph(self):
+        """The failure the hold produced, asserted away: the photograph on
+        screen is never further from his mouth than half the gap to its
+        neighbour, because it is always the nearest one."""
+        step = (0.8 - 0.2) / 2 / 2
         parted = 0.2
         while parted < 0.8:
-            parted += 0.02
-            got = self.chosen(parted, held)
-            held = next(iter(got), None)
-            assert held is not None
-            amount = next(a for a, key in self.LADDER if key == held)
-            assert abs(amount - parted) <= _SPEECH_RELEASE, (
-                f"at a parting of {parted:.2f} the mouth on screen is {held}"
+            parted += 0.01
+            got = self.chosen(parted)
+            key = next(iter(got))
+            amount = next(a for a, name in self.LADDER if name == key)
+            assert abs(amount - parted) <= step + 1e-9, (
+                f"at a parting of {parted:.2f} the mouth on screen is {key}"
             )
 
     def test_and_a_mouth_at_rest_is_still_the_portrait_own(self):
-        assert self.chosen(_SPEECH_LADDER_START / 2, "speech@a") == set()
+        assert self.chosen(_SPEECH_LADDER_START / 2) == set()
 
 
 class TestARoundedMouthDoesNotBecomeTheRestingWidth:

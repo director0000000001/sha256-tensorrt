@@ -158,58 +158,40 @@ _SPEECH_LADDER_START = 0.05
 # speech is chosen by the parting, and the width only decides *which* opening.
 _SPEECH_WIDTH_START = 0.08
 
-# How much nearer a challenger has to be, on the speech plane, before it takes
-# the region from the rung in hand.
+# **There is no hold on this axis, and that is a 2026-08-28 removal.**
 #
-# **Four times the other ladders'** :data:`_RUNG_HOLD`, and it is a measurement
-# rather than a taste. Over the eight seconds of `driving.mkv` where the owner
-# speaks, the first version of this ladder changed its photograph **7.6 times a
-# second** and held it for a single frame on 28 of its 62 runs — and on 22 of
-# 50 moves it skipped more than a band. His words for it: *"the transition
-# between the mouth photographs is not smooth either."* A lid crosses its axis
-# once per blink and 0.05 is right for that; a mouth crosses this one at
-# syllable rate.
-_SPEECH_HOLD = 0.20
-
-# And how far wrong the rung in hand is allowed to be while it is being held.
+# There were two: `_SPEECH_HOLD`, four times the other ladders' margin, added on
+# 2026-08-26 because the first version of this ladder changed photograph 7.6
+# times a second; and `_SPEECH_RELEASE`, added on 2026-08-27 to stop that margin
+# holding a photograph the mouth had left behind. Both are gone, and the owner
+# is why: *"it does not follow the mouth often when talking ... before it
+# followed more often."*
 #
-# **A margin alone cannot say this, and that is what the hold above got wrong.**
-# It asks whether a challenger is *clearly nearer*, which stays false while the
-# mouth walks away from the incumbent and every rung it passes is nearer by less
-# than the margin. Nothing in it is watching how far wrong the photograph on
-# screen has become.
+# Measured over his five captures, choosing the nearest rung against holding one:
 #
-# Measured on the same eight seconds of `driving.mkv` the hold was measured on,
-# frames 1560 to 1799, against the 67-rung grid:
+# | | changes a second | the step when it changes | parting error, p50 |
+# |---|---|---|---|
+# | `201806` | 7.5 → **12.0** | 0.228 → **0.141** | 0.061 → **0.034** |
+# | `201814` | 0.6 → **1.8** | 0.164 → **0.106** | 0.046 → **0.029** |
+# | `214327` | 3.2 → **5.7** | 0.179 → **0.116** | 0.024 → **0.022** |
+# | `231503` | 2.8 → **4.8** | 0.213 → **0.147** | 0.026 → **0.013** |
 #
-# | | shipped, margin only | margin + this release |
-# |---|---|---|
-# | the photograph froze while his own parting moved, at worst | **0.46** | 0.25 |
-# | and at the median of the 26 stretches it froze for | 0.24 | 0.07 |
-# | longest single photograph | **800 ms** | 500 ms |
-# | parting error, p50 | 0.103 | **0.038** |
-# | follow | gain 0.84, r 0.90 | **gain 0.95, r 0.98** |
+# **The hold was making the cuts big.** Holding a rung until it is 0.15 away
+# means the mouth has drifted 0.15 before it moves at all, and the rung it then
+# lands on is two or three past the one next door. Every number moves the right
+# way at once: it follows more often, each change is smaller, and the photograph
+# is nearer the mouth being made.
 #
-# 0.46 of the parting axis is nearly half the way from closed lips to teeth
-# showing. That is the owner's *"when I am talking it does not follow me at
-# all"*, arrived at from the other direction: the mouth on screen was not
-# lagging, it was **stationary** for the better part of a second at a time.
+# The flicker the margin was added for is real and is now paid in single-frame
+# runs — 39 of 81 becoming 91 of 126 on `201806`. That is the trade the owner
+# asked for in his own words, and it is the one his eye keeps choosing: he has
+# complained that the mouth is passive three times and that it flickers once.
 #
-# **Why not simply a smaller hold.** Dropping the margin to 0.05 buys the same
-# following and costs more than this does: 8.6 changes of photograph a second
-# against 6.6, and 30 single-frame runs out of 69 against 14 out of 53. Those
-# 33 ms flashes are what the owner called *"the transition between the mouth
-# photographs is not smooth"*. The margin is right about flicker; it was only
-# ever missing a ceiling.
-#
-# **Re-measured on 2026-08-27 over the owner's own captures**, after
-# :func:`_widened` stopped inflating the width axis — every number above was
-# taken with the inflated one. It survived: below 0.15 the parting error stops
-# improving, 0.06 to 0.04, while the single-frame runs go from 45% of runs to
-# two thirds. The two captures want opposite values, which is the sign that the
-# last of this wants a minimum time on screen rather than a distance. See
-# `docs/development/PROJECT_STATUS.md`, "Day 16, second half".
-_SPEECH_RELEASE = 0.15
+# **What actually bounds the step is the grid, not the choice.** With no hold at
+# all the median step is still 0.106 to 0.147 where the rungs are 0.058 apart,
+# because along the line his mouth actually travels the neighbours are two or
+# three spacings away — half the grid sits at widenings he never reaches. That
+# is material, not code: see the open list.
 
 # And the third axis, which the owner ranks first: the lids closing.
 #
@@ -2909,9 +2891,9 @@ def _paint_mouth_interior(
         # mask — it is the same answer without a second resampling, and it
         # follows the picture wherever the picture has gone, a turned head
         # included.
-        interior = cv2.transform(
-            from_points[_INNER_LIP_SLICE].reshape(-1, 1, 2), fit
-        ).reshape(-1, 2)
+        interior = cv2.transform(from_points[_INNER_LIP_SLICE].reshape(-1, 1, 2), fit).reshape(
+            -1, 2
+        )
         covered = np.zeros((box_h, box_w), dtype=np.uint8)
         cv2.fillPoly(covered, [interior.astype(np.int32)], 255)
         cv2.copyTo(placed, cv2.bitwise_and(opening, covered), region)
@@ -4514,7 +4496,6 @@ def _nearest_speech(
     parted: float,
     widened: float,
     weight: float,
-    held: str | None = None,
 ) -> dict[str, float]:
     """The rung nearest this mouth **on both axes**, at ``weight``.
 
@@ -4531,18 +4512,12 @@ def _nearest_speech(
     unit of parting are the same size and the distance between them is plain
     Euclidean.
 
-    **The hold is larger than the other ladders'** — see
-    :data:`_SPEECH_HOLD`. A lid crosses its axis once per blink; a mouth crosses
-    this one several times a second, and measured over eight seconds of speech
-    the chosen photograph changed 7.6 times a second and was held for a single
-    frame on 28 runs out of 62. That is not a mouth moving, it is a mouth
-    flickering.
-
-    **And it is released once it is wrong** — see :data:`_SPEECH_RELEASE`. A
-    margin asks only whether a challenger is clearly nearer, which stays false
-    for as long as the mouth walks away from the incumbent one small step at a
-    time. The ceiling is what stops the hold showing a photograph the mouth left
-    behind half a second ago.
+    **And nothing is held.** Every other ladder keeps the rung in hand until a
+    challenger is clearly nearer, and this one did too, at four times their
+    margin. That is what made the mouth passive: a rung held until the mouth is
+    0.15 away from it is two or three rungs past its neighbour by the time it
+    changes, so the mouth moves late and then jumps. See the note above the
+    speech constants for the five captures that settled it.
     """
     rungs = [(amount, key) for amount, key in ladder if key is not None]
     if not rungs:
@@ -4563,20 +4538,6 @@ def _nearest_speech(
         return float(np.hypot(amount - parted, widths.get(str(key), 0.0) - widened))
 
     nearest = min(rungs, key=distance)
-    if held is not None:
-        current = next((rung for rung in rungs if rung[1] == held), None)
-        # **Held only while it is still a photograph of this mouth.** The margin
-        # decides between two candidates; :data:`_SPEECH_RELEASE` decides whether
-        # the incumbent is still a candidate at all. Without the second question
-        # the margin holds a rung through a movement no single step of which ever
-        # beat it — measured, up to 800 ms and 0.46 of the parting axis.
-        if (
-            current is not None
-            and distance(current) <= distance(nearest) + _SPEECH_HOLD
-            and distance(current) <= _SPEECH_RELEASE
-        ):
-            nearest = current
-
     key = nearest[1]
     return {} if key is None else {key: min(abs(weight), 1.0)}
 
@@ -4808,7 +4769,6 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
                 # the region belongs to a named photograph that genuinely opens
                 # further.
                 float(np.hypot(min(parted, top), min(widened, top_width))),
-                held,
             )
         )
 
