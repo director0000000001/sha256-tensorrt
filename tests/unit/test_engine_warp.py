@@ -46,7 +46,6 @@ from sha256.avatar.engine_warp import (
     _SMILE_LADDER_START,
     _SMILE_REFERENCE,
     _SMILE_WIDEN_SPAN,
-    _SPEECH_CROSSFADE,
     _SPEECH_HOLD,
     _SPEECH_LADDER_START,
     _SPEECH_RELEASE,
@@ -3177,25 +3176,13 @@ class TestTheSpeechGridLetsGoOfAMouthTheFaceHasLeft:
         ("speech@a", "speech@b", "speech@c", "speech@d"), 0.0
     )
 
-    def weights(self, parted: float, held: str | None = None) -> dict[str, float]:
-        return _nearest_speech(self.LADDER, self.WIDTHS, parted, 0.0, parted, held)
-
-    def chosen(self, parted: float, held: str | None = None) -> set[str]:
-        """The photograph most of the mouth is, which is what these assertions
-        were written about. Since 2026-08-27 a second one is mixed in beside it
-        — see ``_SPEECH_CROSSFADE`` — and the rung *in hand* is the one carrying
-        the larger share, not the only one on screen."""
-        got = self.weights(parted, held)
-        return {max(got, key=lambda role: got[role])} if got else set()
+    def chosen(self, parted: float, held: str | None) -> set[str]:
+        return set(_nearest_speech(self.LADDER, self.WIDTHS, parted, 0.0, parted, held))
 
     def test_the_rung_in_hand_still_survives_a_boundary(self):
-        """The margin's own job, and it is not being taken away: a mouth barely
-        past a boundary must still be mostly the photograph it was.
-
-        Read at a quarter of the way rather than at the midpoint, because the
-        cross-fade owns the midpoint now: at 0.30, exactly between two rungs,
-        being half of each is the correct answer and not a flicker."""
-        assert self.chosen(0.25, "speech@a") == {"speech@a"}
+        """The margin's own job, and it is not being taken away: a mouth that has
+        barely moved must not change photograph, or every crossing is a flicker."""
+        assert self.chosen(0.31, "speech@a") == {"speech@a"}
 
     def test_but_it_is_let_go_once_it_is_no_longer_this_mouth(self):
         """Past the release the incumbent is not a candidate at all, however
@@ -3373,114 +3360,3 @@ class TestTheAvatarKeepsItsOwnLips:
 
         assert opening > 35.0, f"the mouth closed to {opening:.0f} px"
         assert opening == pytest.approx(40.0 + _LIP_FOLLOW * 6.0, abs=1.0)
-
-
-class TestTheMouthCrossFadesBetweenTwoRungs:
-    """The owner, on 2026-08-27, after a day of fixes to *which* photograph is
-    chosen: *"It still is not good. The mouth movement is not smooth at all —
-    the different frames change instantaneously and I do not like that."*
-
-    Measured on his own captures, the picture crossed a quarter of the parting
-    axis in a single frame while his own mouth moved 0.003 of it, between 0.9
-    and 7.8 times a second. A rung shown whole is a cut. The turn ladder has
-    never had this problem because it mixes the pair bracketing the angle, and
-    the speech grid is the same density — see ``_SPEECH_CROSSFADE``.
-    """
-
-    # A rung every 0.08, which is about this grid's own spacing and inside the
-    # fade's width, so neighbours mix in full.
-    LADDER = ((0.0, "speech@a"), (0.08, "speech@b"), (0.16, "speech@c"), (0.24, "speech@d"))
-    WIDTHS: ClassVar[dict[str, float]] = dict.fromkeys(
-        ("speech@a", "speech@b", "speech@c", "speech@d"), 0.0
-    )
-    AMOUNT: ClassVar[dict[str, float]] = {
-        "speech@a": 0.0,
-        "speech@b": 0.08,
-        "speech@c": 0.16,
-        "speech@d": 0.24,
-    }
-
-    def weights(self, parted: float, ladder=None) -> dict[str, float]:
-        ladder = self.LADDER if ladder is None else ladder
-        return _nearest_speech(ladder, self.WIDTHS, parted, 0.0, 1.0)
-
-    def where(self, parted: float) -> float:
-        """Where the mouth on screen actually sits, which is the two rungs'
-        weighted position and not either one of them."""
-        got = self.weights(parted)
-        total = sum(got.values())
-        assert total > 0.0
-        return sum(self.AMOUNT[role] * weight for role, weight in got.items()) / total
-
-    def test_a_mouth_between_two_rungs_is_both_of_them(self):
-        got = self.weights(0.10)
-        assert set(got) == {"speech@b", "speech@c"}
-        assert got["speech@b"] > got["speech@c"], "the nearer rung carries the larger share"
-
-    def test_and_sitting_on_a_rung_is_that_rung(self):
-        got = self.weights(0.16)
-        assert max(got, key=lambda role: got[role]) == "speech@c"
-        assert got["speech@c"] > 0.9
-
-    def test_nothing_jumps_where_the_two_change_places(self):
-        """**The property the whole thing is for.** At the midpoint the pair is
-        half each either way round, so the frame where they swap rank looks
-        exactly like the frame before it. Measured on this sweep: 0.040 of the
-        axis in one sample with one photograph shown whole, 0.005 with the
-        fade."""
-        walk = np.arange(_SPEECH_LADDER_START, 0.24, 0.005)
-        seen = [self.where(float(parted)) for parted in walk]
-        steps = np.abs(np.diff(seen))
-
-        assert steps.max() < 0.02, f"the mouth jumped {steps.max():.3f} of the axis"
-
-    def test_but_a_gap_is_not_averaged_across(self):
-        """The turn ladder's lesson, which cost a face the owner called *dough*:
-        two photographs far apart are not two views of one mouth. The fade keeps
-        its width and sits in the middle of the gap."""
-        far = ((0.0, "speech@a"), (0.5, "speech@b"))
-        assert set(self.weights(0.10, far)) == {"speech@a"}, "averaged across the gap"
-        assert set(self.weights(0.40, far)) == {"speech@b"}, "averaged across the gap"
-        assert len(self.weights(0.25, far)) == 2, "no fade at all in the middle of it"
-
-    def test_the_fade_is_no_wider_than_it_says(self):
-        span = 0.5
-        far = ((0.0, "speech@a"), (span, "speech@b"))
-        mixed = [
-            parted
-            for parted in np.arange(0.05, span, 0.005)
-            if len(self.weights(float(parted), far)) == 2
-        ]
-        assert (max(mixed) - min(mixed)) <= _SPEECH_CROSSFADE + 0.01
-
-
-class TestARegionCanHoldOneLaddersPair:
-    """One photograph per region is still the rule. A cross-fade is one
-    photograph in two parts, and only within one family."""
-
-    def test_both_rungs_of_a_pair_keep_their_share(self):
-        holding: dict[str, str] = {}
-        applied: dict[str, float] = {}
-        kept = _one_per_region({"speech@a": 0.6, "speech@b": 0.4}, holding, applied)
-
-        assert set(kept) == {"speech@a", "speech@b"}
-        assert kept["speech@a"] / (kept["speech@a"] + kept["speech@b"]) == pytest.approx(0.6)
-
-    def test_but_a_rung_is_never_mixed_with_a_named_photograph(self):
-        """`source_mouth_open` is one photograph of one opening and the grid
-        holds a photograph of every opening. Mixing them is the double exposure
-        this path exists to remove."""
-        holding: dict[str, str] = {}
-        applied: dict[str, float] = {}
-        kept = _one_per_region({"speech@a": 0.6, "source_mouth_open": 0.4}, holding, applied)
-
-        assert set(kept) == {"speech@a"}
-
-    def test_and_two_ladders_are_not_one_another_partner(self):
-        holding: dict[str, str] = {}
-        applied: dict[str, float] = {}
-        kept = _one_per_region({"speech@a": 0.6, "eyes@b": 0.4}, holding, applied)
-
-        assert set(kept) == {"speech@a", "eyes@b"}, "these are different regions"
-        assert holding["mouth"] == "speech@a"
-        assert holding["eyes"] == "eyes@b"

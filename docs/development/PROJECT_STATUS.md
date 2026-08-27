@@ -3,7 +3,7 @@
 **Living document.** Update it at the end of each working day. For the frozen
 record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
-**Last updated:** 2026-08-27 · **Day 16 — the mouth, in four passes. The first three made the *choice* of photograph right; the fourth found that the choice was never what he was looking at — a rung shown whole is a cut, and the mouth was cutting up to 7.8 times a second.** Start at **"Day 16, fourth pass"** and read upwards, then **"What `test001.mkv` actually shows"** for the rest of the open list.
+**Last updated:** 2026-08-27 · **Day 16 — the mouth, in three passes: it froze rather than lagged, his resting mouth was being learned as the narrowest one he had just made, and the avatar was wearing his lips rather than its own.** Start at **"Day 16, third pass"** and read upwards, then **"What `test001.mkv` actually shows"** for the rest of the open list.
 
 ---
 
@@ -2479,106 +2479,6 @@ shape rather than the worse one — though after this fix either can be filed.
 *   `measure_quality.py` shows geometry unchanged as expected — warp residual
     7.37 -> 7.38, near-eye sharpness 360 -> 360, face sharpness 174 -> 172. What
     changed is which photograph is chosen, which that tool does not score.
-
-## Day 16, fourth pass — a rung shown whole is a cut, and a cut is what he was seeing
-
-**What he said**, having pressed the button a fifth time, after three fixes to
-*which* photograph gets chosen: *"It still is not good. The mouth movement is
-not smooth at all — the different frames change instantaneously and I do not
-like that."*
-
-**He is describing a staircase, and it measures as one.** How far his own mouth
-travels between two frames, against how far the picture travels when the
-photograph changes:
-
-| | his mouth, per frame | the picture's jump | one jump is worth |
-|---|---|---|---|
-| `201745` | 0.001 | 0.270 | **183 frames** of his own motion |
-| `201806` | 0.026 | 0.228 | 9 frames |
-| `201814` | 0.003 | 0.164 | 55 frames |
-| `214327` | 0.005 | 0.179 | 33 frames |
-| `231503` | 0.003 | 0.213 | 82 frames |
-
-The mouth stands still, crosses a quarter of the parting axis in **one frame**,
-and stands still again — between 0.9 and 7.8 times a second. **No amount of
-choosing the right photograph can fix this, because the choosing is the defect.**
-Three days have been spent making the choice more accurate; the choice was never
-the thing he was looking at.
-
-### And the day's own third fix made it worse, which has to be said
-
-`_LIP_FOLLOW` moved the mouth's destination geometry from the driver's outline
-— which is continuous — toward the chosen rung's, which changes in one frame.
-Ordinary motion is untouched, and the worst jumps grew:
-
-| | p95 jump, before → after | max |
-|---|---|---|
-| `201806` | 1.05 → 1.35 | 2.23 → **3.62** |
-| `214327` | 0.34 → 0.86 | 1.00 → **1.69** |
-| `231503` | 0.87 → 0.87 | 1.45 → **2.00** |
-
-The lips stopped being his and the staircase became easier to see. Both were
-true at once, and he saw the second one within the hour.
-
-### The turn ladder has never had this problem
-
-`_ladder_weights` mixes the **pair** bracketing the angle, and says why: *"a rung
-every three degrees means the two being mixed are three degrees apart, and a mix
-of two angles three degrees apart is indistinguishable from either."* The speech
-grid is 67 rungs at a median nearest-neighbour spacing of **0.058** — the same
-density and the same argument. It was the one family still choosing one rung and
-cutting to it.
-
-**`_SPEECH_CROSSFADE = 0.10`.** The two nearest rungs are mixed, weighted by
-their two distances, and the share is symmetric in them — so at the frame where
-the pair swaps rank it is half of each either way round and **nothing moves.**
-That is the whole property. A pair further apart than the fade's width gets the
-turn ladder's treatment: the fade sits in the middle of the gap and one
-photograph is shown either side of it, because a gap is not a licence to average
-across it.
-
-`_one_per_region` keeps both, splitting the region's share between them. One
-photograph per region is still the rule; a cross-fade is one photograph in two
-parts, and only ever within one family — a `speech@` rung and
-`source_mouth_open` are not two views of one mouth.
-
-### Measured, on the picture the engine actually keeps
-
-How far the mouth on screen moves between two frames:
-
-| | one photograph, shown whole | cross-faded |
-|---|---|---|
-| `201745` | 0.270 | **0.000** |
-| `201806` | 0.228 | **0.016** |
-| `201814` | 0.165 | **0.004** |
-| `214327` | 0.179 | **0.022** |
-| `231503` | 0.213 | **0.112** |
-
-**Between two and forty-three times smaller**, and two photographs are on the
-mouth for 58 to 88% of its frames. The fade's width was measured too: 0.06 — one
-rung's spacing — left half the pairs handing over in one frame, 0.10 covers most
-of them, 0.15 buys nothing more.
-
-The frame cost does not move: 36.94 ms to 36.89 ms at p50 over 270 frames of
-`201806`, p95 42.08 to 40.03.
-
-`recordings/day16-mouth-cut-vs-ramp.png` is ten consecutive frames of `201806`
-rendered both ways. The top row jumps from a closed mouth to a wide one and back;
-the bottom row opens.
-
-### What it does not fix, and what it changes about the hold
-
-The dark seam and the missing cavity are untouched, and are still the first
-item.
-
-**`_SPEECH_HOLD` and `_SPEECH_RELEASE` are now nearly inert and are kept
-anyway.** Measured with the fade in place, turning the hold off changes the
-picture's motion by less than the noise between captures — 0.016 against 0.013,
-0.022 against 0.027, 0.112 against 0.098. The fade does the job the hold was
-doing, by construction rather than by threshold. They stay because they still
-bound how far the *primary* rung may drift, and because removing them is a
-second change to the same path in one day; they want re-measuring before the
-next one is built on them.
 
 ## Day 16, third pass — the owner read the mesh, and he was right
 
