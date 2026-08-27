@@ -158,7 +158,55 @@ _SPEECH_LADDER_START = 0.05
 # speech is chosen by the parting, and the width only decides *which* opening.
 _SPEECH_WIDTH_START = 0.08
 
-# **There is no hold on this axis, and that is a 2026-08-28 removal.**
+# How little the mouth has to move between two frames before it counts as being
+# *held*, and how far wrong the photograph may be before it is let go anyway.
+#
+# **The owner has now complained about both halves of one thing.** In the
+# morning: *"it does not follow the mouth often when talking"* — a hold measured
+# in distance kept a stale photograph through a real movement. In the evening,
+# with no hold at all: *"when I say O, I hold the mouth still and it plays three
+# or four different photographs, sometimes one and sometimes another. All three
+# are meant for O, but it cannot settle on which O to choose."*
+#
+# **Distance cannot tell those apart; movement can.** Measured over his five
+# captures, on the frames where the parting barely moves, **the width wanders
+# 4.6 times as far as the parting does** — and it wanders slowly, so it is not
+# noise a low-pass would take out. One stretch of `214327` holds the mouth for 71
+# frames at a parting of 1.11 to 1.16 while the width crosses -0.12 to +0.04, and
+# the picture changes ten times over it. That is his "O".
+#
+# So the hold is on *stillness*, not on distance — and the threshold is where a
+# gentle talker stops looking like a still one. Measured through the engine on
+# four of his captures, as how far the picture travels against how far his mouth
+# does, and how often it changes while he is holding a shape:
+#
+# | still | `201806` | `201814`, spoken gently | `214327` | `231503` |
+# |---|---|---|---|---|
+# | none | 94%, 4.1 a second | 93%, 2.1 | 96%, 4.1 | 101%, 4.1 |
+# | 0.008 | 92%, 2.3 | **93%**, 1.6 | 94%, 2.9 | 101%, 4.1 |
+# | **0.012** | 92%, **1.5** | **88%**, **1.2** | 92%, **1.2** | 101%, 4.1 |
+# | 0.016 | 91%, 1.0 | **73%**, 0.7 | 92%, 1.0 | 101%, 4.1 |
+# | 0.020 | 90%, 0.3 | **73%**, 0.4 | 92%, 0.8 | 101%, 0.0 |
+#
+# **`201814` is the canary and 0.012 is the knee.** It is the capture where he
+# speaks gently, and a mouth moving slowly looks like a mouth being held: past
+# 0.012 it loses a fifth of its travel to buy cycling it did not have much of.
+# At 0.012 the cycling is a third of what it was and the travel is intact.
+#
+# **Freezing the width alone was tried first and does not work.** The wander is
+# mostly in the width, so holding only that axis should have been free — it keeps
+# every point of travel (95%, 109%, 95%, 101%) and takes almost no cycling out
+# (3.3, 2.6, 2.7, 4.1). With 87 rungs at a spacing of 0.036, the parting's own
+# jitter crosses a boundary on its own.
+#
+# The release is what keeps the hold honest: without it the cycling stops
+# completely and the error rises from 0.029 to 0.037, because a photograph can
+# then be carried through a slow drift all the way across a cell.
+_SPEECH_STILL = 0.012
+_SPEECH_STILL_RELEASE = 0.12
+
+# **There is no hold on this axis while the mouth is moving, and that is a
+# 2026-08-28 removal.**
 #
 # There were two: `_SPEECH_HOLD`, four times the other ladders' margin, added on
 # 2026-08-26 because the first version of this ladder changed photograph 7.6
@@ -1873,6 +1921,7 @@ class _LoadedAvatar:
         "image",
         "interior_role",
         "ladder",
+        "last_mouth",
         "last_seen",
         "lid_aspect",
         "neutral",
@@ -1933,6 +1982,12 @@ class _LoadedAvatar:
         # expression arrives and leaves over a fraction of a second rather than
         # wherever the tracker put it this instant. See :func:`_eased`.
         self.applied: dict[str, float] = {}
+
+        # Where the mouth was on the speech plane last frame, so this one can
+        # tell a mouth being *held* from a mouth moving. ``None`` until the first
+        # frame arrives, and cleared whenever the grid is not in play. See
+        # :data:`_SPEECH_STILL`.
+        self.last_mouth: tuple[float, float] | None = None
 
         # When this avatar was last given a frame, so the next one can be given
         # its share of a second rather than a fixed step. ``None`` until the
@@ -4548,6 +4603,8 @@ def _nearest_speech(
     parted: float,
     widened: float,
     weight: float,
+    held: str | None = None,
+    moved: float = 1.0,
 ) -> dict[str, float]:
     """The rung nearest this mouth **on both axes**, at ``weight``.
 
@@ -4564,12 +4621,18 @@ def _nearest_speech(
     unit of parting are the same size and the distance between them is plain
     Euclidean.
 
-    **And nothing is held.** Every other ladder keeps the rung in hand until a
-    challenger is clearly nearer, and this one did too, at four times their
-    margin. That is what made the mouth passive: a rung held until the mouth is
-    0.15 away from it is two or three rungs past its neighbour by the time it
-    changes, so the mouth moves late and then jumps. See the note above the
-    speech constants for the five captures that settled it.
+    **Nothing is held while the mouth is moving.** Every other ladder keeps the
+    rung in hand until a challenger is clearly nearer, and this one did too, at
+    four times their margin. That is what made the mouth passive: a rung held
+    until the mouth is 0.15 away from it is two or three rungs past its
+    neighbour by the time it changes, so the mouth moves late and then jumps.
+
+    **And it is held while the mouth is not** — see :data:`_SPEECH_STILL`.
+    ``moved`` is how far this mouth travelled since the last frame, on this same
+    plane. Below the threshold the mouth is being *held*, and so is its
+    photograph: a shape a person is holding is one shape, however the width axis
+    wanders underneath it. :data:`_SPEECH_STILL_RELEASE` is the ceiling that
+    keeps that from becoming the morning's defect again.
     """
     rungs = [(amount, key) for amount, key in ladder if key is not None]
     if not rungs:
@@ -4590,6 +4653,11 @@ def _nearest_speech(
         return float(np.hypot(amount - parted, widths.get(str(key), 0.0) - widened))
 
     nearest = min(rungs, key=distance)
+    if held is not None and moved < _SPEECH_STILL:
+        current = next((rung for rung in rungs if rung[1] == held), None)
+        if current is not None and distance(current) <= _SPEECH_STILL_RELEASE:
+            nearest = current
+
     key = nearest[1]
     return {} if key is None else {key: min(abs(weight), 1.0)}
 
@@ -4784,6 +4852,9 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
             _nearest_smile(avatar.smile_ladder, _smile_amount(tracking, avatar.neutral), held)
         )
 
+    if not avatar.speech_ladder:
+        avatar.last_mouth = None
+
     if avatar.speech_ladder:
         # And the speech ladder owns the parting. What goes with it is
         # `source_mouth_o` and the two named smiles, for the smile ladder's
@@ -4811,6 +4882,15 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
         # genuinely opens further.
         top = max(amount for amount, _ in avatar.speech_ladder)
         top_width = max((abs(w) for w in avatar.speech_width.values()), default=0.0)
+
+        # How far this mouth has come since the last frame, on the plane the
+        # grid is filed on. The first frame after the region has been away
+        # counts as a movement, so nothing is held over from before it left.
+        was = avatar.last_mouth
+        moved = (
+            float(np.hypot(parted - was[0], widened - was[1])) if was is not None else 1.0
+        )
+        avatar.last_mouth = (parted, widened)
         weights.update(
             _nearest_speech(
                 avatar.speech_ladder,
@@ -4825,6 +4905,8 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
                 # the region belongs to a named photograph that genuinely opens
                 # further.
                 float(np.hypot(min(parted, top), min(abs(widened), top_width))),
+                avatar.holding.get("mouth"),
+                moved,
             )
         )
 

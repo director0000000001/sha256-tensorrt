@@ -47,6 +47,8 @@ from sha256.avatar.engine_warp import (
     _SMILE_REFERENCE,
     _SMILE_WIDEN_SPAN,
     _SPEECH_LADDER_START,
+    _SPEECH_STILL,
+    _SPEECH_STILL_RELEASE,
     _SPEECH_WIDTH_START,
     _STABLE_POSITIONS,
     _SWITCH_MARGIN,
@@ -3451,3 +3453,52 @@ class TestTheGridsFootIsADistanceFromRestEitherWay:
 
     def test_and_rounded_is_never_answered_with_wide(self):
         assert self.chosen(0.0, -0.20) != {"speech@wide"}
+
+
+class TestAMouthBeingHeldKeepsItsPhotograph:
+    """The owner, on 2026-08-28: *"When I say O, I hold the mouth still and it
+    plays three or four different photographs, sometimes one and sometimes
+    another. All three are meant for O, but it cannot settle on which O to
+    choose."*
+
+    The morning's complaint was the opposite — a hold measured in *distance* kept
+    a stale photograph through a real movement, and the mouth went passive. Both
+    are one thing: distance cannot tell a mouth being held from a mouth moving.
+
+    Measured on his captures, on the frames where the parting barely moves, the
+    width wanders **4.6 times as far as the parting** — slowly, so it is not
+    noise a low-pass takes out. One stretch of `214327` holds the mouth for 71
+    frames while the width crosses -0.12 to +0.04 and the picture changes ten
+    times.
+    """
+
+    LADDER = ((0.2, "speech@a"), (0.4, "speech@b"), (0.6, "speech@c"))
+    WIDTHS: ClassVar[dict[str, float]] = dict.fromkeys(("speech@a", "speech@b", "speech@c"), 0.0)
+
+    def chosen(self, parted: float, held: str | None, moved: float) -> set[str]:
+        return set(_nearest_speech(self.LADDER, self.WIDTHS, parted, 0.0, parted, held, moved))
+
+    def test_a_still_mouth_keeps_the_photograph_it_has(self):
+        """The mouth has drifted past the boundary, but it is being held, so the
+        shape has not changed — only the measurement wandered."""
+        still = _SPEECH_STILL / 2
+        assert self.chosen(0.31, "speech@a", still) == {"speech@a"}
+
+    def test_and_a_moving_one_does_not(self):
+        """Nothing is held while the mouth is moving. This is the morning's fix
+        and it is not being taken back."""
+        moving = _SPEECH_STILL * 2
+        assert self.chosen(0.31, "speech@a", moving) == {"speech@b"}
+
+    def test_but_a_still_mouth_still_lets_go_of_a_wrong_photograph(self):
+        """A slow drift must not carry a photograph all the way across the grid:
+        past the release it is let go however still the mouth is."""
+        still = _SPEECH_STILL / 2
+        far = 0.2 + _SPEECH_STILL_RELEASE + 0.05
+        assert self.chosen(far, "speech@a", still) != {"speech@a"}
+
+    def test_and_the_first_frame_is_never_held(self):
+        """``moved`` defaults to a movement, so a region that has just come back
+        chooses freshly rather than inheriting what was on screen before it
+        left."""
+        assert self.chosen(0.55, "speech@a", 1.0) == {"speech@c"}
