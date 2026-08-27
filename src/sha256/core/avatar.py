@@ -112,10 +112,16 @@ class AssetRef(BaseModel):
     smile: float | None = Field(
         default=None,
         ge=0.0,
-        le=2.0,
+        le=4.0,
         description=(
             "How far into a smile this asset was measured: 0 at a resting mouth, "
-            "about 0.2 at a closed smile, 1 as the teeth appear and 2 at a laugh. "
+            "about 0.3 at a closed smile, 1 as the teeth appear and 2.2 at the "
+            "widest laugh in this library. The ceiling was 2.0 until 2026-08-26, "
+            "when the lip parting stopped carrying the frame's aspect ratio and "
+            "the ladder built from 9:16 clips stretched from 0.10-0.60 to "
+            "0.09-2.20 — the same twelve photographs, filed where they belong. "
+            "The bound is a guard against a typo, not a property of the axis: "
+            "the axis is a width times an opening and has no ceiling of its own. "
             "The same idea as "
             "`yaw` on another axis: a series carrying it is chosen by nearest "
             "amount, so a smile grows through photographs of itself instead of "

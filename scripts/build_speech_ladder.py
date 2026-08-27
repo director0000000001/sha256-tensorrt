@@ -101,13 +101,34 @@ DEFAULT_STEP = 0.1
 # zero, exactly as it is for yaw, the smile and the lids.
 DEFAULT_MIN_PARTED = 0.05
 
-# And the top. The owner's widest opening over the whole of `driving.mkv` is
-# 1.21 and his widest while speaking is 1.03; the `speech` clip goes on to 2.3.
-# Rungs past the demand are not wrong, they are unused — and every one costs a
-# face detection at load, on a startup that already takes 21 seconds. So: the
-# driver's own maximum with a quarter of margin. Raise it for a driver who opens
-# their mouth wider than this one does.
-DEFAULT_MAX_PARTED = 1.5
+# **Unless the mouth is wide**, and that is what makes this a grid of the whole
+# mouth rather than of speech. A closed smile parts the lips barely at all and
+# is not the portrait's mouth in any other way: measured on this avatar, the
+# widest closed smile in the library sits 0.28 above the portrait's resting
+# width with the lips 0.003 apart. Filed by parting alone it fell under the foot
+# and the grid never held it, so a smile had to be a second family with its own
+# axis — and that axis was a *product* of the two, which cannot tell a wide
+# mouth from an open one. It put a photograph with its lips nearly together on a
+# mouth open six times as far: on the owner's recording the chosen photograph
+# covered a median of 17% of the opening drawn for it, and he reported it as
+# teeth that show "very badly".
+#
+# One width step above rest, so a mouth that is merely resting is still the
+# portrait's own.
+DEFAULT_MIN_WIDENED = 0.08
+
+# And the top. The owner's widest opening while speaking is around 1.2 and the
+# clips go on past 2.
+#
+# **Raised from 1.5 to 2.5 on 2026-08-26, because rungs past the demand stopped
+# being unused.** `_covering_interior` borrows the *interior* of the narrowest
+# photograph whose own mouth still covers the live opening, so the widest mouths
+# in the library are what a frame wider than the grid falls back on. Cut at 1.5,
+# the widest opening the avatar owned was 0.080 of face height and every frame
+# past it showed a flat cavity below a band of teeth — which is what the owner
+# reported on the wide open mouth. The cost is the same as it always was: a face
+# detection each at load, on a startup that is already the worst thing here.
+DEFAULT_MAX_PARTED = 2.5
 
 # A rung has to be frontal and large enough to cut a mouth out of: it is placed
 # on the avatar's own frontal layout. Both are the other builders' thresholds.
@@ -153,6 +174,21 @@ class Step:
     refused: str | None = None
 
 
+# **The nose flares when the mouth widens, so it cannot vouch for the identity
+# of a mouth photograph.** `identity_ratios` holds three proportions that do not
+# change between photographs of one person, and on a broad smile two of them
+# hold: measured over the 98 frames of `video-09` where the mouth is 0.20 wider
+# than the portrait's rest, the median drift is **0.008 of the face width and
+# 0.047 of the eye spacing — against 0.152 of the nose width**. Judged on all
+# three at a tolerance of 0.08, *every one of those 98 frames was refused*, and
+# the grid could not hold a single wide smile. That is why a smile had to be a
+# second family, and it is the reason it could stay one.
+#
+# The same lesson as the brow anchor, which was moved off the nose bridge on
+# 2026-08-24 for moving with the thing it was measuring.
+_MOVED_BY_THE_MOUTH = ("nose_width",)
+
+
 def measure(
     path: Path,
     tracker: MediaPipeFaceTracker,
@@ -189,7 +225,9 @@ def measure(
     height, width = image.shape[:2]
     ratios = identity_ratios(points, width, height)
     drift = max(
-        abs(ratios[name] - base_ratios[name]) / max(base_ratios[name], 1e-6) for name in base_ratios
+        abs(ratios[name] - base_ratios[name]) / max(base_ratios[name], 1e-6)
+        for name in base_ratios
+        if name not in _MOVED_BY_THE_MOUTH
     )
     candidate = Candidate(
         index=0,
@@ -319,6 +357,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--step", type=float, default=DEFAULT_STEP)
     parser.add_argument("--width-step", type=float, default=DEFAULT_WIDTH_STEP)
     parser.add_argument("--min-parted", type=float, default=DEFAULT_MIN_PARTED)
+    parser.add_argument("--min-widened", type=float, default=DEFAULT_MIN_WIDENED)
     parser.add_argument("--max-parted", type=float, default=DEFAULT_MAX_PARTED)
     parser.add_argument("--max-yaw", type=float, default=DEFAULT_MAX_YAW)
     parser.add_argument("--min-face", type=float, default=DEFAULT_MIN_FACE)
@@ -378,14 +417,15 @@ def main(argv: list[str] | None = None) -> int:
             usable = [
                 step
                 for step, yaw in (m for m in measured if m is not None)
-                if args.min_parted <= step.parted <= args.max_parted
+                if (args.min_parted <= step.parted or args.min_widened <= step.widened)
+                and step.parted <= args.max_parted
                 and abs(yaw) <= args.max_yaw
                 and step.candidate.face_width >= args.min_face
                 and step.drift <= args.max_drift
             ]
             refused = sum(1 for step in usable if step.refused is not None)
             print(
-                f"{folder.name:<12} {len(frames):>4} frames  {len(usable):>4} parted and frontal"
+                f"{folder.name:<12} {len(frames):>4} frames  {len(usable):>4} moved and frontal"
                 + (f"  ({refused} the engine would refuse)" if refused else "")
             )
             found.extend(usable)

@@ -41,8 +41,15 @@ duration_seconds = 8
 # The face has to be large in frame — frames are cut out of this and the base
 # portrait is 1024x1024. Highest the account allows; drop to "720p" if the API
 # rejects it.
+#
+# 9:16 SINCE 2026-08-26, AND IT IS A MEASUREMENT RATHER THAN A PREFERENCE. The
+# same head is 320 px wide at 16:9 720p, 389 px in the speech clip on disk, and
+# 496 px at 9:16 1080p — against a portrait whose own face is 455. Everything
+# still waiting to be generated is wanted at 9:16 1080p for that one reason:
+# below the portrait's own face width the frames arrive already soft, and
+# softness is the single flaw the warp cannot put back.
 resolution = "1080p"
-aspect_ratio = "16:9"
+aspect_ratio = "9:16"
 person_generation = "allow_adult"
 
 # How long to wait for one video, and how often to ask. Generation is minutes,
@@ -62,10 +69,11 @@ drop_fields = []
 # source lit differently reads as a flicker when the engine switches to it.
 shared = '''
 Static locked-off camera at eye level, no camera movement, no zoom, no pan, no
-cuts, one continuous take. Close-up head-and-shoulders framing with the face
-filling most of the frame, centred, the whole head visible with a small margin
-above the hair. Soft even frontal lighting that never changes. Plain uncluttered
-light grey background. Photorealistic and extremely sharp: the face is in crisp
+cuts, one continuous take. Vertical portrait framing, taller than it is wide.
+Close-up head-and-shoulders framing with the face filling most of the width of
+the frame, centred, the whole head visible with a small margin above the hair
+and the shoulders reaching the bottom edge. Soft even frontal lighting that
+never changes. Plain uncluttered light grey background. Photorealistic and extremely sharp: the face is in crisp
 focus in every single frame, with visible skin texture and pores, individual
 eyelashes, and individual hairs in the eyebrows and the beard. No motion blur at
 any point. No film grain, no colour grading, no vignette, no depth-of-field blur
@@ -587,6 +595,30 @@ and each expression is completely motionless while it is held. The head does not
 move at any point and the eyes stay on the camera lens throughout.
 '''
 
+# REVISED 2026-08-26, and the revision is the whole point of it.
+#
+# The take on disk is 720p 16:9 with a 389 px face against the portrait's 455.
+# Above a mouth parting of 0.6 — 21% of speech frames — it is the only material
+# the library has, and the owner named both of its faults on sight: the beard,
+# and the thickness of the lips. Neither is reachable by a tone transform;
+# offset, gain, and gain-and-offset all left 3 to 15 of residual over the beard,
+# because the two generations simply drew that beard differently.
+#
+# So three things changed, and each answers a measurement:
+#
+#   9:16 at 1080p        496 px of face instead of 389.
+#   the lip-reading line  taken from speech-numbers, which is the instruction
+#                         that makes a shape fully formed and held. A grid cell
+#                         holding one frame is dropped, so a shape has to be
+#                         held to become a rung at all.
+#   the open jaw, named   the grid is thin above a parting of 0.6, and nothing
+#                         in the old sentence asks the jaw to drop all the way.
+#                         "Ah", "Thank", "asking", "has" are there to buy it.
+#
+# The sentence stays ONE sentence for eight seconds. Fifteen seconds of speech
+# inside an eight-second cap is what made the generator rush, and a rushed mouth
+# is a blurred frame. Longer is bought by extending the take or by generating
+# speech-numbers beside it, never by asking for more words in the same eight.
 [[clip]]
 id = "speech"
 order = 11
@@ -609,16 +641,23 @@ throughout: facing the camera straight on, head level and centred, shoulders
 square, as in an identity document photograph. His eyes stay on the camera lens
 the entire time, with natural blinking and only very small head movements.
 
-He speaks warmly and very slowly, articulating every word clearly and
-deliberately, so that each mouth shape is fully formed and held for a moment
-before the next one begins.
+He speaks warmly and very slowly, and he articulates every word as fully as a
+person who knows the listener is reading his lips: every mouth shape is
+completely formed, opened or closed to its full extent, and held completely
+still for an instant before the next one begins. Wherever the word opens the
+jaw, the jaw drops all the way and the wide open mouth is held still for an
+instant as well.
 
-He says: "Hi. Thanks for making the time. Before we begin, let me show you what
-my team has built, and why it may matter for your business."
+He says: "Ah, hello. Thank you for asking. Let me show you what my team has
+made."
 
-He speaks continuously from the first frame to the last, pausing with the mouth
-closed and relaxed between the sentences. The delivery is unhurried throughout
-and never fast.
+He speaks continuously from the first frame to the last, and between the
+sentences he closes his mouth completely and holds it relaxed and still for a
+moment. The delivery is unhurried throughout and never fast.
+
+His beard, moustache and lips stay exactly as they are in the attached
+photograph in every single frame: the same beard density and the same beard
+edge, and lips of exactly the same thickness and colour.
 '''
 
 # The second speech clip exists because eight seconds of one sentence cannot
