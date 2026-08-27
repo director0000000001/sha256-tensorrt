@@ -3,7 +3,7 @@
 **Living document.** Update it at the end of each working day. For the frozen
 record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
-**Last updated:** 2026-08-28 · **Day 16 — the mouth, in eight passes. The fourth was a cross-fade and it was wrong: it went soft, and soft reads as not moving. The fifth took the hold off the speech grid, which is what had been making the mouth passive since the day it was added.** Start at **"Day 16, eighth pass"** and read upwards, then **"What `test001.mkv` actually shows"** for the rest of the open list.
+**Last updated:** 2026-08-28 · **Day 16 — the mouth, in nine passes. The fourth was a cross-fade and it was wrong: it went soft, and soft reads as not moving. The fifth took the hold off the speech grid, which is what had been making the mouth passive since the day it was added.** Start at **"Day 16, ninth pass"** and read upwards, then **"What `test001.mkv` actually shows"** for the rest of the open list.
 
 ---
 
@@ -2479,6 +2479,94 @@ shape rather than the worse one — though after this fix either can be filed.
 *   `measure_quality.py` shows geometry unchanged as expected — warp residual
     7.37 -> 7.38, near-eye sharpness 360 -> 360, face sharpness 174 -> 172. What
     changed is which photograph is chosen, which that tool does not score.
+
+## Day 16, ninth pass — the grid is one generation now, because eight of them were flickering
+
+**The owner found the thing none of the measurements were looking at:**
+*"Several videos were generated. So in some videos the beard is a different
+shape while speaking, in some the teeth are a different shape. We take
+screenshots out of different videos and use them together. That causes a very
+large contrast."*
+
+He is right, and it measures worse than it sounds.
+
+### The face on screen was changing generation six times a second
+
+Every clip is a separate draw from the generator, so its beard, its teeth and
+its skin are its own. The grid installed an hour earlier drew from **eight
+generations**, and over his 873 speaking frames:
+
+| | |
+|---|---|
+| generations in the grid | **8** |
+| the largest single one | 35% of the rungs |
+| the face changes generation | **5.8 times a second** |
+| it stays on one generation for | **1 frame**, at the median |
+
+A different beard and a different set of teeth, six times a second. **No
+geometry fixes that**, and every number this project has published about the
+mouth was blind to it: parting, width, spacing and step all treat two
+photographs of two different draws as interchangeable.
+
+**It is the builder's own lesson one level up.** `best_per_cell` already refuses
+to rank a 720p face against a 4K one, because *"a Laplacian variance is a
+property of the pixels a face was drawn with"* — and the owner named what mixing
+resolutions cost within the hour it shipped. Mixing *generations* is the same
+mistake with a different axis, and it had never been asked about.
+
+### What one generation costs, and what it buys
+
+| | rungs | generations | nearest, p50 | p95 | s | sh | changes a second |
+|---|---|---|---|---|---|---|---|
+| everything (the eighth pass) | 268 | 8 | **0.028** | 0.082 | 9 | 24 | **5.8** |
+| **`Generated video 1 (10)` alone** | **87** | **1** | 0.041 | 0.128 | 5 | 12 | **0.0** |
+| `(9)` alone | 69 | 1 | 0.123 | 0.286 | 0 | 0 | 0.0 |
+| `(1)` alone | 28 | 1 | 0.079 | 0.230 | 0 | 0 | 0.0 |
+| the home clip with its gaps filled | 250 | 8 | 0.028 | 0.082 | 10 | 21 | 6.5 |
+
+**Filling the gaps is not a middle way.** The gaps are exactly where his mouth
+spends its time, so filling them puts the other generations back on the frames
+that matter and the flicker returns in full.
+
+**`Generated video 1 (10)` is installed alone.** It is the 4K clip with a
+1009 px face, the most usable frames of any, and the only one carrying both
+corners. The whole grid is one draw, so the beard and the teeth are constant.
+
+### Measured, through the engine, on his five captures
+
+| | step p50, first grid → mixed → one generation | error p50 |
+|---|---|---|
+| `201806` | 0.136 → 0.100 → **0.121** | 0.035 → 0.016 → 0.031 |
+| `201814` | 0.088 → 0.032 → **0.048** | 0.030 → 0.016 → 0.020 |
+| `214327` | 0.111 → 0.090 → **0.088** | 0.023 → 0.026 → 0.046 |
+| `231503` | 0.143 → 0.109 → **0.112** | 0.020 → 0.012 → 0.015 |
+
+Gain 0.90 to 1.10, r 0.98 to 1.00, travels 93 to 101%. **Better than the grid
+this day started with on every capture's step**, a little behind the mixed one,
+and with the flicker gone rather than traded.
+
+| | before today | mixed | **one generation** |
+|---|---|---|---|
+| rungs | 67 | 268 | **87** |
+| generations | several | 8 | **1** |
+| the s corner | 0 | 9 | **5** |
+| the sh corner | 0 | 24 | **12** |
+| on disk | 273 MB | 299 MB | **102 MB** |
+| avatar load | 24 s | 66 s | **36 s** |
+
+### What it gives up, and the one thing that would give nothing up
+
+The grid's top is a parting of **1.86** where the mixed one reached 2.18, and its
+width stops at +0.17. His own p95 is 1.74, so the loss is at the extremes — but
+`_covering_interior` borrows the widest mouth's interior, so the very widest
+frames have less to borrow from.
+
+**The real answer is one clip made for this.** One generation that covers the
+whole plane on its own: the vowels said and the consonants *held* — "ssss",
+"shhh", "ffff" — half a second each, at 9:16 1080p. That is the only way to have
+a dense grid and one face at the same time, and it costs one generation.
+`configs/avatar_clips.toml` already asks for lip-reading articulation; it needs
+the consonants named and held.
 
 ## Day 16, eighth pass — the grid rebuilt, 67 rungs to 268, and a startup it cannot keep
 
