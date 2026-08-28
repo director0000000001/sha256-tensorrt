@@ -3,7 +3,7 @@
 **Living document.** Update it at the end of each working day. For the frozen
 record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
-**Last updated:** 2026-08-28 · **Day 16 — the mouth, in nine passes. The fourth was a cross-fade and it was wrong: it went soft, and soft reads as not moving. The fifth took the hold off the speech grid, which is what had been making the mouth passive since the day it was added.** Start at **"Day 16, ninth pass"** and read upwards, then **"What `test001.mkv` actually shows"** for the rest of the open list.
+**Last updated:** 2026-08-28 · **Day 16 — the mouth, in ten passes. The fourth was a cross-fade and it was wrong: it went soft, and soft reads as not moving. The fifth took the hold off the speech grid, which is what had been making the mouth passive since the day it was added.** Start at **"Where day 17 starts"**, then read the passes below it upwards, then **"What `test001.mkv` actually shows"** for the rest of the open list.
 
 ---
 
@@ -2479,6 +2479,84 @@ shape rather than the worse one — though after this fix either can be filed.
 *   `measure_quality.py` shows geometry unchanged as expected — warp residual
     7.37 -> 7.38, near-eye sharpness 360 -> 360, face sharpness 174 -> 172. What
     changed is which photograph is chosen, which that tool does not score.
+
+## Where day 17 starts — the "A", and a second mouth inside the first
+
+**This is the open item. Read it before anything else.**
+
+The owner stopped at 04:14 on 2026-08-28: *"This problem happens when I say A.
+It needs fixing. The rest — the smiling and so on — I liked, relatively. Let us
+stop now, note down the problem I have just shown you, and continue tomorrow. I
+am tired."*
+
+**He liked the smile and the rest**, which is the first approval of the mouth in
+three days, and it is worth recording as carefully as the fault.
+
+### What the screenshot shows
+
+`Screenshot 2026-08-28 041437.png`, an open mouth on an "A":
+
+*   The opening is a wide dark ring, and inside it sits a **flat pink mass with
+    its own edge**, low in the mouth, reading as **a second, smaller lip inside
+    the first**.
+*   The **teeth are a small pale sliver high under the upper lip**, far too small
+    for an opening that size, with a dark band above them.
+*   There is **no depth** — a dark ring around a flat pink centre, no cavity
+    behind the teeth and no tongue that reads as a tongue.
+
+### The hypothesis, and it is this file's own words
+
+`_paint_mouth_interior` says exactly what this looks like: *"Placing the whole
+image and trusting the fit put the photograph's lips inside the live opening
+whenever the user opened wider than the photograph did — a second, smaller mouth
+inside the first, which is what the owner saw."* That defect was fixed once by
+copying only the source's own interior; **what the screenshot suggests is that it
+has come back through `_covering_interior`**, the second photograph added on
+2026-08-26 to fill what the first cannot reach.
+
+**And day 16 made the conditions for it worse, measurably.** The ninth pass put
+the grid on one generation, and that generation's widest mouth is a parting of
+**1.858**, where the mixed grid reached 2.18. Over his five captures:
+
+| | |
+|---|---|
+| his parting, p50 / p95 / max | 0.14 / 1.51 / **2.43** |
+| the grid's top | **1.858** |
+| frames wider than the grid can reach | **31 of 1500, 2.1%** |
+
+So on a loud "A" he goes past everything the grid owns, the choice clamps to the
+widest rung, and `_covering_interior` has to borrow an interior from a mouth
+narrower than the one on screen. That is precisely the condition the docstring
+above names.
+
+### What to do first, in order
+
+1.  **Reproduce it from a capture rather than from the screenshot.** Ask him to
+    press "That looked wrong" on an "A"; then `replay_capture.py --region mouth`
+    on the frames past a parting of 1.858 and compare against the same frames
+    with `_covering_interior` disabled. That says in one run whether the second
+    photograph is the fault.
+2.  **Check what the four named mouth photographs are doing there.**
+    `source_mouth_open`, `source_mouth_o`, `source_mouth_wide` and
+    `source_mouth_pressed` are all still installed, and `source_mouth_open` was
+    deliberately left in competition with the grid on 2026-08-25 *"because the
+    ladder runs out at a parting of 0.38"*. The grid now runs to 1.858 and that
+    argument expired twice over. It has never been re-measured.
+3.  **The top of the grid is a material question.** One generation cannot reach
+    2.43. Either a second generation is allowed above 1.858 — where flicker
+    costs least, because he is there 2% of the time — or the new clip covers it.
+
+### And the clip to ask for, which answers three open items at once
+
+One generation, 9:16 1080p, covering the whole plane on its own:
+
+*   the vowels said and **held**, including a wide "A" past a parting of 2.4;
+*   the consonants **held** — "ssss", "shhh", "ffff" — half a second each, which
+    is the empty corner of the grid;
+*   nothing else in it, so every rung comes from one draw.
+
+That would close the s corner, the sh corner and the top of the grid together,
+and it costs one generation.
 
 ## Day 16, ninth pass — the grid is one generation now, because eight of them were flickering
 
