@@ -2516,6 +2516,14 @@ and it is material rather than code.
 tie-break all stay. **`_SPEECH_KEEP = 0.05` stands judged too** — he has not
 called the mouth passive since it went in.
 
+### And it is committed
+
+**`f0623d8` on `main`, pushed 2026-08-30, at his own request** — *"commit and
+push this version we have now on the project"*. It is the first commit here
+since day 14: `origin/main` was still at `fc8bc2c`, so the push carried days 15
+to 18 with it. The manifest goes with it and the photographs it names do not —
+every `avatars/**/*.png` is gitignored as owner data, and so is `recordings/`.
+
 ### One experiment that did not work, so nobody builds it again
 
 **A finer iris does not help.** Day 13 took the iris from a diamond to an
