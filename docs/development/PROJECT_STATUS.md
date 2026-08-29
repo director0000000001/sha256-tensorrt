@@ -2533,41 +2533,85 @@ eight times, the sixteen-sided iris is not better and its top edge is slightly
 worse: it pushes a dark wedge up under the lid where the eight-sided one has a
 clean lash line. `_iris_arcs` is unchanged and the count stays at four per eye.
 
-## Where day 19 starts — the mouth's middle is missing, and it is a clip
+## Where day 19 starts — the mouth's middle is missing, and the builder could not have filled it
 
 **He has judged everything on this page** — see "His verdict on day 18" above.
 This list is what has not been done.
 
-1.  **The mouth's middle, and it is his own diagnosis.** *"When I say 'make' the
-    mouth makes a fast jump and goes straight to the A, and it may skip the
-    frame for the m."* The grid has 141 of 178 rungs above a parting of 0.70
-    and **18 below 0.35**: the ends of the movement and not its middle. Two
-    things follow, and the first is the one he named:
-    *   **A clip, asked for the way day 17 learned to ask** — not held
-        consonants, which came back unusable, but a sentence spoken naturally at
-        4K whose words force the mouth to *pass through* the middle rather than
-        sit at the ends. `Generated video 1 (14)` is a man talking with his
-        mouth open: through *"Yes, see — this is fast"* his parting never drops
-        under 1.0.
-    *   **And the builder's own cell rule is worth re-reading before that
-        clip is ordered.** `CELL_MINIMUM` cost `video (14)` 105 of its 227
-        usable frames once already, and the frames a fast opening passes
-        through are exactly the ones that are alone in their cell.
-2.  **The other generations are still in the library.** Day 18 measured
-    crossing between *clips* at only 10% of the texture the mouth travels, so
-    the rounded corner borrowed from `video (10)` is smaller than the old open
-    list implied. But the same measurement found the head and the lid ladders
-    swapping generation at rest, and the feet only keep them apart *near* rest —
-    a real turn still crosses into the turn clip's generation. Matching each
-    ladder to the portrait, the way `_match_to_portrait` matches exposure, is
-    the general form of it and has not been tried.
-3.  **The frame cost still wants measuring in the app rather than the replay
+### 1. His "make", measured
+
+*"When I say 'make' the mouth makes a fast jump and goes straight to the A, and
+it may skip the frame for the m. So more frames of the mouth's movements are
+needed."*
+
+Measured over all thirteen captures: **fifteen times his mouth goes from shut to
+wide open.**
+
+| | |
+|---|---|
+| how long it takes | p50 **11 frames**, the fastest **3** |
+| photographs shown on the way | p50 **5**, the fewest **3** |
+| **the biggest jump between two of them, in parting** | p50 **0.35**, p90 0.56, worst **0.80** |
+
+**A third of the parting scale in one frame, on a typical opening.** And where
+his mouth spends that time, the grid is at its thinnest:
+
+| his parting | his frames | rungs | his width there, p10 / p50 / p90 |
+|---|---|---|---|
+| 0.05-0.20 | 171 | **7** | -0.10 / -0.01 / +0.05 |
+| 0.20-0.40 | 301 | **8** | -0.06 / -0.03 / +0.06 |
+| 0.40-0.70 | 160 | 19 | -0.19 / -0.03 / +0.10 |
+| 0.70-1.00 | 204 | 21 | -0.18 / -0.01 / +0.13 |
+
+**472 of his frames in the first half of the opening, answered out of fifteen
+rungs**, and those fifteen are transitions between other shapes rather than
+shapes held. His diagnosis is the measurement: the library has the ends of the
+movement and not its middle.
+
+**So: a clip, and the width column is the specification.** Not held consonants,
+which came back unusable on day 17 — a sentence spoken naturally at 4K whose
+words force the mouth to *pass through* a parting of 0.05 to 0.40 at a width
+between **-0.10 and +0.06**, rather than sitting at the ends. `Generated video 1
+(14)` is a man talking with his mouth already open: through *"Yes, see — this is
+fast"* his parting never drops under 1.0.
+
+### 2. And the builder could not have used that clip
+
+**Run as committed over `video (14)` at the spacing the installed grid was built
+with — 0.035 of parting by 0.04 of width — `scripts/build_speech_ladder.py`
+produced 11 rungs. The library holds 143 from that clip.**
+
+`CELL_MINIMUM = 2` is why, and it is the second time this file has caught that
+rule: day 17 measured it costing `video (14)` **105 of its 227 usable frames**
+and explained why the reason had expired — it was written when a rung was a
+5.7 MB 4K PNG and the avatar took 24 s to load, and rungs are written at the
+portrait's scale now. **What day 17 did not do was change it**, so the builder
+on disk cannot rebuild the library that is installed, and the frames a *fast
+opening* passes through are exactly the ones that are alone in a cell.
+
+**`CELL_MINIMUM = 1` as of 2026-08-30**, with four tests on the cell rule; the
+same dry run now gives **86 rungs from `video (14)` alone**, against 143 in the
+library from that clip and its second dump together. **This had to be found
+before the clip was ordered rather than after**, which is the only reason it was
+looked for.
+
+### 3. The rest, in order
+
+*   **The other generations are still in the library.** Day 18 measured crossing
+    between *clips* at only 10% of the texture the mouth travels, so the rounded
+    corner borrowed from `video (10)` is smaller than the old open list implied.
+    But the same measurement found the head and the lid ladders swapping
+    generation at rest, and the feet only keep them apart *near* rest — a real
+    turn still crosses into the turn clip's generation. Matching each ladder to
+    the portrait, the way `_match_to_portrait` matches exposure, is the general
+    form of it and has not been tried.
+*   **The frame cost still wants measuring in the app rather than the replay
     harness.** The feet made it faster — 30.14 → 27.98 ms p50, alternating in
     one process — and the tie-break and the F gate did not move it. The absolute
     number moved from 24.7 to 39.4 ms between two runs an hour apart on this
     machine, which is why the app's own number is the one that counts.
-4.  Then the rest: the 41.7 s load, and day 16's dark seam, blackouts, violet
-    under the eyes and the turn.
+*   Then: the 41.7 s load, and day 16's dark seam, blackouts, violet under the
+    eyes and the turn.
 
 ## Day 18, third pass — the eyes and the head are one defect: the rung next to rest is another generation
 

@@ -158,9 +158,26 @@ FACE_TIE = 0.9
 # mouth barely makes.
 DEFAULT_WIDTH_STEP = 0.08
 
-# The fewest frames a cell needs before it becomes a rung. One frame is a moment
-# of the clip rather than a shape the mouth makes.
-CELL_MINIMUM = 2
+# The fewest frames a cell needs before it becomes a rung.
+#
+# **One, since 2026-08-30, and the two it replaces could not rebuild the grid
+# that is installed.** The rule was *"one frame is a moment of the clip rather
+# than a shape the mouth makes"*, written when a rung was a 5.7 MB 4K PNG and
+# the avatar took 24 s to load. Rungs are written at the portrait's scale now,
+# and day 17 already measured what the rule costs: **105 of `video (14)`'s 227
+# usable frames**.
+#
+# What it costs is worse than that, because the step came down with the grid.
+# Run as committed over `video (14)` at the step the installed grid was built
+# with — 0.035 of parting by 0.04 of width — this file produced **11 rungs**
+# where the library holds **143** from that clip. At that spacing nearly every
+# frame is alone in its cell, so a minimum of two throws away nearly everything.
+#
+# **That matters now rather than in principle.** The owner's remaining
+# complaint is that the mouth *"makes a fast jump and goes straight to the A"*,
+# and the answer to it is a clip whose frames are exactly the ones a fast
+# opening passes through — one to a cell, every one of them.
+CELL_MINIMUM = 1
 
 ROLE = "source_speech_step"
 

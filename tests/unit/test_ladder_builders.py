@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, ClassVar
 
 import pytest
@@ -31,6 +32,7 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 import build_brow_ladder as brow_ladder  # noqa: E402
 import build_eye_ladder as eye_ladder  # noqa: E402
+import build_speech_ladder as speech_ladder  # noqa: E402
 import extract_avatar_frames as extractor  # noqa: E402
 
 
@@ -131,3 +133,72 @@ class TestWhereTheLadderPutsItsZero:
         placed = eye_ladder.amounts([eye_step(0.0)], rest=0.0)
 
         assert placed[0][1] == 0.0
+
+
+def speech_step(parted: float, widened: float, sharpness: float = 100.0, face: float = 1000.0):
+    """One measured frame, with only the fields the cell rule reads filled in."""
+    return speech_ladder.Step(
+        path=Path(f"{parted:.3f}_{widened:.3f}.jpg"),
+        parted=parted,
+        widened=widened,
+        width=0.5,
+        gap=0.05,
+        sharpness=sharpness,
+        candidate=SimpleNamespace(face_width=face),
+        drift=0.0,
+    )
+
+
+class TestAFrameAloneInItsCellIsStillAShapeTheMouthMakes:
+    """`CELL_MINIMUM`, and the two it used to be could not rebuild the grid that
+    is installed.
+
+    The rule was *"one frame is a moment of the clip rather than a shape the
+    mouth makes"*, written when a rung was a 5.7 MB 4K PNG and the avatar took
+    24 s to load. Rungs are written at the portrait's scale now, and the step
+    came down with the grid: run over `video (14)` at the spacing the installed
+    library was built with, the builder produced **11 rungs** where the library
+    holds **143** from that clip. At that spacing nearly every frame is alone.
+
+    It matters because of what the owner asked for next — *"when I say 'make'
+    the mouth makes a fast jump and goes straight to the A"* — whose answer is a
+    clip whose useful frames are exactly the ones a fast opening passes through,
+    one to a cell and every one of them.
+    """
+
+    def test_a_cell_with_one_frame_in_it_becomes_a_rung(self):
+        chosen = speech_ladder.best_per_cell(
+            [speech_step(0.10, 0.0), speech_step(0.50, 0.0), speech_step(1.20, 0.0)], 0.035, 0.04
+        )
+        assert [round(step.parted, 2) for step in chosen] == [0.10, 0.50, 1.20]
+
+    def test_two_frames_in_one_cell_still_give_one_rung(self):
+        """A cell is one rung however many frames fall in it — that is what
+        makes this a grid rather than a dump of the clip."""
+        chosen = speech_ladder.best_per_cell(
+            [speech_step(0.100, 0.0, sharpness=10.0), speech_step(0.101, 0.0, sharpness=90.0)],
+            0.035,
+            0.04,
+        )
+        assert len(chosen) == 1
+        assert chosen[0].sharpness == 90.0
+
+    def test_the_bigger_face_wins_a_cell_before_sharpness_is_read(self):
+        chosen = speech_ladder.best_per_cell(
+            [
+                speech_step(0.100, 0.0, sharpness=900.0, face=400.0),
+                speech_step(0.101, 0.0, sharpness=10.0, face=1200.0),
+            ],
+            0.035,
+            0.04,
+        )
+        assert [step.candidate.face_width for step in chosen] == [1200.0]
+
+    def test_a_frame_the_engine_would_refuse_never_wins_a_cell(self):
+        refused = speech_step(0.10, 0.0)
+        chosen = speech_ladder.best_per_cell(
+            [speech_ladder.Step(**{**refused.__dict__, "refused": "its brows are in its eyes"})],
+            0.035,
+            0.04,
+        )
+        assert chosen == []
