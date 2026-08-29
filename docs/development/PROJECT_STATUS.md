@@ -3,7 +3,7 @@
 **Living document.** Update it at the end of each working day. For the frozen
 record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
-**Last updated:** 2026-08-28 · **Day 16 — the mouth, in ten passes. The fourth was a cross-fade and it was wrong: it went soft, and soft reads as not moving. The fifth took the hold off the speech grid, which is what had been making the mouth passive since the day it was added.** Start at **"Where day 17 starts"**, then read the passes below it upwards, then **"What `test001.mkv` actually shows"** for the rest of the open list.
+**Last updated:** 2026-08-30 · **He has tested day 18 and the eyes and the head are answered: the pupils glitching and the face shaking on a five-degree head movement were one defect — every ladder in this engine had a foot except yaw, and the rung next to rest is a different *generation* from the portrait. Both ladders now have a foot the tracker's noise cannot cross. What is left on the mouth is his own diagnosis and it is material: the grid holds the ends of the movement and not its middle.** Start at **"His verdict on day 18"**, then **"Where day 19 starts"**, then the three day-18 passes, then the day-17 passes, then **"What `test001.mkv` actually shows"** for the rest of the open list.
 
 ---
 
@@ -2480,7 +2480,833 @@ shape rather than the worse one — though after this fix either can be filed.
     7.37 -> 7.38, near-eye sharpness 360 -> 360, face sharpness 174 -> 172. What
     changed is which photograph is chosen, which that tool does not score.
 
-## Where day 17 starts — the "A", and a second mouth inside the first
+## His verdict on day 18, and the one thing left on the mouth
+
+**Tested 2026-08-30, in the app, with everything below installed.** His words:
+*"I tested it. The only problem now is that the mouth's movements do not have a
+smooth transition at this stage. The rest is fine for now. It will get more
+polished over time. Try to make the changing of photographs smooth during the
+mouth's movement, so we get a better result. Commit and push this version we
+have now on the project, then let's continue. We have a good result now, let's
+leave this version for now."*
+
+**So: the eyes and the head are answered.** The pupils glitching and the face
+shaking on a five-degree head movement — both his own words the day before — are
+not on the list any more. The two ladder feet did it, and the F gate and the
+mouth tie-break stand judged as part of *"the rest is fine"*.
+
+### And his mechanism for what is left, which the measurements already agree with
+
+*"The way to fix it, I think, is that we need to add more photographs of the
+mouth's movements. For example when saying the word 'make' — the way the mouth
+movement really starts in the word, it should start that way here too, and for
+that more screens of the mouth's movements are needed... when I say 'make' the
+mouth makes a fast jump and goes straight to the A, and it may skip the frame
+for the m. So more frames of the mouth's movements are needed and I think we
+will get a good result."*
+
+**That is the second pass's own finding arriving from his side.** 141 of the 178
+rungs sit above a parting of 0.70 — a mouth well open — and only **18 below
+0.35**, five of them spread. The library has the ends of the movement and not
+its middle, so a mouth going from an "m" to an "a" has almost nothing to be
+drawn with on the way. This is now the fifth time his mechanism has been right,
+and it is material rather than code.
+
+`_TURN_LADDER_START` and `_EYES_LADDER_START` and the F gate and the texture
+tie-break all stay. **`_SPEECH_KEEP = 0.05` stands judged too** — he has not
+called the mouth passive since it went in.
+
+### One experiment that did not work, so nobody builds it again
+
+**A finer iris does not help.** Day 13 took the iris from a diamond to an
+octagon — 63.7% to 90.0% of the circle inside the mesh — and taking it to
+sixteen sides (97.4%) was tried on his own capture. Rendered side by side at
+eight times, the sixteen-sided iris is not better and its top edge is slightly
+worse: it pushes a dark wedge up under the lid where the eight-sided one has a
+clean lash line. `_iris_arcs` is unchanged and the count stays at four per eye.
+
+## Where day 19 starts — the mouth's middle is missing, and it is a clip
+
+**He has judged everything on this page** — see "His verdict on day 18" above.
+This list is what has not been done.
+
+1.  **The mouth's middle, and it is his own diagnosis.** *"When I say 'make' the
+    mouth makes a fast jump and goes straight to the A, and it may skip the
+    frame for the m."* The grid has 141 of 178 rungs above a parting of 0.70
+    and **18 below 0.35**: the ends of the movement and not its middle. Two
+    things follow, and the first is the one he named:
+    *   **A clip, asked for the way day 17 learned to ask** — not held
+        consonants, which came back unusable, but a sentence spoken naturally at
+        4K whose words force the mouth to *pass through* the middle rather than
+        sit at the ends. `Generated video 1 (14)` is a man talking with his
+        mouth open: through *"Yes, see — this is fast"* his parting never drops
+        under 1.0.
+    *   **And the builder's own cell rule is worth re-reading before that
+        clip is ordered.** `CELL_MINIMUM` cost `video (14)` 105 of its 227
+        usable frames once already, and the frames a fast opening passes
+        through are exactly the ones that are alone in their cell.
+2.  **The other generations are still in the library.** Day 18 measured
+    crossing between *clips* at only 10% of the texture the mouth travels, so
+    the rounded corner borrowed from `video (10)` is smaller than the old open
+    list implied. But the same measurement found the head and the lid ladders
+    swapping generation at rest, and the feet only keep them apart *near* rest —
+    a real turn still crosses into the turn clip's generation. Matching each
+    ladder to the portrait, the way `_match_to_portrait` matches exposure, is
+    the general form of it and has not been tried.
+3.  **The frame cost still wants measuring in the app rather than the replay
+    harness.** The feet made it faster — 30.14 → 27.98 ms p50, alternating in
+    one process — and the tie-break and the F gate did not move it. The absolute
+    number moved from 24.7 to 39.4 ms between two runs an hour apart on this
+    machine, which is why the app's own number is the one that counts.
+4.  Then the rest: the 41.7 s load, and day 16's dark seam, blackouts, violet
+    under the eyes and the turn.
+
+## Day 18, third pass — the eyes and the head are one defect: the rung next to rest is another generation
+
+**His words, with ten seconds recorded to go with them:** *"I recorded the last
+ten seconds. Look. I was moving my head slightly, five to ten degrees right and
+left, and see for yourself what was happening to the eyes. The pupils go like a
+glitch. The mouth movement is better too. We need more work on accuracy, so the
+mouth follows the movement better. And on a slight movement of the head the face
+should not shake — it should follow boldly and correctly."*
+
+`captures/moment-20260829-224954`, 300 frames, 11.0 s, yaw **−7.2° to +5.6°**,
+roll −10.6° to +5.2°. Exactly what he described, and it names the defect on its
+own.
+
+### One mechanism under both of his complaints
+
+**Every ladder in this engine has a foot except yaw, and the rung next to rest
+is a different generation from the portrait.**
+
+| the rung nearest rest | how far from rest | how far from the portrait's pixels, whole face | at the eyes |
+|---|---|---|---|
+| `turn@33` | **+0.50°** | **16.3** | **36.6** |
+| `turn@32` | −2.50° | 20.1 | 39.3 |
+| `eyes@53` | +0.065 of a lid | — | **17.7** |
+| `eyes@52` | −0.07 of a lid | — | 16.1 |
+
+**Half a degree of yaw and seven hundredths of a lid cannot account for those
+numbers.** They are frames of the turn clip and the eyes clip, and the portrait
+is neither. Crossing the foot is a change of *generation*, and both regions are
+shown whole, so it happens instantly and both ways. That is day 16's finding on
+the mouth — *"the grid is one generation, because eight of them were flickering
+six times a second"* — arriving on the head and the eyes.
+
+Measured through the engine on all thirteen captures, 3900 frames:
+
+*   a turn photograph was mixed into **100% of frames**, and the set of them
+    changed **1.9 times a second**. Over his ten seconds, **six** different
+    photographs of the head were used on a head that never left ±7°.
+*   the lid reading is above the eye ladder's foot on **36% of frames** and
+    above 0.45 — a real closure — on **0.8%**. On his ten seconds the eye region
+    turned on and off **26 times in 11 seconds**, a median run of **three
+    frames**, and in most of those runs the reading never passed 0.11.
+
+`recordings/day18-the-eyes-change.png` is what changed between one frame and the
+next, amplified five times, under both engines. The flashes where the whole iris
+and lid light up are the glitch.
+
+### A foot on each, and the guard rail is what set both numbers
+
+**The turn ladder: the portrait's rung becomes a plateau of ±2.5°.** Rungs
+inside it are dropped — three of thirty-seven. The angle error is carried beside
+the flicker because a face that never changes photograph does not flicker at
+all:
+
+| foot | the eyes, frame to frame | swaps a second | portrait alone | angle error | worst |
+|---|---|---|---|---|---|
+| none | **0.74** | 1.92 | 0% | 0.00 | 0.85 |
+| 1.0 | 0.00 | 1.24 | 60% | 0.33 | 1.00 |
+| 2.0 | 0.00 | 1.02 | 73% | 0.38 | 1.99 |
+| **2.5** | **0.00** | **0.64** | **81%** | 0.53 | **3.31** |
+| 3.0 | 0.00 | 0.58 | 82% | 0.53 | 3.59 |
+
+**The error column is what makes it cheap.** The most the photograph is ever
+wrong by is 3.3 degrees, and the mesh still turns the face by exactly what he
+turned it — only the shading is the portrait's own rather than a photograph
+taken two degrees round, and those two photographs differ by 16 grey levels for
+reasons that have nothing to do with the two degrees.
+
+**The lid ladder: the foot goes from 0.05 to 0.15, with a release at 0.08.**
+The blink columns are the guard rail, and so is the run length, because the
+2026-08-21 note in this file rejected a release for *doubling* it:
+
+| start / release | on and off a second | eyes p95 | on when he is open | blinks kept | blink run |
+|---|---|---|---|---|---|
+| **0.05 / 0.05**, as it was | **0.81** | **18.43** | 49% | 100% | 15 |
+| 0.05 / 0.02 | 0.57 | 16.78 | 54% | 100% | 22 |
+| 0.10 / 0.05 | 0.43 | 15.07 | 34% | 100% | 25 |
+| 0.12 / 0.06 | 0.37 | 13.52 | 29% | 100% | 20 |
+| **0.15 / 0.08** | **0.32** | **11.99** | **23%** | **100%** | **16** |
+| 0.20 / 0.10 | 0.27 | 10.30 | 14% | 100% | 16 |
+
+**Not one frame of a real closure is lost at any setting**, and 0.15 is the only
+one where the run length does not grow — 16 against 15 — because the runs it
+removes were never blinks to begin with.
+
+**It retires the wide side of the ladder, and that is deliberate.** The
+library's only rung wider than rest is at −0.07, inside the reading's own noise,
+and its entire observed use is three- and four-frame flashes of a wide-eyed
+photograph. That is the third eye family dropped after the four gaze
+photographs and the squint, for the same measured reason.
+
+### Measured, all thirteen captures, through the engine
+
+The frame-to-frame change of the *blend* — the photographs composed at the
+portrait's own geometry, so what changes between two of its frames is which
+photographs were mixed and nothing else. His own movement is the mesh, and the
+mesh comes after.
+
+| | before | after |
+|---|---|---|
+| the eyes, frame to frame, p50 | 0.28 to **2.86** by capture | **0.00** on twelve of thirteen |
+| the whole face, p50 | 0.33 to 1.94 | **0.00** on twelve of thirteen |
+| a turn photograph is mixed in | **100%** of frames | 0% to 86%, mostly under 25% |
+| the eye region turns on or off | 0.81 a second | **0.32** |
+| the eyes, p95 | 18.43 | **11.99** |
+
+And on the ten seconds he recorded:
+
+| `moment-20260829-224954` | before | after |
+|---|---|---|
+| photographs of the head used | **6** | **3** |
+| the set of them changed | 3.7 a second | **1.2** |
+| an eye photograph was on | 153 of 300 frames | **108** |
+| eye rung changes | 2.9 a second | **1.9** |
+
+### What it costs
+
+*   **A frame is faster**: 30.14 / 27.98 / 29.94 / 27.98 ms p50, alternating in
+    one process. The foot restores *"a resting face uses no sources at all"* on
+    81% of frames, so the blend cache hits instead of mixing.
+*   **Three turn rungs are no longer used**, and the load logs which.
+*   **679 tests pass**, nine of them new.
+
+### What is not answered
+
+**"More work on accuracy, so the mouth follows the movement better"** is the S
+finding one level up: 141 of the 178 rungs are a mouth well open, and the narrow
+consonants are answered out of 15 rungs that are all transitions. Nothing on
+this pass touched it. It wants a clip.
+
+### One thing to tell him
+
+`captures/moment-20260829-224954/seen.png` is the frame that was on screen when
+he pressed the button, and on this capture that is **the camera's own picture of
+his face**, not the avatar. It is 936 KB on disk under `captures/`. Every other
+capture has one too. Nothing else in a capture is an image — the tracking is
+landmarks and blendshapes — and the replays are all rendered onto a plain
+background.
+
+## Day 18, second pass — he ranked three things, and two of them are the foot of the grid
+
+**His words, in his own order:** *"There is progress. The photographs follow the
+mouth better now. The problem is that sometimes on F it still chooses many
+photographs. Also the mouth's movement and the changing of frames, the changing
+of photographs on the mouth, should be smoother still. There is definitely
+progress. If the model settles more on which photograph to choose when, we will
+get a much better result. S is a little hard too."*
+
+Everything below is measured through the engine on **twelve** of his captures,
+3600 frames, 122 seconds — the six the day-17 tables were measured on and six
+more.
+
+### 1. The F, and it is not a place on the plane
+
+**On his F the grid abstains and the portrait's shut mouth is held.** His lips
+read as fully together — a parting of **0.000** — and the width is inside the
+foot too, so nothing is chosen at all: `231503` frames 81-89 and `222634` frames
+109-125 are the portrait's own closed lips, unmoving, for a third and then half
+a second, while `mouthRollLower` climbs to 0.62. What he sees on either side of
+that is the choice running down the crowded foot: `201745` frames 0-9 are six
+photographs in ten frames.
+
+**And the library's own F photographs are filed where he never goes.** Three
+frames of `video (14)` — the "off" and "for" at 7.0 to 7.1 s — are installed as
+rungs, at a parting of **0.51 to 0.74**, because that actor's F parts the lips
+where his does not. A third axis on the grid does not reach them: the parting
+term alone is 0.55 away, which no weight on a roll term survives without
+breaking every other frame. **What separates an F is not a distance. It is a
+gate.**
+
+| `mouthRollLower`, over his 3600 frames | |
+|---|---|
+| median | **0.004** |
+| p99 | 0.228 |
+| an F | **0.33 to 0.62** |
+
+So the F is a *named* photograph again — the first one back since day 17 retired
+all four, and for the one reason that distinguishes it: the grid does not hold a
+findable version of this shape. `source_mouth_f` is `speech_0548_-0058.png`, the
+strongest roll of the three and no wider than the others, named in the manifest
+rather than copied. It opens at **0.30** and closes at **0.20**:
+
+| | measured on his captures |
+|---|---|
+| firings | **5** over 122 s |
+| frames | **32** of 3600, 0.9% |
+| the median F | **5 frames**, the longest 14 |
+| what it replaced | the portrait on **27**, a grid rung on 5 |
+
+**The firings column is why it is a gate and not a threshold** — the frames it
+claims are contiguous, so it opens once per F and shuts once, and there is
+nothing to chatter. Requiring the mouth to be shut as well was measured and adds
+nothing: 32 frames either way, because a rolled lower lip already is one.
+
+**It arrives whole, which is the second change and not a detail.** The mouth
+eases at 3.7 a second, so a fade takes eight frames and his F lasts five. Faded,
+the F was a *partial* photograph over his closed lips on **22 of the 40 frames**
+it held the mouth and then hung on for **8 frames after the F had ended** —
+arriving as a ghost of teeth over shut ones and leaving as one. Whole, it is on
+32 frames and fully on for all 32.
+
+**And the doubt was checked by eye before any of it was built**, because it was
+a real one: the mesh follows the driver's own lips, his F measures shut, and a
+photograph whose lips are 0.55 apart could have been squeezed into a smear.
+Forced onto those frames it is not — the photograph's own reach paints the teeth
+onto the lip. `recordings/day18-f-forced.png` is the three candidates over his
+own F; `day18-the-f.png` and `day18-the-f-2.png` are the before and after.
+
+### 2. Smoothness: two rungs one cell apart are the same shape and not the same photograph
+
+The day-17 answer to *"the photographs change very often"* was the margin, and
+it took the rate from 21 a second to 15. **He is still seeing it, and the rate
+was only half of it.** The other half is how big each change is, and that is not
+something the grid chooses by:
+
+| two rungs this far apart on the plane | how different they look, in grey levels over the mouth |
+|---|---|
+| 0.00-0.03 | p10 **1.3**, p50 7.4, p90 22.8 |
+| **0.03-0.06** — one cell, which the choice treats as interchangeable | p10 **5.2**, p50 **29.0**, p90 **46.3** |
+| 0.20-0.40 | p10 26.9, p50 42.0, p90 56.2 |
+| 1.00 and beyond | p10 40.0, p50 57.7, p90 79.8 |
+
+**A cell apart can be as different as two rungs drawn at random**, and until now
+which of them was taken was decided by whichever floating point number came out
+smaller. What that costs, over the 428 times the photograph changed:
+
+| where the change went | changes | the step |
+|---|---|---|
+| the next two frames of film | 76 | **16.0** |
+| a tenth of a second away | 54 | 27.1 |
+| half a second away | 126 | 41.1 |
+| a different part of the clip | 93 | 33.1 |
+| another clip, or unplaced | 79 | 31.4 |
+
+**82% of the changes go to a different moment of the clip, and they cost twice
+what a change to the next frame of film costs.** Also worth writing down because
+it was expected to be larger: crossing between *clips* is only **10% of the
+texture the mouth travels**, so the rounded corner borrowed from `video (10)` is
+a smaller item than the open list implies.
+
+**The fix is a tie-break, and it needs nothing from the manifest.** The plane
+says which shape; a new measurement — the weighted distance between two rungs
+over the mouth's own mask, built once at load — says which photograph of it. Day
+17 wrote that this fix "needs each rung to carry its source frame index, which
+is a manifest field and a rebuild"; **it does not.** Measuring the photographs
+themselves measures the thing that is wrong rather than a proxy for it, works
+between rungs from different clips where a frame index means nothing, and needs
+no library rebuilt. Scored against film adjacency directly, it also wins: a step
+of 25.9 against 27.4.
+
+| measured through the engine, twelve captures | before | after |
+|---|---|---|
+| changes a second | 4.09 | 4.23 |
+| with the mouth moving | 11.27 | 11.81 |
+| the step when it changes, p50 | **31.3** | **25.9** |
+| p90 | 50.0 | **40.8** |
+| grey levels the mouth travels a second | 112.0 | **93.5** |
+| it went to the next frame of film | 16.4% | **25.5%** |
+| error p50 | 0.059 | 0.063 |
+| **its travel, over his own** | **0.845** | **0.844** |
+
+**The travel column is why this one is free.** It holds no photograph for a
+frame longer than the margin already holds it — the mouth changes as often and
+lands in the same cell — so the shape follows exactly as far as it did, and only
+which photograph of that shape is used has changed. That is the opposite trade
+from every other row in this document, and it is the reason the window is one
+cell and not two: at 0.08 the step falls to 25.0 but the error rises to 0.074,
+which is the passivity trade coming back.
+
+`recordings/day18-mouth-tie-break.png` is ten frames of `032613` under both
+engines — the one-frame drop to a dark open mouth at 191 is gone — and `-2.png`
+is a one-frame flash of teeth on a closed mouth at `201806` 90.
+
+### 3. The S, and it is material
+
+**The clip the grid is built from is a man talking with his mouth open.**
+Through *"Yes, see — this is fast"* — five "s" sounds — his parting never drops
+below 1.0. There is no narrow "s" in the clip to file.
+
+| the grid, by band of parting | rungs | of them spread | rounded |
+|---|---|---|---|
+| 0.00-0.05 | 3 | 2 | 1 |
+| 0.05-0.15 | 6 | 1 | 4 |
+| 0.15-0.35 | 9 | 2 | 4 |
+| 0.35-0.70 | 19 | 7 | 8 |
+| 0.70-1.50 | **68** | 53 | 12 |
+| 1.50-4.00 | **73** | 27 | 28 |
+
+**141 of 178 rungs are a mouth well open.** His own frames: 1507 of 3568 below
+0.05, where the grid rightly abstains, and **346 in 0.05-0.35** — the narrow
+consonants, s and sh and z and v — answered out of 15 rungs that are all
+transitions between other shapes rather than held ones. That is the same
+sentence as the F one level up, and unlike the F there is no photograph in the
+library to name. **It wants a clip**, asked for the way day 17 learned to ask:
+not held consonants, which came back unusable, but a sentence dense in them
+spoken naturally, at 4K.
+
+### What it costs
+
+*   **The texture measure: 0.20 s at load and 1.9 MB.** Nothing per frame — it
+    is read only on the frames the photograph changes, three or four times a
+    second, over the three to five rungs that are tied.
+*   **The F: one more photograph to place at load**, about 0.3 s, and one
+    blendshape lookup a frame.
+*   **A frame is unchanged**: 39.44 / 38.97 / 39.26 / 39.23 ms p50 with both
+    off, both on, off and on again, in one process. The absolute number is this
+    machine's and not the app's — it read 24.7 ms an hour earlier.
+*   **670 tests pass**, eighteen of them new. Two of the eighteen fail if the F
+    is allowed to fade in, and one fails if the tie-break stops preferring the
+    photograph it looks like — which is what makes them tests of the fixes
+    rather than of the code.
+
+### Still his to judge
+
+Three changes now stand unjudged rather than one, and that is the risk this
+document keeps recording: **his eye has disagreed with the numbers four times.**
+Each is one line to reverse, and the lines are named under "Where day 19
+starts".
+
+## Day 18, first pass — the line under the nose was the mask, and it belonged to the whole library
+
+**The owner, five hours after the first answer to it, with a screenshot and the
+ten seconds around it:** *"There is still a line below the nose. I pressed
+'that looked wrong' again too."* `captures/moment-20260829-032613`, 300 frames,
+a minute after `Screenshot 2026-08-29 032515.png`.
+
+### Day 17's answer was the wrong one, and the way it was wrong is worth keeping
+
+The third pass blamed the photograph that won the frame: `source_mouth_wide`, a
+photograph of a wide mouth, chosen for lips 0.12 apart. That was real and it is
+fixed. **It was not the line.** The mask does not depend on which photograph
+won, because there is only one of it:
+
+```python
+for extra in extras:                      # every present photograph
+    cv2.fillConvexPoly(grown, cv2.convexHull(extra), 255)
+```
+
+`extras` is *every* mouth photograph the avatar has — 183 of them — and the
+result is built once at load and used on every frame. Retiring the named four
+moved the top of that union from `source_mouth_wide` to `speech@246` and changed
+nothing he could see.
+
+### Measured, on his own avatar
+
+| | y | above his own lip line |
+|---|---|---|
+| his lip hull's top | 530.5 | — |
+| his nostrils | 475.4 | 12.1% of a face |
+| the base's own hull with its margin | 508 | 4.9% |
+| **the mouth mask, as built** | **468** | **13.7%** |
+
+On a face 455 px wide that is **62 px**, and the mask is **1.000 the whole way
+up the philtrum** — 0.988 at 12.0%, still 0.745 at 13.3%. So on every frame,
+whatever photograph was showing had its philtrum painted over the philtrum and
+its moustache dragged up under the nostrils by the mesh. Of the 183 photographs,
+168 reach above his lip line and 5 reach past his nostrils; one of those five,
+`speech@246`, set the number for all of them.
+
+**And the fade was cut off.** The box is `group ± margin` and the photographs'
+own landmarks, with no room around them, so it stopped exactly at
+`speech@246`'s lip line — and the mask is blurred and *then* cropped to the box.
+Top row **0.549**, nothing above it. Half a photograph, stepping to none, in one
+row, straight across the width of the mouth. That is the line itself; the
+painted philtrum is what makes it visible.
+
+### The change
+
+1.  **A photograph's reach belongs to the photograph.** `_Region.mask` is now
+    the base portrait's own feature and its margin, which is the same on every
+    frame. Each photograph carries its reach *past* that mask as a small
+    rectangle, and `_reached` adds back only what is showing, at that
+    photograph's own share of the mix. An opening the mesh has never seen is
+    still painted — by the rung that is open, on the frames it is on.
+2.  **The box gets the feather's own radius around it**, so the mask fades to
+    zero inside the crop instead of being cut off by it.
+
+What the *region* occupies is still the union, because that is what it takes
+from the regions built after it. Moving that line would move the mouth against
+the eyes and the brows, which is settled ground and a different question.
+
+### Measured, before and after, on all twelve of his captures
+
+| | before | after |
+|---|---|---|
+| how far the mouth reaches above his lip line | 13.7%, every frame | p50 **4.9%**, p95 5.6%, max 11.1% |
+| frames reaching past his nostrils | **100%** | **0.0%** |
+| frames reaching past 10% of a face | 100% | 0.7% |
+| the mask's top row, where it is cut by the box | 0.549 | **0.000** |
+
+**And the eyes are untouched by it.** Split per photograph, the three regions
+divide as follows — which is a measurement, not a hope:
+
+| region | photographs | with a reach | the largest, against the base's own mask |
+|---|---|---|---|
+| mouth | 183 | 112 | 9910 px, 65% |
+| brows | 8 | 2 | 1630 px, 8% |
+| **eyes** | **19** | **0** | **—** |
+
+`recordings/day18-nose-line-before-after.png` is frames 24, 84, 156, 180 and 192
+of `moment-20260829-032613`, rendered by both engines. The moustache clumped up
+under the nostrils with bare skin below it is the before; it lies down onto the
+lip in the after, and the wide-open frame still opens.
+
+### What it costs
+
+*   **5.02 MB** of reach values in all, against 35 MB the dense way.
+*   **Load 48.8 s → 49.3 s** on this machine, same session, same avatar.
+*   **A frame 37.32 → 38.04 ms p50, 44.87 → 47.38 ms p95**, over 300 replayed
+    frames at 1280x720. Most of it is the box, which is 22% larger now.
+    Worth re-measuring in the app rather than in the replay harness.
+*   **652 tests pass**, six of them new. One of the six fails if the box loses
+    its halo, which is what makes it a test of the fix rather than of the code.
+
+### One measurement that did not work, so nobody builds it again
+
+The obvious score for "is there a line" — the strongest row-to-row step across
+the mouth's width, taken between the nostrils and the lip line — **does not
+separate the two engines**: p50 4.84 before against 5.47 after, over all 3599
+frames. It is measured on the blend, before the mesh warp, and the top of the
+moustache is a real horizontal edge that swamps it. The pictures and the reach
+table are the evidence here; that number is not.
+
+### Still his to judge
+
+The two questions day 18 opened with are now one and a half. The line under the
+nose has an answer that can be looked at. **Whether the mouth reads as passive
+under `_SPEECH_KEEP = 0.05` is still unanswered**, and 0.03 keeps 94% of his own
+travel, 0 restores 2026-08-28 exactly.
+
+## Where day 18 starts — his verdict on two changes, and the number still standing
+
+**Read this first, then the three day-17 passes below it.**
+
+Day 17 ended with two changes made in the last hour and **not yet judged by
+eye**. Both are one line to reverse, and the first question of day 18 is which
+way his eye went:
+
+1.  **The named mouth photographs are out of the grid's way** — `source_mouth_wide`,
+    `source_mouth_pressed` and `source_mouth_open` joined `source_mouth_o` in
+    `_SPEECH_ROLES`. Ask specifically whether **the line under the nose is
+    gone**: that is the change it should have fixed.
+    **Answered 2026-08-29: it was not gone.** The change is right and stays,
+    but it was not the line — see **"Day 18, first pass"** above.
+2.  **`_SPEECH_KEEP = 0.05`**, a one-cell hold while the mouth moves. It
+    partially takes back the 2026-08-28 removal. Ask whether **the mouth reads
+    as passive again**. If it does, 0.03 keeps 94% of his travel and 0 restores
+    yesterday's behaviour exactly.
+
+### The number still standing, and the fix for it
+
+**With his mouth moving the photograph changes 16 times a second** — down from
+21, and still a new photograph on more than one frame in two. It is not a wrong
+choice and it is not jitter: measured over 60 seconds of his own captures, the
+photograph's travel on the plane is **1.0x his mouth's own**. It follows him
+exactly. What he sees is that two neighbouring rungs are two different moments
+of the clip, so the *shape* is right and the *texture* jumps.
+
+**The fix is temporal, and it is the ninth pass's lesson one level down.** Day 16
+stopped the grid changing *generation* six times a second; this is the same
+defect between frames of one generation. When two rungs are within
+`_SPEECH_KEEP` of each other, prefer the one whose source frame is nearer in the
+clip to the one already showing — then consecutive photographs are consecutive
+film. It needs each rung to carry its source frame index, which is a manifest
+field and a rebuild, and `build_speech_ladder.measure` already holds that number
+at the moment it throws it away.
+
+### And the rest of the open list, in order
+
+*   **F.** Not touched. It is the upper teeth on the lower lip, and the grid's
+    two axes cannot see it: an F parts the lips barely at all and sits at
+    roughly neutral width, so it files in the same cell as a slightly open
+    mouth. **Unlike Th it is reachable** — `mouthRollLower` reads 0.54 to 0.62
+    on his own captures where its median is 0.003, so the signal is there and it
+    is large. It wants a third axis or a named F role, and the material is in
+    video (14), which says "Ffffff", "fast", "off" and "for".
+*   **The rounded corner is still another generation's.** Eleven of the 178
+    rungs are video (10)'s, kept because video (14) never rounds past -0.140
+    where he reaches -0.191. That is 6% of his frames and 0.42 generation
+    changes a second. One clip with a held "oo" and "shhh" would retire them.
+*   **The avatar takes 41.7 s to load** at 178 rungs, against 36 s at 87 and
+    24 s at 67. Not yet a problem, and on a straight line.
+*   Then the list day 16 left: **the dark seam and missing cavity on open
+    frames**, the **blackouts**, the **violet under the eyes**, and the **turn**.
+
+**Nothing is committed.** `main` is at `ec8ae7d`, and four files are modified:
+`engine_warp.py`, its test, `PROJECT_STATUS.md` and the avatar's
+`metadata.json`. The 178 rung images themselves are **not** in git — every
+`avatars/**/*.png` is gitignored as owner data, so the manifest is committed and
+the photographs it names live on disk only. The same is true of `recordings/`.
+The grid it replaced is in `avatars/my_avatar/superseded-speech/` (562 MB) with
+`metadata.json.bak` beside it, and the frames it was built from are in
+`frames/speech-i` and `frames/video-14` (457 MB).
+
+## Day 17, third pass — a wide mouth painted onto a closed one, and the line under the nose
+
+**The owner, from live use:** *"Sometimes the lip photograph rises up to the
+nose, to the nostrils, and a line like this appears. Also the mouth photographs
+change very often. The model cannot settle on which photograph to choose at that
+moment. Or the photograph sizes are wrong."* With a screenshot, and — this is
+what answered it — **the ten seconds around it, captured**.
+
+### One frame of `moment-20260829-000951` names the whole fault
+
+Frame 26. His lips are **0.12 apart**. The photograph chosen is
+**`source_mouth_wide`** — a photograph of a wide mouth. Rendered, it is a full
+row of teeth on a closed mouth, and it is the last column of
+`recordings/day17-named-photos-before-after.png`.
+
+The grid itself is not the fault. Every frame it does answer, it answers well:
+
+| frame | his parting | the photograph | its parting |
+|---|---|---|---|
+| 0 | 0.63 | `speech_0603` | 0.60 |
+| 6 | 0.87 | `speech_0895` | 0.90 |
+| 14 | 0.27 | `speech_0321` | 0.32 |
+| 24 | 0.28 | `speech_0272` | 0.27 |
+| **26** | **0.12** | **`source_mouth_wide`** | **—** |
+
+Below `_SPEECH_LADDER_START` the grid abstains, correctly — a mouth at rest is
+the portrait's own photograph — and the named photographs were still there to
+take the region instead.
+
+### What they were winning, over 60 seconds of his own speech
+
+| | frames | his parting there, p50 / p95 |
+|---|---|---|
+| a grid rung | 66.6% | 1.21 / 2.89 |
+| the portrait, nothing over it | 16.8% | 0.00 / 0.04 |
+| **`source_mouth_pressed`** | **15.6%** | **0.00 / 0.03** |
+| **`source_mouth_wide`** | **1.1%** | **0.00 / 0.13** |
+
+`_SPEECH_ROLES` said of them *"pressed lips ... a thin wash on frames the ladder
+does not want"* and *"`source_mouth_wide` never won a frame at all"*. That was
+measured on a 67-rung grid over four captures on 2026-08-26 and **it stopped
+being true without anything saying so** — the same shape of staleness as the
+`source_mouth_open` argument, which had expired twice over.
+
+`source_mouth_pressed` is the flicker on a mouth that is not moving: pressed lips
+are a closed mouth and so is the portrait, and the two swapped across 583 frames
+at a median parting of 0.00 for both.
+
+### And the line under the nose is the same photograph
+
+`_build_regions` adds **each present photograph's own lip hull to the mask
+without the margin**, which is deliberate and right: *"a photograph may act
+wherever the mesh follows it — inside its own landmarks"*, and it is the only way
+an opening the mesh has never seen gets painted at all.
+
+Measured on the installed library: the widest rungs' lips reach **10 to 14% of a
+face width above the portrait's own lip line**. On a face of 455 px that is 45 to
+62 px — the philtrum and the nostrils. For a mouth that really is open that wide,
+correct. For a wide photograph held over a **closed** mouth it is a patch of
+another clip's skin under the nose with an edge around it, which is exactly what
+he photographed.
+
+**His own reading was half right.** Not the size — every rung is written at the
+portrait's own face width by `WRITE_FACE_SCALE` — but the *reach*.
+
+### The change, and what it measures
+
+`_SPEECH_ROLES` now retires all four named mouth photographs while the grid is
+loaded. `source_mouth_open`'s **gap** is still read, through
+`_OPENING_REFERENCE_ROLE`, which reads the asset and not the weight.
+
+`_SPEECH_KEEP = 0.05` holds the photograph against a challenger less than one
+cell nearer, with the mouth moving. Chosen with the travel column beside it,
+because that is the day-16 lesson:
+
+| hold | changes a second | with the mouth moving | error p50 | the photograph's travel |
+|---|---|---|---|---|
+| none | 7.9 | **21.1** | 0.062 | 1.05x his own |
+| 0.03 | 5.9 | 17.0 | 0.069 | 0.94x |
+| **0.05** | **5.1** | **15.0** | **0.071** | **0.89x** |
+| 0.12 | 3.8 | 11.3 | 0.077 | 0.84x |
+
+The margin removed on 2026-08-28 was 0.15 where the rungs were 0.058 apart — two
+or three neighbours of slack. This is a third of it on a grid a third the
+spacing, so it can hold a photograph across its own cell and no further.
+
+**Measured through the engine, on his six captures:**
+
+| | before | after |
+|---|---|---|
+| the photograph changes | 7.37 a second | **5.62** |
+| with his mouth moving | 20.44 | **16.13** |
+| with his mouth still | 1.30 | **0.74** |
+| won by a named photograph | 16.7% | **0%** |
+| the portrait at rest | 16.8% | **31.4%** |
+
+**646 tests pass.** One was rewritten rather than added:
+`test_and_a_moving_one_does_not` asserted *"nothing is held while the mouth is
+moving ... it is not being taken back"*, and half of it has been.
+
+## Day 17, second pass — the grid was clumped exactly where he speaks
+
+**His words, and he ranked them himself:** *"the mouth photographs change very
+fast. This is the thing to fix and probably the biggest problem we have at this
+stage."*
+
+### It is not jitter, and it is not the choice
+
+Over 60 seconds of his own captures, on the plane the grid is filed on:
+
+*   his mouth travels **65.9**, the photograph **68.0** — **1.0x**;
+*   low-passing the demand at 0.25 moves the change rate by 4% and adds lag;
+*   2 to 4% of changes go straight back to the photograph before, so it is not
+    oscillating either.
+
+**The photograph follows him. What he sees is the size of the step.**
+
+### And the steps were long because the grid was clumped
+
+| band of parting | his frames | rungs there | nearest-rung gap |
+|---|---|---|---|
+| 0.00-0.25 | **514** | 5 | 0.136 |
+| 0.25-0.50 | 82 | 4 | 0.173 |
+| 0.75-1.00 | 64 | **2** | **0.282** |
+| 2.00-2.25 | 94 | **1** | — |
+| 2.50-2.75 | 70 | **0** | — |
+
+**`CELL_MINIMUM = 2` is why.** A cell holding one frame is dropped — *"a moment
+of the clip rather than a shape the mouth makes"* — and that rule cost video (14)
+**105 of its 227 usable frames**. It was written when a rung was a 5.7 MB 4K PNG
+and the avatar took 24 s to load; rungs are written at the portrait's scale now.
+
+**It is also how the 87-rung grid was built, and nothing said so.** 87 rungs
+cannot come from 179 frames under a rule that needs two per cell. They came from
+**two dumps of the same clip** — `speech-f` at 0.04 s and `video-10` at 0.05 s,
+the same 192 frames measured twice, so nearly every cell held a near-duplicate
+pair. Found by failing to reproduce the number, not by reading anything.
+
+### The ceiling was the whole of the "A"
+
+He reaches a parting of **3.70**. The grid stopped at 2.38.
+
+| `moment-20260828-222634` | |
+|---|---|
+| his parting, p50 / p95 / max | 2.20 / 3.51 / **3.70** |
+| the capture above the grid's top | **46%** |
+| the photograph changes, above the top | **0.00 a second** |
+| one photograph held for | **4.6 seconds** |
+
+**Above the ceiling it does not flicker — it freezes.** That is what "A does not
+work at all" was.
+
+Measured across every clip on disk, one has material up there:
+
+| clip | usable | face px | parting max | frames above 2.38 |
+|---|---|---|---|---|
+| **video (3)** | 192 | 993 | **5.28** | **60** |
+| video (9) | 187 | 1106 | 2.30 | 0 |
+| video (13) | 192 | 491 | 2.23 | 0 |
+| video 1 | 192 | 969 | 1.93 | 0 |
+
+### Installed: 178 rungs from three clips, each kept only where it is alone
+
+*   **video (14)**, 144 rungs, every usable frame — the body of the grid;
+*   **video (10)**, 11 rungs below a width of -0.14 — the rounded "oo" and "sh";
+*   **video (3)**, 23 rungs above a parting of 2.38, to 3.80 — his "A".
+
+| on his six captures | 61 rungs | **178 rungs** |
+|---|---|---|
+| the step when the photograph changes, p50 | 0.187 | **0.139** |
+| p90 | 0.440 | **0.339** |
+| error p50 / p90 | 0.085 / 0.239 | **0.059 / 0.107** |
+| frames past the ceiling | 12% (46% on the "A") | **0%** |
+| changes a second | 5.76 | 7.93 |
+| avatar load | 36 s | **41.7 s** |
+
+**It changes more often and each change is a quarter smaller**, and the total
+distance the photograph travels is the same either way — the same path in finer
+steps. That trade is what the third pass then had to answer for.
+
+`recordings/day17-A-wide.png` is his "A" from 3.69 down to 2.42, on a grid that
+reaches it.
+
+## Day 17, first pass — `Generated video 1 (14)`, and the "A" fixed
+
+### He rejected the first prompt, and he was right on the evidence
+
+The prompt written for the clip asked for the vowels and consonants **held** —
+"ssss", "shhh", "ffff", half a second each. What came back was unusable, and his
+own reading was the correct one: *"better that he speaks and says the F, O, A
+himself inside a sentence."*
+
+The library says the same thing. **Every good clip in it is natural speech.**
+`Generated video 1 (10)`, the clip the grid had been built on, is a sales manager
+talking to a camera. Asking a generator to hold a sustained consonant is a shape
+it has little of; asking a person to speak is a shape it has all of.
+
+The sentence, chosen so the words force what the corners need:
+
+> "Ah! Shall I show you? Yes, see - this is fast, and it pays off for me."
+
+Sixteen words — `video (10)` carried fifteen in eight seconds, and the 28-word
+second speech clip was the one that came back rushed.
+
+| what the grid needed | where it is | times |
+|---|---|---|
+| a wide "A", past the ceiling | **Ah!**, sh**a**ll, f**a**st, p**ay**s | 4 |
+| "sh", an empty corner | **Sh**all, **sh**ow | 2 |
+| "s", an empty corner | Ye**s**, **s**ee, thi**s** i**s**, fa**s**t | 5 |
+| rounded "oo" | sh**ow**, y**ou** | 2 |
+| spread "ee" | s**ee**, m**e** | 2 |
+| f / v | **f**ast, o**ff**, **f**or | 3 |
+
+**And 4K rather than 1080p**, against what the day-16 note asked for: the
+measurement says resolution is the lever and shape is not, and the 1080p 9:16
+take gave a 491 px face where the 4K portrait clips give 1000+.
+
+### What came back, measured against video (10) at identical settings
+
+| | video (10), installed | **video (14)** |
+|---|---|---|
+| rungs / top of the grid | 85 / 1.86 | 50 / **2.38** |
+| width, rounded / spread | **-0.313** / +0.165 | -0.140 / **+0.288** |
+| face | 1009 px | **1249 px** |
+| nearest rung, p50 / p90 / worst | 0.068 / 0.493 / 1.105 | 0.093 / **0.208** / **0.611** |
+| his frames past the top | 17.2% | **6.2%** |
+
+**The largest face in the library**, against a portrait of 455 px. The "s" and
+"ee" side is a record. The rounded side is gone — 0 rungs in the "sh"/"oo" corner
+against 15 — because the sentence has no held "oo" in it.
+
+### `moment-20260828-041327` was there all along
+
+Day 16 recorded that nothing was captured during the "A" and that he would have
+to be asked to press the button again. **He had already pressed it** — 70 seconds
+before the screenshot he sent. The capture answers the whole question:
+
+| `moment-20260828-041327` | |
+|---|---|
+| his parting, p50 / max | 2.27 / **2.96** |
+| the capture above the grid's top | **74%** |
+| nearest rung, p50 | **0.434** — against 0.05-0.08 on every other capture |
+
+**The day-16 hypothesis was wrong in its mechanism and right in its
+conclusion.** `_covering_interior` is not the fault; the ceiling is. Three
+quarters of that capture had nothing in the grid to answer it, so the choice
+clamped to the widest rung and borrowed an interior from a narrower mouth — the
+second lip inside the first.
+
+`recordings/day17-A-before-after.png` is the six frames, before and after, and
+the flat pink mass with its own edge is gone.
+
+## Day 17's starting point — the "A", and a second mouth inside the first
 
 **This is the open item. Read it before anything else.**
 

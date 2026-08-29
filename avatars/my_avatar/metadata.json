@@ -441,18 +441,11 @@
       "brows": 1.0
     },
     {
-      "path": "speech_0000_+0090.png",
+      "path": "speech_0000_+0109.png",
       "role": "source_speech_step",
       "optional": true,
       "speech": 0.0,
-      "speech_width": 0.09
-    },
-    {
-      "path": "speech_0031_+0012.png",
-      "role": "source_speech_step",
-      "optional": true,
-      "speech": 0.031,
-      "speech_width": 0.012
+      "speech_width": 0.109
     },
     {
       "path": "speech_0035_-0282.png",
@@ -462,11 +455,25 @@
       "speech_width": -0.282
     },
     {
-      "path": "speech_0040_+0068.png",
+      "path": "speech_0039_+0107.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.04,
-      "speech_width": 0.068
+      "speech": 0.039,
+      "speech_width": 0.107
+    },
+    {
+      "path": "speech_0055_+0102.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 0.055,
+      "speech_width": 0.102
+    },
+    {
+      "path": "speech_0057_-0118.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 0.057,
+      "speech_width": -0.118
     },
     {
       "path": "speech_0075_-0233.png",
@@ -476,88 +483,46 @@
       "speech_width": -0.233
     },
     {
-      "path": "speech_0075_+0001.png",
+      "path": "speech_0106_-0053.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.075,
-      "speech_width": 0.001
+      "speech": 0.106,
+      "speech_width": -0.053
     },
     {
-      "path": "speech_0084_+0036.png",
+      "path": "speech_0107_-0061.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.084,
-      "speech_width": 0.036
+      "speech": 0.107,
+      "speech_width": -0.061
     },
     {
-      "path": "speech_0096_-0104.png",
-      "role": "source_speech_step",
-      "optional": true,
-      "speech": 0.096,
-      "speech_width": -0.104
-    },
-    {
-      "path": "speech_0096_-0009.png",
-      "role": "source_speech_step",
-      "optional": true,
-      "speech": 0.096,
-      "speech_width": -0.009
-    },
-    {
-      "path": "speech_0118_-0056.png",
-      "role": "source_speech_step",
-      "optional": true,
-      "speech": 0.118,
-      "speech_width": -0.056
-    },
-    {
-      "path": "speech_0122_-0065.png",
+      "path": "speech_0122_+0049.png",
       "role": "source_speech_step",
       "optional": true,
       "speech": 0.122,
-      "speech_width": -0.065
+      "speech_width": 0.049
     },
     {
-      "path": "speech_0127_-0099.png",
+      "path": "speech_0183_+0101.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.127,
-      "speech_width": -0.099
+      "speech": 0.183,
+      "speech_width": 0.101
     },
     {
-      "path": "speech_0157_-0108.png",
+      "path": "speech_0214_+0105.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.157,
-      "speech_width": -0.108
+      "speech": 0.214,
+      "speech_width": 0.105
     },
     {
-      "path": "speech_0160_-0111.png",
+      "path": "speech_0240_-0129.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.16,
-      "speech_width": -0.111
-    },
-    {
-      "path": "speech_0167_-0070.png",
-      "role": "source_speech_step",
-      "optional": true,
-      "speech": 0.167,
-      "speech_width": -0.07
-    },
-    {
-      "path": "speech_0184_+0059.png",
-      "role": "source_speech_step",
-      "optional": true,
-      "speech": 0.184,
-      "speech_width": 0.059
-    },
-    {
-      "path": "speech_0215_+0038.png",
-      "role": "source_speech_step",
-      "optional": true,
-      "speech": 0.215,
-      "speech_width": 0.038
+      "speech": 0.24,
+      "speech_width": -0.129
     },
     {
       "path": "speech_0247_-0201.png",
@@ -567,18 +532,18 @@
       "speech_width": -0.201
     },
     {
-      "path": "speech_0270_+0029.png",
+      "path": "speech_0270_+0044.png",
       "role": "source_speech_step",
       "optional": true,
       "speech": 0.27,
-      "speech_width": 0.029
+      "speech_width": 0.044
     },
     {
-      "path": "speech_0284_-0105.png",
+      "path": "speech_0272_-0139.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.284,
-      "speech_width": -0.105
+      "speech": 0.272,
+      "speech_width": -0.139
     },
     {
       "path": "speech_0291_-0216.png",
@@ -588,88 +553,39 @@
       "speech_width": -0.216
     },
     {
-      "path": "speech_0296_-0004.png",
+      "path": "speech_0321_-0008.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.296,
-      "speech_width": -0.004
+      "speech": 0.321,
+      "speech_width": -0.008
     },
     {
-      "path": "speech_0309_-0007.png",
-      "role": "source_speech_step",
-      "optional": true,
-      "speech": 0.309,
-      "speech_width": -0.007
-    },
-    {
-      "path": "speech_0335_+0045.png",
+      "path": "speech_0335_-0001.png",
       "role": "source_speech_step",
       "optional": true,
       "speech": 0.335,
-      "speech_width": 0.045
+      "speech_width": -0.001
     },
     {
-      "path": "speech_0360_+0016.png",
+      "path": "speech_0423_+0035.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.36,
-      "speech_width": 0.016
+      "speech": 0.423,
+      "speech_width": 0.035
     },
     {
-      "path": "speech_0371_+0028.png",
+      "path": "speech_0448_+0093.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.371,
-      "speech_width": 0.028
+      "speech": 0.448,
+      "speech_width": 0.093
     },
     {
-      "path": "speech_0392_-0003.png",
+      "path": "speech_0482_-0007.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.392,
-      "speech_width": -0.003
-    },
-    {
-      "path": "speech_0408_+0039.png",
-      "role": "source_speech_step",
-      "optional": true,
-      "speech": 0.408,
-      "speech_width": 0.039
-    },
-    {
-      "path": "speech_0417_-0049.png",
-      "role": "source_speech_step",
-      "optional": true,
-      "speech": 0.417,
-      "speech_width": -0.049
-    },
-    {
-      "path": "speech_0425_-0012.png",
-      "role": "source_speech_step",
-      "optional": true,
-      "speech": 0.425,
-      "speech_width": -0.012
-    },
-    {
-      "path": "speech_0442_-0010.png",
-      "role": "source_speech_step",
-      "optional": true,
-      "speech": 0.442,
-      "speech_width": -0.01
-    },
-    {
-      "path": "speech_0445_+0030.png",
-      "role": "source_speech_step",
-      "optional": true,
-      "speech": 0.445,
-      "speech_width": 0.03
-    },
-    {
-      "path": "speech_0464_-0031.png",
-      "role": "source_speech_step",
-      "optional": true,
-      "speech": 0.464,
-      "speech_width": -0.031
+      "speech": 0.482,
+      "speech_width": -0.007
     },
     {
       "path": "speech_0484_-0149.png",
@@ -679,46 +595,39 @@
       "speech_width": -0.149
     },
     {
-      "path": "speech_0496_-0120.png",
+      "path": "speech_0500_+0037.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.496,
-      "speech_width": -0.12
+      "speech": 0.5,
+      "speech_width": 0.037
     },
     {
-      "path": "speech_0502_-0011.png",
+      "path": "speech_0511_-0015.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.502,
-      "speech_width": -0.011
-    },
-    {
-      "path": "speech_0515_-0015.png",
-      "role": "source_speech_step",
-      "optional": true,
-      "speech": 0.515,
+      "speech": 0.511,
       "speech_width": -0.015
     },
     {
-      "path": "speech_0551_+0003.png",
+      "path": "speech_0512_+0097.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.551,
-      "speech_width": 0.003
+      "speech": 0.512,
+      "speech_width": 0.097
     },
     {
-      "path": "speech_0556_-0031.png",
+      "path": "speech_0519_+0058.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.556,
-      "speech_width": -0.031
+      "speech": 0.519,
+      "speech_width": 0.058
     },
     {
-      "path": "speech_0561_-0098.png",
+      "path": "speech_0548_-0058.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.561,
-      "speech_width": -0.098
+      "speech": 0.548,
+      "speech_width": -0.058
     },
     {
       "path": "speech_0571_-0157.png",
@@ -728,18 +637,18 @@
       "speech_width": -0.157
     },
     {
-      "path": "speech_0579_-0011.png",
-      "role": "source_speech_step",
-      "optional": true,
-      "speech": 0.579,
-      "speech_width": -0.011
-    },
-    {
       "path": "speech_0589_-0144.png",
       "role": "source_speech_step",
       "optional": true,
       "speech": 0.589,
       "speech_width": -0.144
+    },
+    {
+      "path": "speech_0593_+0087.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 0.593,
+      "speech_width": 0.087
     },
     {
       "path": "speech_0595_-0236.png",
@@ -749,18 +658,25 @@
       "speech_width": -0.236
     },
     {
-      "path": "speech_0615_+0000.png",
+      "path": "speech_0603_+0058.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.615,
-      "speech_width": -0.0
+      "speech": 0.603,
+      "speech_width": 0.058
     },
     {
-      "path": "speech_0618_-0026.png",
+      "path": "speech_0643_+0064.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.618,
-      "speech_width": -0.026
+      "speech": 0.643,
+      "speech_width": 0.064
+    },
+    {
+      "path": "speech_0644_-0144.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 0.644,
+      "speech_width": -0.144
     },
     {
       "path": "speech_0653_-0166.png",
@@ -770,207 +686,263 @@
       "speech_width": -0.166
     },
     {
-      "path": "speech_0659_-0057.png",
+      "path": "speech_0662_-0140.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.659,
-      "speech_width": -0.057
+      "speech": 0.662,
+      "speech_width": -0.14
     },
     {
-      "path": "speech_0669_+0011.png",
+      "path": "speech_0671_+0073.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.669,
-      "speech_width": 0.011
+      "speech": 0.671,
+      "speech_width": 0.073
     },
     {
-      "path": "speech_0696_+0079.png",
+      "path": "speech_0708_+0092.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.696,
-      "speech_width": 0.079
+      "speech": 0.708,
+      "speech_width": 0.092
     },
     {
-      "path": "speech_0733_+0017.png",
+      "path": "speech_0711_-0144.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.733,
-      "speech_width": 0.017
+      "speech": 0.711,
+      "speech_width": -0.144
     },
     {
-      "path": "speech_0799_+0052.png",
+      "path": "speech_0711_-0140.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.799,
-      "speech_width": 0.052
+      "speech": 0.711,
+      "speech_width": -0.14
     },
     {
-      "path": "speech_0817_+0062.png",
+      "path": "speech_0718_-0128.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.817,
-      "speech_width": 0.062
+      "speech": 0.718,
+      "speech_width": -0.128
     },
     {
-      "path": "speech_0820_-0019.png",
+      "path": "speech_0720_+0053.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.82,
-      "speech_width": -0.019
+      "speech": 0.72,
+      "speech_width": 0.053
     },
     {
-      "path": "speech_0823_+0003.png",
+      "path": "speech_0742_-0093.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.823,
-      "speech_width": 0.003
+      "speech": 0.742,
+      "speech_width": -0.093
     },
     {
-      "path": "speech_0826_+0062.png",
+      "path": "speech_0753_-0135.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.826,
-      "speech_width": 0.062
+      "speech": 0.753,
+      "speech_width": -0.135
     },
     {
-      "path": "speech_0829_+0056.png",
+      "path": "speech_0759_-0089.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.829,
-      "speech_width": 0.056
+      "speech": 0.759,
+      "speech_width": -0.089
     },
     {
-      "path": "speech_0844_-0079.png",
+      "path": "speech_0771_+0117.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.844,
-      "speech_width": -0.079
+      "speech": 0.771,
+      "speech_width": 0.117
     },
     {
-      "path": "speech_0850_-0137.png",
+      "path": "speech_0785_+0072.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.85,
+      "speech": 0.785,
+      "speech_width": 0.072
+    },
+    {
+      "path": "speech_0806_+0071.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 0.806,
+      "speech_width": 0.071
+    },
+    {
+      "path": "speech_0814_-0130.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 0.814,
+      "speech_width": -0.13
+    },
+    {
+      "path": "speech_0874_-0137.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 0.874,
       "speech_width": -0.137
     },
     {
-      "path": "speech_0857_+0160.png",
+      "path": "speech_0895_+0045.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.857,
-      "speech_width": 0.16
+      "speech": 0.895,
+      "speech_width": 0.045
     },
     {
-      "path": "speech_0878_+0049.png",
+      "path": "speech_0928_+0099.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.878,
-      "speech_width": 0.049
+      "speech": 0.928,
+      "speech_width": 0.099
     },
     {
-      "path": "speech_0889_+0165.png",
+      "path": "speech_0947_+0052.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.889,
-      "speech_width": 0.165
+      "speech": 0.947,
+      "speech_width": 0.052
     },
     {
-      "path": "speech_0926_+0163.png",
+      "path": "speech_0952_+0148.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.926,
-      "speech_width": 0.163
+      "speech": 0.952,
+      "speech_width": 0.148
     },
     {
-      "path": "speech_0931_+0011.png",
-      "role": "source_speech_step",
-      "optional": true,
-      "speech": 0.931,
-      "speech_width": 0.011
-    },
-    {
-      "path": "speech_0940_+0164.png",
-      "role": "source_speech_step",
-      "optional": true,
-      "speech": 0.94,
-      "speech_width": 0.164
-    },
-    {
-      "path": "speech_0960_+0065.png",
-      "role": "source_speech_step",
-      "optional": true,
-      "speech": 0.96,
-      "speech_width": 0.065
-    },
-    {
-      "path": "speech_0967_-0076.png",
+      "path": "speech_0967_+0287.png",
       "role": "source_speech_step",
       "optional": true,
       "speech": 0.967,
-      "speech_width": -0.076
+      "speech_width": 0.287
     },
     {
-      "path": "speech_0973_+0041.png",
+      "path": "speech_0968_+0154.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.973,
-      "speech_width": 0.041
+      "speech": 0.968,
+      "speech_width": 0.154
     },
     {
-      "path": "speech_0977_+0063.png",
+      "path": "speech_0990_+0223.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 0.977,
-      "speech_width": 0.063
+      "speech": 0.99,
+      "speech_width": 0.223
     },
     {
-      "path": "speech_1035_+0043.png",
+      "path": "speech_0998_+0226.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 1.035,
-      "speech_width": 0.043
+      "speech": 0.998,
+      "speech_width": 0.226
     },
     {
-      "path": "speech_1046_+0156.png",
+      "path": "speech_1009_+0288.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.009,
+      "speech_width": 0.288
+    },
+    {
+      "path": "speech_1010_+0059.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.01,
+      "speech_width": 0.059
+    },
+    {
+      "path": "speech_1045_+0304.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.045,
+      "speech_width": 0.304
+    },
+    {
+      "path": "speech_1046_+0271.png",
       "role": "source_speech_step",
       "optional": true,
       "speech": 1.046,
-      "speech_width": 0.156
+      "speech_width": 0.271
     },
     {
-      "path": "speech_1113_-0094.png",
+      "path": "speech_1048_+0208.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 1.113,
-      "speech_width": -0.094
+      "speech": 1.048,
+      "speech_width": 0.208
     },
     {
-      "path": "speech_1129_+0065.png",
+      "path": "speech_1061_+0225.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 1.129,
-      "speech_width": 0.065
+      "speech": 1.061,
+      "speech_width": 0.225
     },
     {
-      "path": "speech_1139_-0119.png",
+      "path": "speech_1079_+0283.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 1.139,
-      "speech_width": -0.119
+      "speech": 1.079,
+      "speech_width": 0.283
     },
     {
-      "path": "speech_1147_+0152.png",
+      "path": "speech_1088_+0246.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 1.147,
-      "speech_width": 0.152
+      "speech": 1.088,
+      "speech_width": 0.246
     },
     {
-      "path": "speech_1156_+0040.png",
+      "path": "speech_1092_+0150.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 1.156,
-      "speech_width": 0.04
+      "speech": 1.092,
+      "speech_width": 0.15
+    },
+    {
+      "path": "speech_1142_+0198.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.142,
+      "speech_width": 0.198
+    },
+    {
+      "path": "speech_1146_+0142.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.146,
+      "speech_width": 0.142
+    },
+    {
+      "path": "speech_1148_+0070.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.148,
+      "speech_width": 0.07
+    },
+    {
+      "path": "speech_1157_+0232.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.157,
+      "speech_width": 0.232
+    },
+    {
+      "path": "speech_1165_+0280.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.165,
+      "speech_width": 0.28
     },
     {
       "path": "speech_1165_-0278.png",
@@ -980,18 +952,25 @@
       "speech_width": -0.278
     },
     {
-      "path": "speech_1176_+0059.png",
+      "path": "speech_1180_+0279.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 1.176,
-      "speech_width": 0.059
+      "speech": 1.18,
+      "speech_width": 0.279
     },
     {
-      "path": "speech_1211_+0097.png",
+      "path": "speech_1186_+0241.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 1.211,
-      "speech_width": 0.097
+      "speech": 1.186,
+      "speech_width": 0.241
+    },
+    {
+      "path": "speech_1210_-0102.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.21,
+      "speech_width": -0.102
     },
     {
       "path": "speech_1214_-0313.png",
@@ -1001,53 +980,716 @@
       "speech_width": -0.313
     },
     {
-      "path": "speech_1264_+0099.png",
+      "path": "speech_1216_+0276.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 1.264,
-      "speech_width": 0.099
+      "speech": 1.216,
+      "speech_width": 0.276
     },
     {
-      "path": "speech_1334_+0153.png",
+      "path": "speech_1221_+0224.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 1.334,
-      "speech_width": 0.153
+      "speech": 1.221,
+      "speech_width": 0.224
     },
     {
-      "path": "speech_1402_+0155.png",
+      "path": "speech_1221_+0188.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 1.402,
+      "speech": 1.221,
+      "speech_width": 0.188
+    },
+    {
+      "path": "speech_1234_+0155.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.234,
       "speech_width": 0.155
     },
     {
-      "path": "speech_1489_+0122.png",
+      "path": "speech_1259_+0150.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 1.489,
-      "speech_width": 0.122
+      "speech": 1.259,
+      "speech_width": 0.15
     },
     {
-      "path": "speech_1597_+0161.png",
+      "path": "speech_1264_+0191.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 1.597,
-      "speech_width": 0.161
+      "speech": 1.264,
+      "speech_width": 0.191
     },
     {
-      "path": "speech_1714_+0135.png",
+      "path": "speech_1272_+0237.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 1.714,
-      "speech_width": 0.135
+      "speech": 1.272,
+      "speech_width": 0.237
     },
     {
-      "path": "speech_1858_+0007.png",
+      "path": "speech_1282_+0270.png",
       "role": "source_speech_step",
       "optional": true,
-      "speech": 1.858,
-      "speech_width": 0.007
+      "speech": 1.282,
+      "speech_width": 0.27
+    },
+    {
+      "path": "speech_1283_+0159.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.283,
+      "speech_width": 0.159
+    },
+    {
+      "path": "speech_1297_+0228.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.297,
+      "speech_width": 0.228
+    },
+    {
+      "path": "speech_1307_+0184.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.307,
+      "speech_width": 0.184
+    },
+    {
+      "path": "speech_1317_+0114.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.317,
+      "speech_width": 0.114
+    },
+    {
+      "path": "speech_1345_+0146.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.345,
+      "speech_width": 0.146
+    },
+    {
+      "path": "speech_1352_+0064.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.352,
+      "speech_width": 0.064
+    },
+    {
+      "path": "speech_1352_-0115.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.352,
+      "speech_width": -0.115
+    },
+    {
+      "path": "speech_1359_+0006.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.359,
+      "speech_width": 0.006
+    },
+    {
+      "path": "speech_1361_+0132.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.361,
+      "speech_width": 0.132
+    },
+    {
+      "path": "speech_1371_+0144.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.371,
+      "speech_width": 0.144
+    },
+    {
+      "path": "speech_1377_+0269.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.377,
+      "speech_width": 0.269
+    },
+    {
+      "path": "speech_1384_+0270.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.384,
+      "speech_width": 0.27
+    },
+    {
+      "path": "speech_1396_+0080.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.396,
+      "speech_width": 0.08
+    },
+    {
+      "path": "speech_1406_+0183.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.406,
+      "speech_width": 0.183
+    },
+    {
+      "path": "speech_1439_+0181.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.439,
+      "speech_width": 0.181
+    },
+    {
+      "path": "speech_1440_+0078.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.44,
+      "speech_width": 0.078
+    },
+    {
+      "path": "speech_1450_+0106.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.45,
+      "speech_width": 0.106
+    },
+    {
+      "path": "speech_1461_+0006.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.461,
+      "speech_width": 0.006
+    },
+    {
+      "path": "speech_1476_+0097.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.476,
+      "speech_width": 0.097
+    },
+    {
+      "path": "speech_1487_+0172.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.487,
+      "speech_width": 0.172
+    },
+    {
+      "path": "speech_1500_-0108.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.5,
+      "speech_width": -0.108
+    },
+    {
+      "path": "speech_1520_+0126.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.52,
+      "speech_width": 0.126
+    },
+    {
+      "path": "speech_1527_-0100.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.527,
+      "speech_width": -0.1
+    },
+    {
+      "path": "speech_1542_+0159.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.542,
+      "speech_width": 0.159
+    },
+    {
+      "path": "speech_1557_+0190.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.557,
+      "speech_width": 0.19
+    },
+    {
+      "path": "speech_1560_+0196.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.56,
+      "speech_width": 0.196
+    },
+    {
+      "path": "speech_1579_+0157.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.579,
+      "speech_width": 0.157
+    },
+    {
+      "path": "speech_1593_+0250.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.593,
+      "speech_width": 0.25
+    },
+    {
+      "path": "speech_1610_+0213.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.61,
+      "speech_width": 0.213
+    },
+    {
+      "path": "speech_1614_+0155.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.614,
+      "speech_width": 0.155
+    },
+    {
+      "path": "speech_1617_+0127.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.617,
+      "speech_width": 0.127
+    },
+    {
+      "path": "speech_1618_+0064.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.618,
+      "speech_width": 0.064
+    },
+    {
+      "path": "speech_1629_+0154.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.629,
+      "speech_width": 0.154
+    },
+    {
+      "path": "speech_1660_+0075.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.66,
+      "speech_width": 0.075
+    },
+    {
+      "path": "speech_1664_+0121.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.664,
+      "speech_width": 0.121
+    },
+    {
+      "path": "speech_1744_+0151.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.744,
+      "speech_width": 0.151
+    },
+    {
+      "path": "speech_1746_-0058.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.746,
+      "speech_width": -0.058
+    },
+    {
+      "path": "speech_1782_-0067.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.782,
+      "speech_width": -0.067
+    },
+    {
+      "path": "speech_1782_-0059.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.782,
+      "speech_width": -0.059
+    },
+    {
+      "path": "speech_1783_-0114.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.783,
+      "speech_width": -0.114
+    },
+    {
+      "path": "speech_1788_+0166.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.788,
+      "speech_width": 0.166
+    },
+    {
+      "path": "speech_1811_-0075.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.811,
+      "speech_width": -0.075
+    },
+    {
+      "path": "speech_1832_-0118.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.832,
+      "speech_width": -0.118
+    },
+    {
+      "path": "speech_1832_+0239.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.832,
+      "speech_width": 0.239
+    },
+    {
+      "path": "speech_1848_-0072.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.848,
+      "speech_width": -0.072
+    },
+    {
+      "path": "speech_1851_+0227.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.851,
+      "speech_width": 0.227
+    },
+    {
+      "path": "speech_1859_+0060.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.859,
+      "speech_width": 0.06
+    },
+    {
+      "path": "speech_1887_-0087.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.887,
+      "speech_width": -0.087
+    },
+    {
+      "path": "speech_1891_+0155.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.891,
+      "speech_width": 0.155
+    },
+    {
+      "path": "speech_1920_-0079.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.92,
+      "speech_width": -0.079
+    },
+    {
+      "path": "speech_1962_+0197.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.962,
+      "speech_width": 0.197
+    },
+    {
+      "path": "speech_1972_-0087.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.972,
+      "speech_width": -0.087
+    },
+    {
+      "path": "speech_1972_+0155.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.972,
+      "speech_width": 0.155
+    },
+    {
+      "path": "speech_1976_-0053.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.976,
+      "speech_width": -0.053
+    },
+    {
+      "path": "speech_1979_-0054.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 1.979,
+      "speech_width": -0.054
+    },
+    {
+      "path": "speech_2000_+0166.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 2.0,
+      "speech_width": 0.166
+    },
+    {
+      "path": "speech_2005_+0183.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 2.005,
+      "speech_width": 0.183
+    },
+    {
+      "path": "speech_2014_+0184.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 2.014,
+      "speech_width": 0.184
+    },
+    {
+      "path": "speech_2026_-0097.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 2.026,
+      "speech_width": -0.097
+    },
+    {
+      "path": "speech_2182_-0067.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 2.182,
+      "speech_width": -0.067
+    },
+    {
+      "path": "speech_2205_-0046.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 2.205,
+      "speech_width": -0.046
+    },
+    {
+      "path": "speech_2209_-0071.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 2.209,
+      "speech_width": -0.071
+    },
+    {
+      "path": "speech_2212_+0157.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 2.212,
+      "speech_width": 0.157
+    },
+    {
+      "path": "speech_2243_-0111.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 2.243,
+      "speech_width": -0.111
+    },
+    {
+      "path": "speech_2271_-0061.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 2.271,
+      "speech_width": -0.061
+    },
+    {
+      "path": "speech_2272_-0048.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 2.272,
+      "speech_width": -0.048
+    },
+    {
+      "path": "speech_2278_-0113.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 2.278,
+      "speech_width": -0.113
+    },
+    {
+      "path": "speech_2327_+0178.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 2.327,
+      "speech_width": 0.178
+    },
+    {
+      "path": "speech_2351_+0174.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 2.351,
+      "speech_width": 0.174
+    },
+    {
+      "path": "speech_2382_-0096.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 2.382,
+      "speech_width": -0.096
+    },
+    {
+      "path": "speech_2631_+0049.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 2.631,
+      "speech_width": 0.049
+    },
+    {
+      "path": "speech_2654_-0142.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 2.654,
+      "speech_width": -0.142
+    },
+    {
+      "path": "speech_2919_-0007.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 2.919,
+      "speech_width": -0.007
+    },
+    {
+      "path": "speech_2974_+0024.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 2.974,
+      "speech_width": 0.024
+    },
+    {
+      "path": "speech_3007_-0120.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 3.007,
+      "speech_width": -0.12
+    },
+    {
+      "path": "speech_3076_+0019.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 3.076,
+      "speech_width": 0.019
+    },
+    {
+      "path": "speech_3254_-0113.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 3.254,
+      "speech_width": -0.113
+    },
+    {
+      "path": "speech_3310_+0016.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 3.31,
+      "speech_width": 0.016
+    },
+    {
+      "path": "speech_3363_+0004.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 3.363,
+      "speech_width": 0.004
+    },
+    {
+      "path": "speech_3429_+0022.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 3.429,
+      "speech_width": 0.022
+    },
+    {
+      "path": "speech_3454_+0023.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 3.454,
+      "speech_width": 0.023
+    },
+    {
+      "path": "speech_3464_-0093.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 3.464,
+      "speech_width": -0.093
+    },
+    {
+      "path": "speech_3511_+0026.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 3.511,
+      "speech_width": 0.026
+    },
+    {
+      "path": "speech_3593_-0078.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 3.593,
+      "speech_width": -0.078
+    },
+    {
+      "path": "speech_3608_+0029.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 3.608,
+      "speech_width": 0.029
+    },
+    {
+      "path": "speech_3712_-0063.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 3.712,
+      "speech_width": -0.063
+    },
+    {
+      "path": "speech_3715_+0028.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 3.715,
+      "speech_width": 0.028
+    },
+    {
+      "path": "speech_3735_-0004.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 3.735,
+      "speech_width": -0.004
+    },
+    {
+      "path": "speech_3748_+0024.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 3.748,
+      "speech_width": 0.024
+    },
+    {
+      "path": "speech_3758_-0029.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 3.758,
+      "speech_width": -0.029
+    },
+    {
+      "path": "speech_3775_-0010.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 3.775,
+      "speech_width": -0.01
+    },
+    {
+      "path": "speech_3792_-0039.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 3.792,
+      "speech_width": -0.039
+    },
+    {
+      "path": "speech_3798_-0051.png",
+      "role": "source_speech_step",
+      "optional": true,
+      "speech": 3.798,
+      "speech_width": -0.051
+    },
+    {
+      "path": "speech_0548_-0058.png",
+      "role": "source_mouth_f",
+      "optional": true
     }
   ],
   "engine": {

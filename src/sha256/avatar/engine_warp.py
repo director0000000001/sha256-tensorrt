@@ -77,6 +77,7 @@ _VARIANT_ROLES: tuple[str, ...] = (
     "source_mouth_o",
     "source_mouth_wide",
     "source_mouth_pressed",
+    "source_mouth_f",
     "source_frown",
     # Eyes and brows
     "source_eyes_closed",
@@ -241,6 +242,116 @@ _SPEECH_STILL_RELEASE = 0.12
 # three spacings away — half the grid sits at widenings he never reaches. That
 # is material, not code: see the open list.
 
+# A third of that margin came back on 2026-08-29, on a grid three times denser,
+# because the owner named the other half of the same trade: *"the mouth
+# photographs change very often. The model cannot settle on which photograph to
+# choose at that moment."*
+#
+# The rate is what he is describing and it is worst exactly where he says — with
+# the mouth moving, the photograph changed **21 times a second**, which is a new
+# photograph on two frames in three. Measured over his six captures, 60 seconds:
+#
+# | hold | changes a second | with the mouth moving | error, p50 | the photograph's travel |
+# |---|---|---|---|---|
+# | none | 7.9 | **21.1** | 0.062 | 1.05x his own |
+# | 0.03 | 5.9 | 17.0 | 0.069 | 0.94x |
+# | **0.05** | **5.1** | **15.0** | **0.071** | **0.89x** |
+# | 0.12 | 3.8 | 11.3 | 0.077 | 0.84x |
+#
+# **0.05, and the travel column is why it is not larger.** The removed margin
+# was 0.15 on a grid whose rungs were 0.058 apart — two or three neighbours of
+# slack, which is what made the mouth passive. This is a third of it on a grid
+# a third the spacing, so it holds a photograph across at most its own cell, and
+# the error rises by 0.009 where the flicker falls by a third.
+#
+# The guard rail is the day-16 lesson, written down because it was learned the
+# expensive way: smoothness scored on its own is maximised by a mouth that does
+# not move, and the cross-fade that read as passive was travelling at 0.68x.
+# Every row above carries the travel beside the rate, and this one keeps 89% of
+# his own mouth's movement.
+_SPEECH_KEEP = 0.05
+
+# **And which of the rungs inside that cell, once it does change.** The margin
+# above says when the photograph is allowed to stay; this says that when it
+# goes, it should go to the neighbour that looks most like it. See
+# :func:`_speech_texture` for what "looks like" is measured as and why the
+# measurement is of the photographs rather than of their place in the clip.
+#
+# The window is `_SPEECH_KEEP` itself rather than a number of its own: a rung
+# the mouth is that near to is a rung this file already calls the same shape,
+# and the cell is the unit both halves of the rule are written in. Measured
+# over his twelve captures, 3600 frames, against the same rule with the tie
+# broken by whichever rung came out first:
+#
+# | | changes a second | with the mouth moving | error p50 | the step when it changes | its travel |
+# |---|---|---|---|---|---|
+# | first one out | 3.76 | 10.7 | 0.059 | **31.3** | 0.835x |
+# | **most alike** | 3.94 | 11.2 | 0.063 | **25.9** | **0.844x** |
+# | most alike, 0.08 | 3.78 | 10.5 | 0.074 | 25.0 | 0.838x |
+#
+# **The travel column is why this one is free.** It does not hold a photograph
+# for one frame longer than the margin already holds it — the mouth changes as
+# often and lands on the same cell — so the shape follows exactly as far as it
+# did, and only which photograph of that shape is used has changed. That is the
+# opposite trade from every other row this file records, and it is the reason
+# the window is not widened to 0.08: past the cell, the tie-break starts buying
+# its smaller step with the error, which is the passivity trade again.
+#
+# Below this the mask is not going to show the pixel, so it is not part of what
+# a photograph looks like.
+_TEXTURE_VISIBLE = 0.05
+
+# **The F, which the grid's two axes cannot see, and which the owner ranks
+# first:** *"sometimes on F it still chooses many photographs."*
+#
+# An F is the upper teeth on the lower lip, and on the plane the grid is filed
+# on it is nowhere in particular. Measured through the engine on his twelve
+# captures, on the frames where his lower lip rolls under: **his lips read as
+# fully together — a parting of 0.000 — so the grid abstains and the portrait's
+# own shut mouth is shown, unmoving, for the whole length of the F.**
+# `recordings/day18-the-f.png` is nine frames of exactly that, and what he sees
+# on either side of it is the choice running down the crowded foot of the grid:
+# six photographs in ten frames on the way in and out.
+#
+# **And the library's own F photographs are filed where he never goes.** Three
+# frames of video (14) — "off", "for" — are installed as rungs, at a parting of
+# **0.51 to 0.74**, because that actor's F parts the lips where his does not.
+# A third axis on the grid would not reach them: the parting term alone is 0.55
+# away, which no weight on a roll term survives without breaking every other
+# frame. What separates an F is not a distance. It is a gate.
+#
+# `mouthRollLower` is that gate, and it is a large clean signal measured rather
+# than assumed: over 3600 frames of his own captures its median is **0.004** and
+# its p99 is **0.228**, where an F reaches **0.33 to 0.62**. Its own zero is
+# zero, so unlike the width and the parting it needs no resting estimate.
+# Measured over those frames, the release under the start so that one noisy
+# frame cannot cut a fricative in half:
+#
+# | start / release | firings | frames of 3600 | the median F | the longest |
+# |---|---|---|---|---|
+# | 0.25 / 0.15 | 6 | 38, 1.1% | 6 frames | 15 |
+# | **0.30 / 0.20** | **5** | **32, 0.9%** | **5 frames** | **14** |
+# | 0.35 / 0.25 | 3 | 21, 0.6% | 6 frames | 11 |
+# | 0.40 / 0.30 | 2 | 13, 0.4% | 6 frames | 7 |
+#
+# **The firings column is why this is a gate and not a threshold.** The frames
+# it claims are contiguous — five firings over two minutes, not five hundred —
+# so it opens once per F and shuts once, and there is nothing to chatter.
+#
+# Requiring the mouth to be shut as well was measured and adds nothing: 32
+# frames either way, because a rolled lower lip already is one.
+#
+# **And it was checked by eye before it was built**, because the doubt was real:
+# the mesh follows the driver's own lips, his F measures shut, and a photograph
+# whose lips are 0.55 apart could have been squeezed into a smear. Forced onto
+# those frames it is not — the photograph's own reach paints the teeth on the
+# lip. `recordings/day18-f-forced.png` is the three candidates rendered over his
+# own F, and `speech_0548` is the one named here: the strongest roll of the
+# three, and no wider than the others.
+_MOUTH_F_ROLE = "source_mouth_f"
+_MOUTH_F_START = 0.30
+_MOUTH_F_RELEASE = 0.20
+
 # And the third axis, which the owner ranks first: the lids closing.
 #
 # The eyes have been the standing complaint since day 8 — *"wrong far more often
@@ -296,7 +407,58 @@ _BROW_FREEZE_LID = 0.30
 # really are a fraction closed — 99% and 97% of the resting opening — so the
 # guard now costs what it used to save, and a quarter-closed eye has a
 # photograph of a quarter-closed eye to be drawn with.
-_EYES_LADDER_START = 0.05
+#
+# **And on 2026-08-29 that argument turned out to be measuring the wrong thing,
+# which is this file's own recurring lesson.** The owner, after ten seconds of
+# moving his head five to ten degrees: *"see for yourself what was happening to
+# the eyes — the pupils go like a glitch."*
+#
+# The rung at +0.065 is 99% of the resting *opening*, and it is **17.7 grey
+# levels** from the portrait's own eyes; the one at -0.07 on the wide side is
+# **16.1**. Seven hundredths of a lid cannot account for that. They are frames
+# of the eyes clip and the portrait is not, so crossing this foot swaps
+# generation — and the eyes region :func:`_arrives_whole`, so it swaps
+# instantly, both ways.
+#
+# Measured over his thirteen captures, 3900 frames: the lid reading is above
+# 0.05 on **36% of frames** and above 0.45 — a real blink — on **0.8%**. On the
+# ten seconds he recorded, the region turned on and off **26 times in 11
+# seconds**, a median run of **3 frames**, and in most of those runs the reading
+# never passed 0.11. That is the glitch.
+#
+# So the foot is raised and given a release under it. The blink columns are the
+# guard rail — a foot that never opens does not flicker either — and so is the
+# run length, because the 2026-08-21 note below rejected a release for
+# *doubling* it:
+#
+# | start / release | on and off a second | eyes p95 | on when open | blinks kept | blink run |
+# |---|---|---|---|---|---|
+# | **0.05 / 0.05**, as it was | **0.81** | **18.43** | 49% | 100% | 15 |
+# | 0.05 / 0.02 | 0.57 | 16.78 | 54% | 100% | 22 |
+# | 0.10 / 0.05 | 0.43 | 15.07 | 34% | 100% | 25 |
+# | 0.12 / 0.06 | 0.37 | 13.52 | 29% | 100% | 20 |
+# | **0.15 / 0.08** | **0.32** | **11.99** | **23%** | **100%** | **16** |
+# | 0.20 / 0.10 | 0.27 | 10.30 | 14% | 100% | 16 |
+#
+# **0.15 is where every column moves the right way at once.** Not one blink
+# frame is lost at any setting, and unlike the shallower feet the run length
+# does not grow — 16 against 15 — because the runs it removes were never blinks
+# to begin with.
+#
+# **It retires the wide side of the ladder**, and that is deliberate rather than
+# a side effect. The library's only rung wider than rest is at -0.07, inside the
+# reading's own noise, and its whole observed use on his captures is three- and
+# four-frame flashes of a wide-eyed photograph. That is the third eye family
+# dropped after the four gaze photographs and the squint, and for the same
+# measured reason: a photograph used wrongly most of the time is worse than a
+# photograph not used.
+_EYES_LADDER_START = 0.15
+
+# And how far back it has to fall before the region is given up, so that one
+# noisy frame in the middle of a slow blink does not take the photograph out and
+# put it back. Half the start, which is the same shape as
+# :data:`_SPEECH_STILL_RELEASE` and :data:`_MOUTH_F_RELEASE`.
+_EYES_LADDER_RELEASE = 0.08
 
 # How much nearer another rung has to be before a ladder changes photograph.
 #
@@ -329,6 +491,45 @@ _RUNG_HOLD = 0.05
 # Three degrees, which is the spacing the extractor aims for, so a ladder at its
 # intended density behaves exactly as it did before this existed.
 _LADDER_CROSSFADE_DEGREES = 3.0
+
+# **And a foot on it, which every other family in this engine has and yaw did
+# not.** The owner, 2026-08-29, after ten seconds of turning his head five to
+# ten degrees each way: *"on a slight movement of the head the face should not
+# shake — it should follow boldly and correctly."*
+#
+# His nearest rung to rest is **half a degree away**. So the ladder crossed from
+# the portrait to a whole-head photograph over half a degree, and a head that is
+# sitting still crosses that several times a second. Measured over his thirteen
+# captures, 3900 frames: a turn photograph was mixed into **100% of frames**,
+# the set of them changed **1.9 times a second**, and six different photographs
+# of the head were used in eleven seconds of a head that never left ±7°.
+#
+# **And the swap is a change of generation, not of angle.** Measured against the
+# portrait's own pixels, the rung half a degree away differs by **16.3 grey
+# levels over the face and 36.6 over the eyes** — which half a degree of yaw
+# cannot account for. It is a frame of the turn clip, and the portrait is not.
+# That is day 16's finding on the mouth — *"the grid is one generation, because
+# eight of them were flickering six times a second"* — arriving on the head.
+#
+# So the portrait's rung is a **plateau** rather than a point: inside it the
+# portrait is shown alone, and rungs inside it are dropped. Measured on all
+# thirteen captures, with the angle error carried beside the flicker because a
+# face that never changes photograph does not flicker at all:
+#
+# | foot | the eyes, frame to frame | swaps a second | portrait alone | angle error | worst |
+# |---|---|---|---|---|---|
+# | none | **0.74** | 1.92 | 0% | 0.00 | 0.85 |
+# | 1.0 | 0.00 | 1.24 | 60% | 0.33 | 1.00 |
+# | 2.0 | 0.00 | 1.02 | 73% | 0.38 | 1.99 |
+# | **2.5** | **0.00** | **0.64** | **81%** | 0.53 | **3.31** |
+# | 3.0 | 0.00 | 0.58 | 82% | 0.53 | 3.59 |
+#
+# **2.5, where the knee in the swaps is**, and the error column is what makes it
+# cheap: the most the photograph is ever wrong by is 3.3 degrees, and the *mesh*
+# still turns the face by exactly what he turned it. Only the shading is the
+# portrait's own instead of a photograph taken 2 degrees round — and those two
+# photographs differ by 16 grey levels for reasons that are not the 2 degrees.
+_TURN_LADDER_START = 2.5
 
 # The role whose own mouth opening defines "fully open". Measured from the
 # photograph at load rather than hard-coded, so supplying a wider one simply
@@ -880,6 +1081,7 @@ _REGION_ROLES: dict[str, tuple[str, ...]] = {
         "source_mouth_o",
         "source_mouth_wide",
         "source_mouth_pressed",
+        "source_mouth_f",
         "source_frown",
     ),
     "eyes": (
@@ -914,19 +1116,48 @@ _SMILE_ROLES: tuple[str, ...] = ("source_smile", "source_smile_closed")
 # almost always, and therefore wrong almost always. The difference is that this
 # time there is something strictly better to put in its place.
 #
-# **`source_mouth_pressed` and `source_mouth_wide` are not here.** Pressed lips
-# are a *closed* mouth, which is the ladder's foot and the portrait's own
-# photograph; it wins 13.3% of speech at a share of 0.12, which is a thin wash
-# on frames the ladder does not want. `source_mouth_wide` never won a frame at
-# all. Neither is in the ladder's way.
+# **All three of the others joined it on 2026-08-29, and the owner found them
+# from the screen.** *"Sometimes the lip photograph rises up to the nose, to the
+# nostrils, and a line like this appears."* Measured on his six captures, 60
+# seconds of his own speech, against a grid of 178 rungs:
 #
-# **`source_mouth_open` came back off this list on 2026-08-25**, once it turned
-# out that the 4K material stops at a parting of 0.38 and everything wider is
-# 720p. It is a 4K photograph of a mouth open 0.50, which is further than the
-# sharp part of the ladder reaches, and with the weight capped at the rung's own
-# parting it takes the region back exactly where the ladder runs out of
-# photographs rather than competing with it where it has them.
-_SPEECH_ROLES: tuple[str, ...] = ("source_mouth_o",)
+# | | frames | his parting there, p50 / p95 |
+# |---|---|---|
+# | a grid rung | 66.6% | 1.21 / 2.89 |
+# | the portrait, nothing over it | 16.8% | 0.00 / 0.04 |
+# | **`source_mouth_pressed`** | **15.6%** | **0.00 / 0.03** |
+# | **`source_mouth_wide`** | **1.1%** | **0.00 / 0.13** |
+#
+# **`source_mouth_wide` is a photograph of a wide mouth and it was winning
+# closed ones** - rendered, a full row of teeth on lips 0.12 apart. The note
+# this replaces said it "never won a frame at all", and that was true of a
+# 67-rung grid on four captures; it stopped being true without anything saying
+# so.
+#
+# And it is the line under the nose as well. `_build_regions` adds each present
+# photograph's own lip hull to the mask *without* the margin, so a photograph
+# whose lips sit higher than the portrait's paints its own philtrum and nostril
+# skin there. That is right for a mouth that really is open wider - it is how an
+# opening the mesh has never seen gets painted at all - and wrong for a wide
+# photograph held over a closed mouth, which is a patch of another clip's skin
+# under the nose with an edge around it.
+#
+# **`source_mouth_pressed` is the flicker at rest.** Pressed lips are a closed
+# mouth and so is the portrait, so the two swap on a mouth that is not moving:
+# 302 frames the portrait, 281 frames this photograph, at a median parting of
+# 0.00 for both. A mouth standing still should not change photograph at all.
+#
+# **`source_mouth_open` came off this list on 2026-08-25**, because "the 4K
+# material stops at a parting of 0.38 and everything wider is 720p". The grid
+# reaches 3.80 now, all of it 4K, and that argument has expired twice over. Its
+# *gap* is kept either way: `_OPENING_REFERENCE_ROLE` reads the asset, not the
+# weight, and it is still what says how far open "fully open" is.
+_SPEECH_ROLES: tuple[str, ...] = (
+    "source_mouth_o",
+    "source_mouth_open",
+    "source_mouth_pressed",
+    "source_mouth_wide",
+)
 
 # And the two an eye ladder replaces. Both, because the ladder is signed: a
 # resting eye is its zero, a shut one its top, and an eye held wide is the same
@@ -1061,6 +1292,10 @@ _REGION_MARGIN: dict[str, float] = {"mouth": 0.10, "eyes": 0.11, "brows": 0.09}
 # socket, which is all the eyes need.
 _RIDGE_SPLIT = 0.25
 _REGION_FEATHER = 0.05
+
+# Below this, a photograph's reach past its region's own mask is not kept at
+# all. One step of 255, so what is dropped could not have changed a pixel.
+_REACH_MINIMUM = 1.0 / 255.0
 
 # How softly the eye's own opening is fenced off from every other region, as a
 # fraction of face width. See :func:`_build_regions`.
@@ -1870,7 +2105,7 @@ class _Region:
     building, no full-face arithmetic.
     """
 
-    __slots__ = ("box", "mask", "name", "positions", "sources")
+    __slots__ = ("box", "mask", "name", "positions", "reach", "sources")
 
     def __init__(
         self,
@@ -1879,11 +2114,28 @@ class _Region:
         mask: np.ndarray,
         sources: dict[str, np.ndarray],
         positions: list[int],
+        reach: dict[str, tuple[int, int, np.ndarray]] | None = None,
     ) -> None:
         self.name = name
         self.box = box
         self.mask = mask
         self.sources = sources
+        self.reach = reach or {}
+        """How far past :attr:`mask` each photograph is allowed to act, and where.
+
+        The mask is the base portrait's own feature and its margin, which is
+        the same on every frame. A photograph may also act inside its *own*
+        landmarks, and that part is not the same on every frame: an open mouth
+        reaches to the nostrils and a closed one does not.
+
+        Kept per photograph and per frame rather than merged into the mask at
+        load, which is what it was until 2026-08-29. Merged, the widest rung in
+        the library set the reach for all of them and every photograph was
+        painted up under the nose — the line the owner reported twice. Each
+        entry is the offset of a small rectangle inside :attr:`box` and the
+        values in it; :func:`_reached` puts them back at the photograph's own
+        share.
+        """
         self.positions = positions
         """Mesh positions this region owns.
 
@@ -1932,6 +2184,7 @@ class _LoadedAvatar:
         "source_points",
         "sources",
         "speech_ladder",
+        "speech_texture",
         "speech_width",
         "triangles",
     )
@@ -2050,6 +2303,10 @@ class _LoadedAvatar:
         # Where each group of photographs is allowed to act, with their pixels
         # already cropped to it.
         self.regions = _build_regions(image, points, sources, self.source_points)
+
+        # And how different each pair of speech rungs looks in it, which is what
+        # the grid breaks a tie with. See :func:`_speech_texture`.
+        self.speech_texture = _speech_texture(self.regions)
 
         # The most recent blend and the weights that produced it.
         self.cached_weights: dict[str, int] = {}
@@ -2467,7 +2724,19 @@ class WarpAvatarEngine:
         # photographs, so an avatar with those and no ladder lost its turns
         # entirely. Every avatar built since has had a ladder, which is why this
         # went unseen.
-        return tuple(sorted(rungs)) if len(rungs) > 1 else ()
+        if len(rungs) <= 1:
+            return ()
+
+        foot = _TURN_LADDER_START
+        inside = [key for angle, key in rungs if key is not None and abs(angle) <= foot]
+        if inside:
+            _LOG.info(
+                "Avatar %s: %d turn rung(s) inside the ladder's foot, not used: %s",
+                descriptor.id,
+                len(inside),
+                ", ".join(inside),
+            )
+        return _with_foot(tuple(sorted(rungs)), foot)
 
     def unload_avatar(self, avatar_id: str) -> None:
         self._loaded.pop(avatar_id, None)
@@ -3688,6 +3957,20 @@ def _widened(tracking: FaceTrackingResult, neutral: _Neutral) -> float:
     return width - rest
 
 
+def _lip_roll(tracking: FaceTrackingResult) -> float:
+    """How far the lower lip is rolled under the teeth — an F, or a V.
+
+    Read raw rather than against a resting estimate, which is unusual in this
+    file and is itself a measurement: over 3600 frames of the owner's own
+    captures the median is 0.004. A lip that is not rolled reads zero on its
+    own. See :data:`_MOUTH_F_START`.
+    """
+    shapes = tracking.blendshapes
+    if shapes is None or not shapes.names:
+        return 0.0
+    return shapes.get("mouthRollLower")
+
+
 def _speech_amount(tracking: FaceTrackingResult) -> float:
     """How far apart the lips are, on the axis the speech ladder is filed by.
 
@@ -3972,8 +4255,21 @@ def _arrives_whole(region: str, role: str) -> bool:
     because only a rung already carries how far into the movement it is. A named
     photograph on the same region still fades, which is what an avatar with no
     eye ladder falls back to.
+
+    **The F is the one named photograph that does not fade**, for the rung's own
+    reason and one of its own. It is chosen by a gate rather than weighed by a
+    blendshape, so the choosing has already answered what an opacity would ask;
+    and fading it in would put the portrait's *shut* lips under the teeth it is
+    drawing, which is the double exposure this rule exists to stop.
+
+    Measured on the owner's twelve captures, faded against whole: the mouth
+    eases at 3.7 a second, so a fade takes eight frames and his F lasts
+    **five**. Faded, the F was a partial photograph over his closed lips on
+    **22 of the 40 frames** it held the mouth, and it hung on for **8 frames
+    after the F had ended** — arriving as a ghost and leaving as one. Whole, it
+    is on 32 frames and fully on for all 32. See :data:`_MOUTH_F_START`.
     """
-    return region in _ARRIVES_WHOLE and _is_rung(role)
+    return region in _ARRIVES_WHOLE and (_is_rung(role) or role == _MOUTH_F_ROLE)
 
 
 def _one_per_region(
@@ -4130,6 +4426,58 @@ def _shrinks(matrix: np.ndarray) -> bool:
     return scale < 1.0
 
 
+def _region_mask(
+    field: np.ndarray,
+    rows: np.ndarray,
+    keep: tuple[float, float] | None,
+    feather: int,
+    veil: np.ndarray | None,
+    claimed: np.ndarray,
+) -> np.ndarray:
+    """One filled field, cut to its rows, feathered, and settled against the rest.
+
+    The three things every part of a region's mask has done to it, in the one
+    order that is correct: the row limit *before* the blur, so the feather
+    crosses that line as it crosses every other edge; the eye openings fenced
+    off; then whatever the regions built earlier have already claimed taken
+    away, so no pixel is ever painted twice.
+    """
+    import cv2
+
+    if keep is not None:
+        low, high = keep
+        field = np.where((rows >= low) & (rows <= high), field, 0).astype(np.uint8)
+    out = cv2.GaussianBlur(field, (feather, feather), 0).astype(np.float32) / 255.0
+    if veil is not None:
+        out *= 1.0 - veil
+    return np.clip(out - claimed, 0.0, 1.0)
+
+
+def _reached(region: _Region, shares: dict[str, float]) -> np.ndarray:
+    """The region's mask, plus the reach of each photograph actually showing.
+
+    The base's own mask is on at whatever the region as a whole asked for. Past
+    it, each photograph acts at its own share of the mix, so a rung of a mouth
+    open to the nostrils paints that far when it is what is showing and not
+    when it is not.
+
+    Returns the region's own mask untouched when nothing showing reaches past
+    it, which is the common case and costs nothing.
+    """
+    mask: np.ndarray | None = None
+    for role, share in shares.items():
+        past = region.reach.get(role)
+        if past is None or share <= 0.0:
+            continue
+        if mask is None:
+            mask = region.mask.copy()
+        x, y, extra = past
+        mask[y : y + extra.shape[0], x : x + extra.shape[1]] += extra * share
+    if mask is None:
+        return region.mask
+    return np.clip(mask, 0.0, 1.0, out=mask)
+
+
 def _build_regions(
     image: np.ndarray,
     points: np.ndarray,
@@ -4245,12 +4593,21 @@ def _build_regions(
 
         # The box holds the base's landmarks with their margin *and* every
         # photograph's own landmarks, so nothing a photograph describes is cut
-        # off at the crop.
+        # off at the crop — **with the feather's own radius left around all of
+        # it**, which until 2026-08-29 it was not.
+        #
+        # The mask is blurred and then cropped to this box. A photograph's hull
+        # goes in without a margin, so the box stopped exactly at the topmost
+        # one's lip line and the fade was cut off half way down: on this avatar
+        # the mouth mask's top row was 0.745 with nothing above it. A step of
+        # three quarters of a photograph, straight across the width of the
+        # mouth, which is a line under the nose.
+        halo = feather // 2 + 1
         corners = np.concatenate([group - margin, group + margin, *extras])
-        x0 = max(int(corners[:, 0].min()), 0)
-        y0 = max(int(corners[:, 1].min()), 0)
-        x1 = min(int(corners[:, 0].max()), width)
-        y1 = min(int(corners[:, 1].max()), height)
+        x0 = max(int(corners[:, 0].min()) - halo, 0)
+        y0 = max(int(corners[:, 1].min()) - halo, 0)
+        x1 = min(int(corners[:, 0].max()) + halo, width)
+        y1 = min(int(corners[:, 1].max()) + halo, height)
         if x1 - x0 < 4 or y1 - y0 < 4:
             continue
 
@@ -4273,27 +4630,78 @@ def _build_regions(
         # blur the join around the *base's* features and has no business
         # extending an opening the mesh has never seen.
         #
+        # **And it is added per photograph, which until 2026-08-29 it was
+        # not.** Every present photograph's hull went into one mask, built at
+        # load and then used on every frame — so the region reached to wherever
+        # the *widest* rung's lips were and painted whichever photograph was
+        # showing that far. Measured on the owner's avatar: 62 px on a 455 px
+        # face, 13.7% of a face above the portrait's own lip line, past the
+        # nostrils, at a mask of 1.000 the whole way up the philtrum. A closed
+        # mouth's rung had its philtrum painted over the philtrum on every
+        # frame and its moustache dragged up under the nose by the mesh, and
+        # the edge of that is the line the owner photographed twice — on
+        # 2026-08-29 again, after retiring the four named mouth photographs had
+        # moved the reach from one of them to ``speech@246`` and changed
+        # nothing he could see.
+        #
+        # So each photograph now carries only its own reach past the base's
+        # mask, and the frame adds it back at that photograph's own share. See
+        # :attr:`_Region.reach` and :func:`_reached`.
+        #
+        # What the *region* occupies is still their union, because that is what
+        # it takes from the regions built after it. Narrowing that would move
+        # the line between the mouth, the eyes and the brows, which is settled
+        # ground and a separate question from this one.
+        union = grown.copy()
         for extra in extras:
-            cv2.fillConvexPoly(grown, cv2.convexHull(extra[:, :2].astype(np.int32)), 255)
-        if name == "eyes":
-            grown = np.where(rows >= split, grown, 0).astype(np.uint8)
-        elif name == "brows":
-            grown = np.where(rows <= brow_floor, grown, 0).astype(np.uint8)
+            cv2.fillConvexPoly(union, cv2.convexHull(extra[:, :2].astype(np.int32)), 255)
 
-        mask = cv2.GaussianBlur(grown, (feather, feather), 0).astype(np.float32) / 255.0
+        keep = None
+        if name == "eyes":
+            keep = (split, float(height))
+        elif name == "brows":
+            keep = (-1.0, brow_floor)
 
         # Nobody but the eyes paints inside an eye. A brow photograph, a mouth
         # photograph and a turned head all have an open eye where this face's
         # shut one is, and any share of it left to them is that open eye.
-        if name != "eyes":
-            mask *= 1.0 - opening
+        veil = None if name == "eyes" else opening
 
         # What is left after the regions before it have taken theirs, and what
         # it takes in turn. Subtracted rather than cut, so the join stays a fade
         # — and the two can never add up to more than one photograph's worth.
-        #
-        np.clip(mask - claimed, 0.0, 1.0, out=mask)
-        np.clip(claimed + mask, 0.0, 1.0, out=claimed)
+        mask = _region_mask(grown, rows, keep, feather, veil, claimed)
+        occupied = _region_mask(union, rows, keep, feather, veil, claimed)
+
+        # Each photograph's reach past the base's own mask, kept as the small
+        # rectangle it actually covers rather than a full copy of the region.
+        # On the owner's avatar 111 of 183 mouth photographs reach past it at
+        # all, by a median of 1188 pixels of a 50058-pixel box, and the whole
+        # set stores 1.9 MB of values where dense masks would be 35 MB.
+        reach: dict[str, tuple[int, int, np.ndarray]] = {}
+        for role in present:
+            if role not in source_points:
+                continue
+            own = np.zeros((height, width), dtype=np.uint8)
+            cv2.fillConvexPoly(
+                own,
+                cv2.convexHull(source_points[role][positions][:, :2].astype(np.int32)),
+                255,
+            )
+            settled = _region_mask(own, rows, keep, feather, veil, claimed)
+            past = np.clip(settled - mask, 0.0, 1.0)[y0:y1, x0:x1]
+            corner = np.argwhere(past > _REACH_MINIMUM)
+            if not corner.size:
+                continue
+            ry0, rx0 = corner.min(axis=0)
+            ry1, rx1 = corner.max(axis=0) + 1
+            reach[role] = (
+                int(rx0),
+                int(ry0),
+                np.ascontiguousarray(past[ry0:ry1, rx0:rx1])[:, :, None],
+            )
+
+        np.clip(claimed + occupied, 0.0, 1.0, out=claimed)
 
         # **And each photograph is put on the portrait's tone over the skin this
         # region will actually show.** :func:`_match_to_portrait` has already
@@ -4313,9 +4721,14 @@ def _build_regions(
         # photograph and not once for the region, because one ring avoiding
         # *every* rung's open mouth at once is no ring at all: on this avatar it
         # came to five pixels.
+        # Sampled over what the region occupies in all rather than over the
+        # base's own mask: the ring is a reading of the portrait's skin under
+        # the region, and every pixel of the union is skin in both pictures by
+        # construction. Unchanged by the split above, deliberately — the tone
+        # estimate is a settled mechanism and this is not a change to it.
         clearance = _RING_CLEARANCE | 1
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (clearance, clearance))
-        solid = mask[y0:y1, x0:x1] > _RING_SOLID
+        solid = occupied[y0:y1, x0:x1] > _RING_SOLID
         base_patch = image[y0:y1, x0:x1]
         cropped = {}
         for role in present:
@@ -4340,10 +4753,62 @@ def _build_regions(
                 mask=np.ascontiguousarray(mask[y0:y1, x0:x1])[:, :, None],
                 sources=cropped,
                 positions=list(positions),
+                reach=reach,
             )
         )
 
     return tuple(built)
+
+
+def _speech_texture(regions: tuple[_Region, ...]) -> dict[str, dict[str, float]]:
+    """How different two speech rungs look, over the pixels the mouth shows.
+
+    **The grid files a rung by two numbers, and two rungs within one cell of
+    each other are the same shape by construction. They are not the same
+    photograph.** Measured over this owner's 178 rungs, two rungs 0.03 to 0.06
+    apart on the plane differ by anywhere from 5 to 46 grey levels across the
+    mouth — and 46 is as far apart as two rungs drawn at random. Which of
+    several equally-near rungs is taken therefore decides how much the mouth's
+    texture jumps, and until 2026-08-29 it was decided by whichever floating
+    point number happened to come out smaller.
+
+    What that costs, measured through the engine on his twelve captures: of the
+    428 times the photograph changed, **82% went to a different moment of the
+    clip**, and those steps are twice the size — 33 to 41 grey levels against
+    **16** for a change to the next frame of film.
+
+    So the choice is given this number to break its ties with, and it is a
+    distance between *photographs* rather than between film frames on purpose.
+    It measures the thing that is wrong — the texture cutting — instead of a
+    proxy for it; it works across clips, where a frame index means nothing; and
+    it needs nothing from the manifest, so no rung has to carry a source frame
+    index and no library has to be rebuilt to gain one.
+    """
+    mouth = next((region for region in regions if region.name == "mouth"), None)
+    if mouth is None:
+        return {}
+    roles = [role for role in mouth.sources if role.startswith(_SPEECH_PREFIX)]
+    if len(roles) < 2:
+        return {}
+
+    # Weighted by the mask, so the comparison counts each pixel as much as the
+    # frame will show it and skips the ones it will not show at all.
+    mask = mouth.mask[:, :, 0]
+    visible = mask > _TEXTURE_VISIBLE
+    if not bool(visible.any()):
+        return {}
+    weight = mask[visible].astype(np.float32)
+    weight /= float(np.sqrt(float((weight * weight).sum())))
+    rows = np.stack(
+        [mouth.sources[role].astype(np.float32).mean(axis=2)[visible] * weight for role in roles]
+    )
+    square = (rows * rows).sum(axis=1)
+    gram = rows @ rows.T
+    distance = np.sqrt(np.maximum(square[:, None] + square[None, :] - 2.0 * gram, 0.0))
+    return {
+        role: dict(zip(roles, (float(value) for value in distance[index]), strict=True))
+        for index, role in enumerate(roles)
+    }
 
 
 def _weighted_sum(
@@ -4576,6 +5041,31 @@ def _ladder_weights(ladder: tuple[tuple[float, str | None], ...], yaw: float) ->
     return weights
 
 
+def _with_foot(
+    ladder: tuple[tuple[float, str | None], ...], foot: float
+) -> tuple[tuple[float, str | None], ...]:
+    """The portrait's rung widened from a point into a plateau.
+
+    See :data:`_TURN_LADDER_START` for the measurement. Done to the ladder
+    rather than inside :func:`_ladder_weights` so that the bracket either side
+    of the plateau is the ordinary one — the fade out of the portrait starts at
+    the plateau's edge instead of at zero, and a rung inside it is dropped
+    rather than skipped over.
+
+    **A ladder with nothing outside the foot is not a ladder**, and saying it is
+    has a known cost: a caller that finds one stops using the named turn
+    photographs, so an avatar would lose its turns entirely. That is the
+    2026-08-21 bug this file already records, and it is why the empty case
+    returns nothing at all rather than a plateau on its own.
+    """
+    if foot <= 0.0:
+        return ladder
+    kept = [rung for rung in ladder if rung[1] is not None and abs(rung[0]) > foot]
+    if not kept:
+        return ()
+    return tuple(sorted([*kept, (-foot, None), (foot, None)]))
+
+
 def _nearest_smile(
     ladder: tuple[tuple[float, str | None], ...], smiling: float, held: str | None = None
 ) -> dict[str, float]:
@@ -4605,6 +5095,7 @@ def _nearest_speech(
     weight: float,
     held: str | None = None,
     moved: float = 1.0,
+    texture: dict[str, dict[str, float]] | None = None,
 ) -> dict[str, float]:
     """The rung nearest this mouth **on both axes**, at ``weight``.
 
@@ -4633,6 +5124,14 @@ def _nearest_speech(
     photograph: a shape a person is holding is one shape, however the width axis
     wanders underneath it. :data:`_SPEECH_STILL_RELEASE` is the ceiling that
     keeps that from becoming the morning's defect again.
+
+    **And when it does change, it changes to the rung that looks most like the
+    one leaving.** Several rungs are usually this near — three to five within
+    one cell of the nearest, over the owner's own captures — and they are the
+    same shape as each other and different photographs of it. The shape is
+    chosen by the plane and the photograph by ``texture``, so the mouth follows
+    exactly as far as it did and cuts less doing it. See
+    :func:`_speech_texture`.
     """
     rungs = [(amount, key) for amount, key in ladder if key is not None]
     if not rungs:
@@ -4652,13 +5151,32 @@ def _nearest_speech(
         amount, key = rung
         return float(np.hypot(amount - parted, widths.get(str(key), 0.0) - widened))
 
-    nearest = min(rungs, key=distance)
-    if held is not None and moved < _SPEECH_STILL:
-        current = next((rung for rung in rungs if rung[1] == held), None)
-        if current is not None and distance(current) <= _SPEECH_STILL_RELEASE:
+    distances = [distance(rung) for rung in rungs]
+    nearest = min(range(len(rungs)), key=distances.__getitem__)
+    current = next((i for i, rung in enumerate(rungs) if rung[1] == held), None)
+    if current is not None:
+        if moved < _SPEECH_STILL:
+            # Held because the mouth is being held. See `_SPEECH_STILL`.
+            kept = distances[current] <= _SPEECH_STILL_RELEASE
+        else:
+            # And held while it moves, but only against a challenger that is
+            # barely nearer — one cell of this grid. See `_SPEECH_KEEP`.
+            kept = distances[current] <= distances[nearest] + _SPEECH_KEEP
+        if kept:
             nearest = current
+        elif texture is not None:
+            # It is changing, and every rung within a cell of the nearest one is
+            # the same shape as it. Take the one that looks most like the
+            # photograph that is leaving.
+            alike = texture.get(str(rungs[current][1]))
+            if alike is not None:
+                limit = distances[nearest] + _SPEECH_KEEP
+                nearest = min(
+                    (i for i, apart in enumerate(distances) if apart <= limit),
+                    key=lambda i: alike.get(str(rungs[i][1]), 0.0),
+                )
 
-    key = nearest[1]
+    key = rungs[nearest][1]
     return {} if key is None else {key: min(abs(weight), 1.0)}
 
 
@@ -4669,6 +5187,7 @@ def _nearest_rung(
     held: str | None = None,
     freeze: bool = False,
     weight: float | None = None,
+    release: float | None = None,
 ) -> dict[str, float]:
     """The one rung nearest ``amount``, at a weight of how much there is.
 
@@ -4700,7 +5219,11 @@ def _nearest_rung(
             return {}
         return {current[1]: min(abs(current[0]), 1.0)}
 
-    if abs(amount) < start:
+    # The foot, with a release under it for a ladder that asks for one: once a
+    # photograph is showing, the reading has to fall further than it had to rise
+    # before the region is given up. See :data:`_EYES_LADDER_RELEASE`.
+    foot = start if held is None or release is None else release
+    if abs(amount) < foot:
         return {}
 
     nearest = min(ladder, key=lambda rung: abs(rung[0] - amount))
@@ -4852,6 +5375,17 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
             _nearest_smile(avatar.smile_ladder, _smile_amount(tracking, avatar.neutral), held)
         )
 
+    # **An F is a gate rather than a place on the plane** — see
+    # :data:`_MOUTH_F_START`. While it is open the mouth is this one photograph:
+    # the grid's own answer to an F is the portrait's shut lips, and the F
+    # photographs the grid holds are filed at a parting his F never reaches.
+    if _MOUTH_F_ROLE in avatar.sources:
+        showing = avatar.holding.get("mouth") == _MOUTH_F_ROLE
+        if _lip_roll(tracking) >= (_MOUTH_F_RELEASE if showing else _MOUTH_F_START):
+            weights[_MOUTH_F_ROLE] = 1.0
+        else:
+            weights.pop(_MOUTH_F_ROLE, None)
+
     if not avatar.speech_ladder:
         avatar.last_mouth = None
 
@@ -4892,7 +5426,9 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
         )
         avatar.last_mouth = (parted, widened)
         weights.update(
-            _nearest_speech(
+            {}
+            if _MOUTH_F_ROLE in weights
+            else _nearest_speech(
                 avatar.speech_ladder,
                 avatar.speech_width,
                 parted,
@@ -4907,6 +5443,7 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
                 float(np.hypot(min(parted, top), min(abs(widened), top_width))),
                 avatar.holding.get("mouth"),
                 moved,
+                avatar.speech_texture,
             )
         )
 
@@ -4946,7 +5483,13 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
         for role in _EYES_ROLES:
             weights.pop(role, None)
         weights.update(
-            _nearest_rung(avatar.eye_ladder, lid, _EYES_LADDER_START, avatar.holding.get("eyes"))
+            _nearest_rung(
+                avatar.eye_ladder,
+                lid,
+                _EYES_LADDER_START,
+                avatar.holding.get("eyes"),
+                release=_EYES_LADDER_RELEASE,
+            )
         )
 
     if not weights:
@@ -5051,7 +5594,7 @@ def _blend_sources(avatar: _LoadedAvatar, tracking: FaceTrackingResult) -> np.nd
         # thing being carried is a picture of a mouth rather than a mouth
         # already averaged with the cheek it is about to leave.
         mixed = _photo_mix(region.sources, shares)
-        mask = region.mask
+        mask = _reached(region, shares)
         if carrying:
             fitted = _carry_matrix(avatar.points, mesh, region.positions)
             if fitted is not None:

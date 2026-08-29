@@ -29,6 +29,7 @@ from sha256.avatar.engine_warp import (
     _EASE_PER_SECOND,
     _EYE_PAIRS,
     _EYE_POSITIONS,
+    _EYES_LADDER_RELEASE,
     _EYES_LADDER_START,
     _EYES_PREFIX,
     _FRAME_SECONDS,
@@ -37,6 +38,10 @@ from sha256.avatar.engine_warp import (
     _LEVEL_WARMUP_FRAMES,
     _LIP_FOLLOW,
     _MASK_FEATHER,
+    _MOUTH_F_RELEASE,
+    _MOUTH_F_ROLE,
+    _MOUTH_F_START,
+    _MOUTH_POSITIONS,
     _NEAR_CHEEK_START,
     _NOSE_TIP_POSITION,
     _POSE_RATE,
@@ -46,15 +51,18 @@ from sha256.avatar.engine_warp import (
     _SMILE_LADDER_START,
     _SMILE_REFERENCE,
     _SMILE_WIDEN_SPAN,
+    _SPEECH_KEEP,
     _SPEECH_LADDER_START,
     _SPEECH_STILL,
     _SPEECH_STILL_RELEASE,
     _SPEECH_WIDTH_START,
     _STABLE_POSITIONS,
     _SWITCH_MARGIN,
+    _TURN_LADDER_START,
     MESH_INDICES,
     MESH_POINT_COUNT,
     WarpAvatarEngine,
+    _arrives_whole,
     _blend_sources,
     _brow_amount,
     _brow_height,
@@ -69,6 +77,7 @@ from sha256.avatar.engine_warp import (
     _ladder_weights,
     _lid_aspect,
     _lip_parting,
+    _lip_roll,
     _misplaced,
     _nearest_rung,
     _nearest_smile,
@@ -76,14 +85,18 @@ from sha256.avatar.engine_warp import (
     _Neutral,
     _one_per_region,
     _pixel_points,
+    _reached,
+    _Region,
     _shut,
     _smile_amount,
     _smile_share,
     _source_weights,
     _speech_amount,
+    _speech_texture,
     _trim_forehead,
     _turn_bias,
     _widened,
+    _with_foot,
     refused_as_rung,
 )
 from sha256.avatar.engine_warp import _OVAL_SLICE as OVAL_COUNT_SLICE
@@ -3484,11 +3497,25 @@ class TestAMouthBeingHeldKeepsItsPhotograph:
         still = _SPEECH_STILL / 2
         assert self.chosen(0.31, "speech@a", still) == {"speech@a"}
 
-    def test_and_a_moving_one_does_not(self):
-        """Nothing is held while the mouth is moving. This is the morning's fix
-        and it is not being taken back."""
+    def test_a_moving_one_lets_go_when_a_challenger_is_clearly_nearer(self):
+        """The morning's fix, and the half of it that stands: a photograph the
+        mouth has genuinely left behind is let go at once, not carried."""
         moving = _SPEECH_STILL * 2
-        assert self.chosen(0.31, "speech@a", moving) == {"speech@b"}
+        assert self.chosen(0.38, "speech@a", moving) == {"speech@b"}
+
+    def test_but_a_barely_nearer_challenger_does_not_take_it(self):
+        """The other half, added 2026-08-29. The owner: *"the mouth photographs
+        change very often ... it cannot settle on which photograph to choose."*
+        With the mouth moving the photograph was changing 21 times a second — a
+        new one on two frames in three — because on a dense grid the nearest
+        rung crosses a boundary almost every frame.
+
+        `_SPEECH_KEEP` is one cell of slack, a third of the margin removed on
+        2026-08-28 on a grid a third the spacing. It cuts the changes to 15 a
+        second and keeps 89% of his mouth's own travel; the margin it replaces
+        was two or three neighbours wide and that is what read as passive."""
+        moving = _SPEECH_STILL * 2
+        assert self.chosen(0.31, "speech@a", moving) == {"speech@a"}
 
     def test_but_a_still_mouth_still_lets_go_of_a_wrong_photograph(self):
         """A slow drift must not carry a photograph all the way across the grid:
@@ -3502,3 +3529,463 @@ class TestAMouthBeingHeldKeepsItsPhotograph:
         chooses freshly rather than inheriting what was on screen before it
         left."""
         assert self.chosen(0.55, "speech@a", 1.0) == {"speech@c"}
+
+
+class TestTheLaddersHaveAFootTheNoiseCannotCross:
+    """The owner, 2026-08-29, after ten seconds of turning his head five to ten
+    degrees each way: *"see for yourself what was happening to the eyes — the
+    pupils go like a glitch"* and *"on a slight movement of the head the face
+    should not shake; it should follow boldly and correctly."*
+
+    One mechanism under both. **The rung next to rest is a different
+    generation from the portrait, and there was no dead zone around rest.** The
+    turn ladder's nearest rung is half a degree from zero and differs from the
+    portrait by 16.3 grey levels over the face and **36.6 over the eyes**; the
+    lid ladder's nearest is seven hundredths of a lid away and differs by
+    **17.7**. Half a degree of yaw and seven hundredths of a lid cannot account
+    for either. So ordinary tracker noise swapped generation several times a
+    second — measured over his thirteen captures, a turn photograph was mixed
+    into **100%** of frames and the set changed **1.9 times a second**, and on
+    the ten seconds he recorded the eye region turned on and off **26 times in
+    11 seconds** with a median run of three frames.
+
+    Both regions are shown whole, so every crossing is that jump, instantly,
+    both ways. `recordings/day18-the-eyes-change.png` is what changed between
+    consecutive frames, under both engines.
+    """
+
+    LADDER = (
+        (-8.2, "turn@a"),
+        (-2.5, "turn@b"),
+        (0.0, None),
+        (0.5, "turn@c"),
+        (2.1, "turn@d"),
+        (6.5, "turn@e"),
+    )
+
+    def test_a_rung_inside_the_foot_is_dropped(self):
+        """It is half a degree from rest and a whole different photograph of the
+        head. There is nothing it can say that the portrait does not."""
+        built = _with_foot(self.LADDER, _TURN_LADDER_START)
+        assert [key for _, key in built] == [None if k is None else k for k in
+                                             ("turn@a", None, None, "turn@e")]
+
+    def test_the_portrait_is_shown_alone_across_the_whole_plateau(self):
+        built = _with_foot(self.LADDER, _TURN_LADDER_START)
+        assert _ladder_weights(built, 0.0) == {}
+        assert _ladder_weights(built, _TURN_LADDER_START - 0.01) == {}
+        assert _ladder_weights(built, -_TURN_LADDER_START + 0.01) == {}
+
+    def test_and_a_real_turn_still_reaches_a_photograph(self):
+        built = _with_foot(self.LADDER, _TURN_LADDER_START)
+        assert _ladder_weights(built, 6.5) == {"turn@e": 1.0}
+        assert _ladder_weights(built, -8.2) == {"turn@a": 1.0}
+
+    def test_the_fade_starts_at_the_plateau_rather_than_at_zero(self):
+        """Which is why the foot is built into the ladder instead of being a
+        test inside :func:`_ladder_weights`: the bracket either side of the
+        plateau is the ordinary one, so crossing the foot is a fade and not a
+        cut."""
+        built = _with_foot(self.LADDER, _TURN_LADDER_START)
+        just_outside = _ladder_weights(built, _TURN_LADDER_START + 0.05)
+        assert just_outside == {} or max(just_outside.values()) < 0.1
+
+    def test_a_ladder_with_nothing_outside_the_foot_is_not_a_ladder(self):
+        """Saying it is has a known cost: a caller that finds a ladder stops
+        using the named turn photographs, so the avatar would lose its turns
+        entirely."""
+        assert _with_foot(((-1.0, "turn@a"), (0.0, None), (1.0, "turn@b")), 2.5) == ()
+
+    def test_the_lid_keeps_its_photograph_through_a_dip_under_the_start(self):
+        """The release, so that one noisy frame in the middle of a slow blink
+        does not take the photograph out and put it back."""
+        ladder = ((0.0, None), (0.2, "eyes@a"), (0.5, "eyes@b"))
+        between = (_EYES_LADDER_START + _EYES_LADDER_RELEASE) / 2
+        loose = _nearest_rung(ladder, between, _EYES_LADDER_START, release=_EYES_LADDER_RELEASE)
+        assert loose == {}
+        held = _nearest_rung(
+            ladder, between, _EYES_LADDER_START, "eyes@a", release=_EYES_LADDER_RELEASE
+        )
+        assert set(held) == {"eyes@a"}
+
+    def test_and_lets_go_under_the_release(self):
+        ladder = ((0.0, None), (0.2, "eyes@a"), (0.5, "eyes@b"))
+        under = _EYES_LADDER_RELEASE / 2
+        assert (
+            _nearest_rung(ladder, under, _EYES_LADDER_START, "eyes@a", release=_EYES_LADDER_RELEASE)
+            == {}
+        )
+
+    def test_a_ladder_that_asks_for_no_release_is_unchanged(self):
+        """Every other family shares :func:`_nearest_rung` and none of them has
+        been given one."""
+        ladder = ((0.0, None), (0.2, "eyes@a"))
+        between = (_EYES_LADDER_START + _EYES_LADDER_RELEASE) / 2
+        assert _nearest_rung(ladder, between, _EYES_LADDER_START, "eyes@a") == {}
+
+    def test_a_blink_is_never_lost_to_the_foot(self):
+        """The guard rail, and the one that decided the number: a foot that
+        never opens does not flicker either. Not one frame of a real closure is
+        lost at any setting measured, and the run length does not grow — 16
+        frames against 15."""
+        ladder = ((0.0, None), (0.2, "eyes@a"), (0.5, "eyes@b"))
+        assert set(_nearest_rung(ladder, 0.5, _EYES_LADDER_START)) == {"eyes@b"}
+        assert set(_nearest_rung(ladder, 0.45, _EYES_LADDER_START)) == {"eyes@b"}
+
+
+class TestWhichPhotographOfTheSameShape:
+    """The owner, 2026-08-29: *"the mouth's movement and the changing of frames,
+    the changing of photographs on the mouth, should be smoother still."*
+
+    Two rungs one cell apart are the same *shape* — that is what a cell means —
+    and they are different *photographs* of it. Measured over his 178 rungs, two
+    rungs 0.03 to 0.06 apart on the plane differ by anywhere from 5 to 46 grey
+    levels across the mouth, and 46 is as far apart as two rungs drawn at
+    random. Measured through the engine on his twelve captures, of the 428 times
+    the photograph changed **82% went to a different moment of the clip**, and
+    those steps are twice the size: 33 to 41 grey levels against **16** for a
+    change to the next frame of film.
+
+    So the plane says which shape and :func:`_speech_texture` says which
+    photograph of it. It is the one change in this file that buys nothing with
+    travel — the same changes at the same moments, landing in the same cell —
+    and the step falls from 31.3 to 25.9.
+    """
+
+    # Halves and quarters, so that "equally near" is equally near exactly and
+    # the test is of the rule rather than of a floating point comparison.
+    LADDER = (
+        (0.2000, "speech@held"),
+        (0.3750, "speech@first"),
+        (0.5000, "speech@alike"),
+        (0.9000, "speech@far"),
+    )
+    BETWEEN = 0.4375
+    WIDTHS: ClassVar[dict[str, float]] = dict.fromkeys(
+        ("speech@held", "speech@first", "speech@alike", "speech@far"), 0.0
+    )
+    # `speech@alike` is the next frame of film after the one on screen;
+    # `speech@first` is the same shape from a different moment of the clip.
+    TEXTURE: ClassVar[dict[str, dict[str, float]]] = {
+        "speech@held": {
+            "speech@held": 0.0,
+            "speech@first": 40.0,
+            "speech@alike": 5.0,
+            "speech@far": 60.0,
+        }
+    }
+
+    def chosen(self, parted: float, texture: dict | None, moved: float | None = None) -> set[str]:
+        return set(
+            _nearest_speech(
+                self.LADDER,
+                self.WIDTHS,
+                parted,
+                0.0,
+                parted,
+                "speech@held",
+                _SPEECH_STILL * 2 if moved is None else moved,
+                texture,
+            )
+        )
+
+    def test_without_the_measure_it_takes_whichever_came_first(self):
+        """Two rungs are equally near and the choice was a floating point
+        comparison between them. That is what it was until 2026-08-29."""
+        assert self.chosen(self.BETWEEN, None) == {"speech@first"}
+
+    def test_with_it_the_mouth_goes_to_the_photograph_it_looks_like(self):
+        """Same shape, same cell, and the one that does not cut."""
+        assert self.chosen(self.BETWEEN, self.TEXTURE) == {"speech@alike"}
+
+    def test_a_look_alike_further_than_a_cell_is_still_not_taken(self):
+        """The tie-break chooses *within* the cell and never widens it. A rung
+        the mouth is not near is the wrong shape however well it matches, and
+        buying a smaller step with the error is the passivity trade again."""
+        texture = {"speech@held": {"speech@far": 0.0, "speech@first": 40.0, "speech@alike": 45.0}}
+        assert self.chosen(self.BETWEEN, texture) == {"speech@first"}
+
+    def test_it_does_not_overrule_the_hold(self):
+        """`_SPEECH_KEEP` decides *whether* the photograph changes and this
+        decides *where to*, in that order. A rung still held is still held."""
+        assert self.chosen(0.20 + _SPEECH_KEEP / 2, self.TEXTURE) == {"speech@held"}
+
+    def test_nor_the_hold_on_a_mouth_that_is_not_moving(self):
+        assert self.chosen(0.24, self.TEXTURE, moved=_SPEECH_STILL / 2) == {"speech@held"}
+
+    def test_a_photograph_it_has_no_measure_of_falls_back(self):
+        """An avatar whose grid arrived without the measure — no rungs, or a
+        region that could not be built — still chooses, by the plane alone."""
+        assert self.chosen(self.BETWEEN, {}) == {"speech@first"}
+
+
+class TestHowDifferentTwoPhotographsAre:
+    """:func:`_speech_texture`, and the reason it is measured over the mask.
+
+    The number is a distance between *photographs* rather than between their
+    places in the clip on purpose: it measures the thing the owner sees — the
+    texture cutting — rather than a proxy for it, it works between rungs from
+    different clips where a frame index means nothing, and it needs nothing from
+    the manifest, so no rung has to carry a source frame index and no library
+    has to be rebuilt to gain one.
+    """
+
+    @staticmethod
+    def region(sources: dict[str, np.ndarray], mask: np.ndarray) -> tuple[_Region, ...]:
+        return (
+            _Region(
+                name="mouth",
+                box=(0, 0, mask.shape[1], mask.shape[0]),
+                mask=mask[:, :, None],
+                sources=sources,
+                positions=[],
+            ),
+        )
+
+    @staticmethod
+    def sources() -> dict[str, np.ndarray]:
+        flat = np.zeros((4, 4, 3), np.uint8)
+        return {
+            "speech@0": flat.copy(),
+            "speech@1": flat.copy(),
+            "speech@2": flat.copy(),
+        }
+
+    def test_the_same_photograph_twice_is_no_distance_at_all(self):
+        mask = np.ones((4, 4), np.float32)
+        built = _speech_texture(self.region(self.sources(), mask))
+        assert built["speech@0"]["speech@1"] == pytest.approx(0.0)
+        assert built["speech@0"]["speech@0"] == pytest.approx(0.0)
+
+    def test_and_a_different_one_is_a_distance_both_ways(self):
+        mask = np.ones((4, 4), np.float32)
+        sources = self.sources()
+        sources["speech@2"][:] = 255
+        built = _speech_texture(self.region(sources, mask))
+        assert built["speech@0"]["speech@2"] > 100.0
+        assert built["speech@2"]["speech@0"] == pytest.approx(built["speech@0"]["speech@2"])
+
+    def test_a_difference_the_mask_hides_is_not_a_difference(self):
+        """What a photograph looks like is what the frame will show of it. The
+        mouth's mask is feathered to nothing at its edge, and a rung that
+        differs only out there differs in nothing the owner can see."""
+        mask = np.zeros((4, 4), np.float32)
+        mask[:, :2] = 1.0
+        sources = self.sources()
+        sources["speech@2"][:, 2:] = 255
+        built = _speech_texture(self.region(sources, mask))
+        assert built["speech@0"]["speech@2"] == pytest.approx(0.0)
+
+    def test_an_avatar_with_no_grid_has_no_measure(self):
+        mask = np.ones((4, 4), np.float32)
+        named = {"source_mouth_open": np.zeros((4, 4, 3), np.uint8)}
+        assert _speech_texture(self.region(named, mask)) == {}
+        assert _speech_texture(()) == {}
+
+
+class TestTheFIsAGateAndNotAPlaceOnThePlane:
+    """The owner, 2026-08-29, ranking it first: *"sometimes on F it still
+    chooses many photographs."*
+
+    An F is the upper teeth on the lower lip, and the grid's two axes cannot see
+    it. Measured through the engine on his twelve captures: on the frames where
+    his lower lip rolls under, his lips read as **fully together**, so the grid
+    abstains and the portrait's own shut mouth is shown, unmoving, for the whole
+    length of the F — nine frames of it in
+    `recordings/day18-the-f.png`. And the F photographs the library does hold
+    are filed at a parting of 0.51 to 0.74, where that actor's F parts the lips
+    and his does not, so no distance on that plane reaches them.
+
+    So it is a gate, on a signal whose median over 3600 of his frames is 0.004
+    and which an F takes to 0.33-0.62. It opens five times over two minutes, for
+    a median of five frames, and 27 of the 32 frames it claims were the
+    portrait's shut lips.
+    """
+
+    @staticmethod
+    def loaded(engine, tmp_path):
+        engine.load_avatar(make_descriptor(tmp_path))
+        avatar = engine._loaded["avatar_test"]
+        # White, so that "the F photograph is the one on the mouth" is a fact
+        # about the pixels as well as about the bookkeeping.
+        avatar.sources[_MOUTH_F_ROLE] = np.full_like(avatar.image, 255)
+        avatar.regions = _build_regions(avatar.image, avatar.points, avatar.sources)
+        return avatar
+
+    def rolled(self, roll: float) -> FaceTrackingResult:
+        return expressive_tracking(gap=0.0, mouthRollLower=roll)
+
+    def test_a_rolled_lower_lip_takes_the_mouth(self, engine, tmp_path):
+        avatar = self.loaded(engine, tmp_path)
+        blended = _blend_sources(avatar, self.rolled(_MOUTH_F_START + 0.1))
+        assert avatar.holding["mouth"] == _MOUTH_F_ROLE
+        assert float(blended.mean()) > float(avatar.image.mean())
+
+    def test_and_a_mouth_doing_nothing_does_not(self, engine, tmp_path):
+        avatar = self.loaded(engine, tmp_path)
+        _blend_sources(avatar, self.rolled(0.0))
+        assert avatar.holding.get("mouth") != _MOUTH_F_ROLE
+
+    def test_and_it_is_fully_there_on_its_first_frame(self, engine, tmp_path):
+        """The measured half of :func:`_arrives_whole`. The mouth eases at 3.7 a
+        second, so a fade takes eight frames and his F lasts five: faded, the F
+        was partial over his closed lips on 22 of the 40 frames it held the
+        mouth, which is a ghost of teeth over shut ones."""
+        avatar = self.loaded(engine, tmp_path)
+        _blend_sources(avatar, self.rolled(_MOUTH_F_START + 0.1))
+        assert avatar.applied["mouth"] == pytest.approx(1.0)
+
+    def test_it_survives_one_frame_below_the_start(self, engine, tmp_path):
+        """A fricative is five frames long. Cutting it in half on one noisy
+        reading is why the gate has a release under its start."""
+        avatar = self.loaded(engine, tmp_path)
+        _blend_sources(avatar, self.rolled(_MOUTH_F_START + 0.1))
+        _blend_sources(avatar, self.rolled((_MOUTH_F_START + _MOUTH_F_RELEASE) / 2))
+        assert avatar.holding["mouth"] == _MOUTH_F_ROLE
+
+    def test_and_lets_go_under_the_release(self, engine, tmp_path):
+        avatar = self.loaded(engine, tmp_path)
+        _blend_sources(avatar, self.rolled(_MOUTH_F_START + 0.1))
+        _blend_sources(avatar, self.rolled(_MOUTH_F_RELEASE / 2))
+        assert avatar.holding.get("mouth") != _MOUTH_F_ROLE
+
+    def test_an_avatar_without_the_photograph_is_untouched(self, engine, tmp_path):
+        engine.load_avatar(make_descriptor(tmp_path))
+        avatar = engine._loaded["avatar_test"]
+        _blend_sources(avatar, self.rolled(0.9))
+        assert avatar.holding.get("mouth") != _MOUTH_F_ROLE
+
+    def test_it_arrives_whole_like_a_rung(self):
+        """The one named photograph that does not fade in. It is chosen by a
+        gate rather than weighed, so an opacity has nothing left to say, and a
+        fade would put the portrait's shut lips under the teeth it draws — over
+        five frames, which is the whole F."""
+        assert _arrives_whole("mouth", _MOUTH_F_ROLE)
+        assert not _arrives_whole("brows", _MOUTH_F_ROLE)
+
+    def test_the_reading_is_zero_without_blendshapes(self):
+        """Read raw rather than against a resting estimate, which is itself a
+        measurement: over 3600 frames of his captures the median is 0.004."""
+        assert _lip_roll(tracking_from(synthetic_landmarks())) == 0.0
+        assert _lip_roll(expressive_tracking(mouthRollLower=0.4)) == pytest.approx(0.4)
+
+
+class TestAPhotographReachesOnlyAsFarAsItsOwnLipsDo:
+    """The owner, twice, five hours apart: *"the lip photograph rises up to the
+    nose, to the nostrils, and a line like this appears."* And after the first
+    answer to it: *"there is still a line below the nose."*
+
+    The first answer was the wrong one. It retired the four named mouth
+    photographs, on the reasoning that ``source_mouth_wide`` was a photograph of
+    a wide mouth winning closed ones — true, and not this. The mask does not
+    depend on which photograph won. Every present photograph's lip hull went
+    into *one* mask at load, so the region reached to wherever the widest rung
+    in the library reached and painted whichever photograph was showing that
+    far: on the owner's avatar 62 px of a 455 px face above his own lip line,
+    past the nostrils, on every frame. Retiring the named four moved the reach
+    from ``source_mouth_wide`` to ``speech@246`` and changed nothing he saw.
+
+    Each photograph now carries its own reach past the region's own mask, and a
+    frame adds back only what is showing.
+    """
+
+    def built(self, engine: Any, tmp_path: Path) -> tuple[Any, Any]:
+        engine.load_avatar(make_descriptor(tmp_path))
+        avatar = engine._loaded["avatar_test"]
+        for role in ("source_mouth_open", "source_mouth_pressed"):
+            avatar.sources[role] = np.full_like(avatar.image, 255)
+
+        # One photograph of a mouth open far past the portrait's own, and one
+        # of a mouth exactly where the portrait's is. Only the first has
+        # anything to reach for.
+        raised = avatar.points.copy()
+        raised[_MOUTH_POSITIONS, 1] -= float(
+            avatar.points[:, 0].max() - avatar.points[:, 0].min()
+        ) * 0.12
+        source_points = {
+            "source_mouth_open": raised,
+            "source_mouth_pressed": avatar.points.copy(),
+        }
+        regions = _build_regions(
+            avatar.image, avatar.points, avatar.sources, source_points
+        )
+        return avatar, next(region for region in regions if region.name == "mouth")
+
+    def top(self, mask: np.ndarray) -> int:
+        """The topmost row of a mask that is more photograph than portrait."""
+        rows = np.where(mask[:, :, 0].max(axis=1) >= 0.5)[0]
+        assert rows.size, "the mask is empty"
+        return int(rows.min())
+
+    def test_the_photograph_that_reaches_carries_its_own_reach(self, engine, tmp_path):
+        _, mouth = self.built(engine, tmp_path)
+
+        assert "source_mouth_open" in mouth.reach
+        assert "source_mouth_pressed" not in mouth.reach
+
+    def test_a_mouth_where_the_portrait_s_is_does_not_paint_the_philtrum(
+        self, engine, tmp_path
+    ):
+        """The defect itself. A closed mouth's photograph had the skin under the
+        nose painted with another clip's philtrum, because a *different*
+        photograph in the library opens that wide."""
+        _, mouth = self.built(engine, tmp_path)
+
+        pressed = _reached(mouth, {"source_mouth_pressed": 1.0})
+
+        assert self.top(pressed) == self.top(mouth.mask)
+
+    def test_and_the_one_that_does_open_that_wide_still_paints_it(self, engine, tmp_path):
+        """The other half, and the reason the reach exists at all: an opening
+        the mesh has never seen is only painted at all because the photograph is
+        allowed to act inside its own landmarks."""
+        _, mouth = self.built(engine, tmp_path)
+
+        opened = _reached(mouth, {"source_mouth_open": 1.0})
+
+        assert self.top(opened) < self.top(mouth.mask)
+
+    def test_a_photograph_half_shown_reaches_half_as_hard(self, engine, tmp_path):
+        """The reach is added at the photograph's own share, so it fades in with
+        the picture it belongs to rather than switching on."""
+        _, mouth = self.built(engine, tmp_path)
+
+        full = _reached(mouth, {"source_mouth_open": 1.0})
+        half = _reached(mouth, {"source_mouth_open": 0.5, "source_mouth_pressed": 0.5})
+        past = full[:, :, 0] > mouth.mask[:, :, 0] + 0.5
+
+        assert past.any()
+        assert np.allclose(
+            half[:, :, 0][past],
+            mouth.mask[:, :, 0][past] + (full[:, :, 0][past] - mouth.mask[:, :, 0][past]) * 0.5,
+            atol=1e-5,
+        )
+
+    def test_nothing_showing_costs_nothing(self, engine, tmp_path):
+        """A frame whose photographs all sit inside the region's own mask gets
+        the mask itself back, not a copy of it."""
+        _, mouth = self.built(engine, tmp_path)
+
+        assert _reached(mouth, {"source_mouth_pressed": 1.0}) is mouth.mask
+
+    def test_the_mask_fades_out_before_the_box_ends(self, engine, tmp_path):
+        """And the second half of the same defect: the box was cut tight to the
+        topmost photograph's lip line, and the mask inside it is blurred and
+        then cropped — so the fade was cut off half way down and the top row
+        stood at 0.549 with nothing above it. A step of half a photograph,
+        straight across the width of the mouth, which is a line."""
+        avatar, mouth = self.built(engine, tmp_path)
+        x0, y0, x1, y1 = mouth.box
+        height, width = avatar.image.shape[:2]
+        if x0 == 0 or y0 == 0 or x1 == width or y1 == height:
+            pytest.skip("the box runs into the edge of the portrait, which cannot fade")
+
+        edges = _reached(mouth, {"source_mouth_open": 1.0})[:, :, 0]
+
+        for name, row in (
+            ("top", edges[0]),
+            ("bottom", edges[-1]),
+            ("left", edges[:, 0]),
+            ("right", edges[:, -1]),
+        ):
+            assert float(row.max()) < 0.02, f"the mask steps off at the {name} of its box"
