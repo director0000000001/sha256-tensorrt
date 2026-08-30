@@ -2538,6 +2538,16 @@ clean lash line. `_iris_arcs` is unchanged and the count stays at four per eye.
 **He has judged everything on this page** — see "His verdict on day 18" above.
 This list is what has not been done.
 
+**The first thing, decided with him on 2026-08-30 and left for the next day:
+write the prompt for the clip the mouth's middle needs, into
+`configs/avatar_clips.toml` and `AVATAR_VIDEO_PROMPTS.txt`.** Nothing is ordered
+or generated yet. What the sentence has to do is measured and written below, and
+the two things it must not do are already known: it must not ask for held
+consonants — day 17 did and the take was unusable — and it must not be a person
+talking with their mouth already open, which is what `Generated video 1 (14)`
+is. Everything else on this page is committed and pushed; the tree is clean at
+`296bffc`.
+
 ### 1. His "make", measured
 
 *"When I say 'make' the mouth makes a fast jump and goes straight to the A, and
