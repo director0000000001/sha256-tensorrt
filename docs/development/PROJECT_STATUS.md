@@ -3,7 +3,7 @@
 **Living document.** Update it at the end of each working day. For the frozen
 record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
-**Last updated:** 2026-08-30 · **He has tested day 18 and the eyes and the head are answered: the pupils glitching and the face shaking on a five-degree head movement were one defect — every ladder in this engine had a foot except yaw, and the rung next to rest is a different *generation* from the portrait. Both ladders now have a foot the tracker's noise cannot cross. What is left on the mouth is his own diagnosis and it is material: the grid holds the ends of the movement and not its middle.** Start at **"His verdict on day 18"**, then **"Where day 19 starts"**, then the three day-18 passes, then the day-17 passes, then **"What `test001.mkv` actually shows"** for the rest of the open list.
+**Last updated:** 2026-09-03 · **The clip was written for, generated and measured: it does everything the prompt asked, the window it was bought for goes from six rungs to twenty-two, and the middle band of his own frames gets a quarter closer to its photograph. What it does *not* fix is the fast opening — measured, that jump is his own movement between two camera frames and not a hole in the library. See "The take came back the same night" under "Where day 19 starts". He has tested day 18 and the eyes and the head are answered: the pupils glitching and the face shaking on a five-degree head movement were one defect — every ladder in this engine had a foot except yaw, and the rung next to rest is a different *generation* from the portrait. Both ladders now have a foot the tracker's noise cannot cross. What is left on the mouth is his own diagnosis and it is material: the grid holds the ends of the movement and not its middle.** Start at **"His verdict on day 18"**, then **"Where day 19 starts"**, then the three day-18 passes, then the day-17 passes, then **"What `test001.mkv` actually shows"** for the rest of the open list.
 
 ---
 
@@ -2548,6 +2548,172 @@ talking with their mouth already open, which is what `Generated video 1 (14)`
 is. Everything else on this page is committed and pushed; the tree is clean at
 `296bffc`.
 
+### The prompt is written, 2026-09-02 — `speech-middle`, and nothing is ordered
+
+**It is in `configs/avatar_clips.toml` as `speech-middle` (order 13; the parked
+tilt clip moves to 14) and at the top of `AVATAR_VIDEO_PROMPTS.txt` as the
+section to paste from, with the shared block and the negative prompt already
+attached to it.** Nothing has been generated. That is money, and it is his
+decision.
+
+**And the hole is narrower than the parting table below says.** That table counts
+rungs by parting alone. Filed on both axes — a parting of 0.05 to 0.40 at a width
+of −0.10 to +0.06, which is where his own frames in that band actually sit — the
+installed grid holds **six rungs out of 178**, read off the manifest rather than
+re-derived:
+
+| parted | width |
+|---|---|
+| 0.106 | −0.053 |
+| 0.107 | −0.061 |
+| 0.122 | +0.049 |
+| 0.270 | +0.044 |
+| 0.321 | −0.008 |
+| 0.335 | −0.001 |
+
+**472 of his frames, six photographs.** The other 172 rungs are a mouth wide
+open, rounded, or spread.
+
+### The take came back the same night — `Generated video 1 (15)`, 2026-09-03
+
+**2160x3840, 24 fps, 8 s, and the largest face in the library: 1285-1325 px**
+against `video (14)`'s 1202-1262 and a portrait of 455. Dumped every frame —
+`--interval 0.0417`, 192 of them — into `frames/speech-middle`.
+
+**It is the first clip in this library that is not a man talking with his mouth
+open.** Both dumps measured the same way, 160 frames each:
+
+| | `video (14)` | **`speech-middle`** |
+|---|---|---|
+| parting, median | 1.300 | **0.310** |
+| frames with the lips together (< 0.05) | 18.8% | **40.0%** |
+| frames above a parting of 0.70 | 71.9% | **33.1%** |
+| frames inside the window | 4 (2.5%) | **21 (13.1%)** |
+| width, median / range | +0.033, −0.140 to +0.304 | **+0.001**, −0.215 to +0.107 |
+| max \|yaw\| / max drift | 5.6° / 0.048 | **2.8°** / 0.047 |
+
+Every instruction the prompt was built around came back obeyed: the lips close
+fully between words, the corners never spread, and the head is almost still.
+
+**The grid it makes.** `video-14` + `speech-i` + `speech-middle` at 0.035 by
+0.04: **221 rungs, 81 of them the new clip's**, and in the window — a parting of
+0.05 to 0.40 at a width of −0.10 to +0.06 — **22 rungs against six today**. The
+bar written before it was ordered was twenty.
+
+| rungs by band | installed | **with the new clip** |
+|---|---|---|
+| 0.05-0.20 | 7 | **15** |
+| 0.20-0.40 | 8 | **19** |
+
+**On his own frames, all thirteen captures, 3900 of them.** Nearest photograph
+on the plane, in the engine's own metric:
+
+| | installed, 178 rungs | **with the new clip, 253** |
+|---|---|---|
+| every speech frame (3196), p50 | 0.037 | **0.031** |
+| the middle band (474 frames), p50 | 0.041 | **0.031** |
+| the middle band, p90 | 0.071 | **0.049** |
+
+### And the "make" jump is not the library's to fix — measured
+
+**His complaint was one sentence with two claims in it**, and they turn out to
+be separable: *"the mouth makes a fast jump and goes straight to the A"*, and
+*"more frames of the mouth's movements are needed"*. The second was right and is
+now answered. **The first is not caused by the first — it is his own frame
+rate.**
+
+| his nineteen openings, shut to wide | |
+|---|---|
+| frames from shut to wide, p50 | **3** |
+| frames landing in the middle at all, p50 | **2** |
+| **his own biggest rise in parting between two consecutive frames**, p50 | **0.337** |
+| the same, worst | 0.742 |
+
+And the photograph's biggest step through those openings, before and after:
+**0.333 → 0.350.** Unchanged, and it is the same number as the driver's own
+one-frame rise, which is the point: **on a fast opening the tracked mouth moves a
+third of the scale between two frames, and no library can put a photograph
+between two frames that do not exist.** Filling the middle answers the 474
+frames where his mouth *sits* in it — ordinary speech, where the error drops by
+a quarter — and cannot answer the three-frame opening.
+
+**So what is left of that complaint is temporal, not material**: a frame drawn
+between two, or a bounded blend across a large step. It is the first thing on
+this page that more clips cannot buy. (The measure is a proxy — it takes the
+nearest rung frame by frame and ignores the holding rule and the texture
+tie-break, both of which make the real mouth change *less* often — but the same
+proxy is applied to both grids.)
+
+### What it costs to install, measured on this machine tonight
+
+**178 rungs to 253, and the avatar's load goes from about 36 s to about 48 s.**
+Fresh process each, alternating: `my_avatar` 44.2 / 35.4 / 37.3 / 35.2 s and the
+trial build 46.5 / 78.7 / 47.9 s; in one process, back to back, 106.3 s against
+113.5 s. **The absolute number is this machine's mood** — the same avatar
+measured 35 s and 106 s within the hour — so the +11 s measured back to back is
+the part worth trusting, not the 48.
+
+**Seven of the 22 window rungs are soft**, at a Laplacian variance of 13 to 34
+where the crisp ones read 100 to 173. They are the frames caught mid-movement,
+which is exactly what was asked for; at the portrait's scale a rung is reduced
+about 2.9x, which hides much of it, but it is the one place this clip is worse
+than a held pose.
+
+**And the lever for the load, when it is wanted:** 155 of the 221 rungs sit
+above a parting of 0.70, where 33% of his frames are, and 34 sit in the middle
+band where he complains. A coarser cell above 0.70 would pay for the middle
+twice over — it is a second spacing in `build_speech_ladder.py` and nothing
+else.
+
+### The sentence, and what each part of it is bought for
+
+> "Let me put it another way. The plan is made, and the moment is now."
+
+Fifteen words — `video (10)` carried fifteen in eight seconds and the 28-word
+take came back rushed.
+
+| what the window needs | where it is | |
+|---|---|---|
+| lips fully together, released into a *small* opening | **m**e, **p**ut, **p**lan, **m**ade, **m**o**m**ent | 6 |
+| tongue consonants, which sit at rest width | le**t**, i**t**, ano**th**er, **th**e, pla**n**, ma**d**e, momen**t** | many |
+| a full pass from shut to wide, kept but rationed | wa**y**, no**w** — the last word of each sentence | 2 |
+| a held "oo" or a stressed "ee", both deliberately absent | — | 0 |
+
+The three things it must not do were all paid for already: **not held
+consonants** (day 17's "ssss"/"shhh"/"ffff" take was unusable), **not a man
+talking with his mouth already open** (which is what both installed speech clips
+are), and **not rounded or spread** — those two corners already hold the
+library's records, −0.313 from `video (10)` and +0.288 from `video (14)`, and a
+rung there does not answer a frame at rest width. What the prompt asks for
+instead is lips that close fully between words, part only a little for most of
+them, and open and close *slowly*, so the mouth is photographed on the way
+rather than at the ends. **4K**, for the reason day 17 measured: the 1080p 9:16
+take gave a 491 px face where the 4K clips give 1000+ against a portrait of 455.
+
+### What decides whether the take was worth paying for
+
+```
+uv run python scripts/dump_clip_frames.py <the file> --name speech-middle --interval 0.05
+uv run python scripts/build_speech_ladder.py avatars/my_avatar/frames/speech-middle \
+    --step 0.035 --width-step 0.04
+```
+
+A dry run — no `--install` — at the spacing the installed grid was built with.
+Count the rungs it prints inside the window. **Six today**, and the window is
+forty cells at that spacing: the take is good if it brings the window to
+**twenty or more**, and it has failed if most of its own frames sit above a
+parting of 0.70, which is precisely the fault of the two clips already
+installed.
+
+**The catalogue's own judge cannot make that call, and the entry says so.**
+`check = "roles"` is a floor: `generate_avatar_clips.py` reads the extractor's
+report, which counts named roles and yaw rungs and holds nothing about the
+speech plane. A take can pass the floor and still be another mouth-open clip.
+Making the judge measure this would mean a new section in the extractor's report
+and a new check kind beside `ladder` and `roles` — worth doing if this clip
+needs a second take, and not worth doing before it has had a first one.
+
+
 ### 1. His "make", measured
 
 *"When I say 'make' the mouth makes a fast jump and goes straight to the A, and
@@ -2622,6 +2788,15 @@ looked for.
     machine, which is why the app's own number is the one that counts.
 *   Then: the 41.7 s load, and day 16's dark seam, blackouts, violet under the
     eyes and the turn.
+*   **The unit suite no longer finishes in one process on this machine, and it
+    is not the day-19 edits.** Measured 2026-09-02: `pytest tests/unit` dies
+    with exit code 9 entering `tests/unit/test_ui_background.py`, at about
+    92%, right after the mediapipe tests — and it does the same on a clean
+    tree with the day-19 edits stashed. `test_ui_background.py` passes alone
+    (14 tests) and passes paired with `test_tracking_mediapipe.py` (56), so
+    it is the whole run's state rather than either file. Nothing was judged
+    against it today; `tests/unit/test_generate_avatar_clips.py` passes on
+    its own, 36 tests, which is what the catalogue change touches.
 
 ## Day 18, third pass — the eyes and the head are one defect: the rung next to rest is another generation
 
