@@ -202,3 +202,50 @@ class TestAFrameAloneInItsCellIsStillAShapeTheMouthMakes:
             0.04,
         )
         assert chosen == []
+
+
+class TestTheCellIsCoarserWhereTheMouthIsWideOpen:
+    """`WIDE_ABOVE` and `WIDE_STEP`, measured on the owner's own captures.
+
+    155 of the 221 rungs three speech folders build sit above a parting of 0.70
+    and 34 sit in the band he complained about. Coarsening the cell above the
+    line takes the grid from 253 rungs to 174 — fewer than were installed the
+    day before — for a twentieth of a cell of error at the wide end and *no*
+    change at all in the middle.
+    """
+
+    def test_two_wide_frames_a_fine_cell_apart_become_one_rung(self):
+        chosen = speech_ladder.best_per_cell(
+            [speech_step(1.19, 0.0, sharpness=10.0), speech_step(1.22, 0.0, sharpness=90.0)],
+            0.035,
+            0.04,
+        )
+
+        assert len(chosen) == 1
+        assert chosen[0].sharpness == 90.0
+
+    def test_the_same_two_near_the_foot_stay_two_rungs(self):
+        """The coarsening is the wide end's alone: 0.10 and 0.14 of parting are
+        a mouth barely open and a mouth speaking, and the day-19 clip was bought
+        to tell them apart."""
+        chosen = speech_ladder.best_per_cell(
+            [speech_step(0.10, 0.0), speech_step(0.14, 0.0)], 0.035, 0.04
+        )
+
+        assert [round(step.parted, 2) for step in chosen] == [0.10, 0.14]
+
+    def test_a_coarse_cell_never_collides_with_a_fine_one(self):
+        """0.70 over a step of 0.035 and 1.40 over one of 0.07 are both index
+        twenty. Tagged by which grid they belong to, they are two cells."""
+        chosen = speech_ladder.best_per_cell(
+            [speech_step(0.70, 0.0), speech_step(1.40, 0.0)], 0.035, 0.04
+        )
+
+        assert [round(step.parted, 2) for step in chosen] == [0.70, 1.40]
+
+    def test_the_uniform_grid_is_still_reachable(self):
+        chosen = speech_ladder.best_per_cell(
+            [speech_step(1.19, 0.0), speech_step(1.22, 0.0)], 0.035, 0.04, wide_step=0.035
+        )
+
+        assert [round(step.parted, 2) for step in chosen] == [1.19, 1.22]

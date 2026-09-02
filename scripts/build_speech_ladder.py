@@ -179,6 +179,34 @@ DEFAULT_WIDTH_STEP = 0.08
 # opening passes through — one to a cell, every one of them.
 CELL_MINIMUM = 1
 
+# Above this parting the cell is coarser, and the number under it is what the
+# owner's own frames say the fine one buys up there.
+#
+# **Measured 2026-09-03, on all thirteen captures, 3196 frames the grid
+# answers.** The wide end is where the rungs are: 155 of the 221 the three
+# speech folders build sit above a parting of 0.70, against 34 in the band he
+# complains about. Coarsened to 0.07 by 0.08 above the line, the grid installs
+# 175 rungs — *fewer than the 178 that were installed the day before* — and the
+# error moves like this:
+#
+#     his frames       rungs   all p50   above 0.70 p50   the middle p50 / p90
+#     fine everywhere    253     0.031            0.057        0.032 / 0.048
+#     coarse above       175     0.034            0.061        0.032 / 0.048
+#     the day before     178     0.037            0.065        0.041 / 0.071
+#
+# A twentieth of a cell at the wide end, for a third of the rungs. **And the
+# middle does not move at all** — that is the whole point: the band the day-19
+# clip was bought for keeps every rung it gained, and the grid still reads
+# better than the day before's everywhere, on fewer photographs.
+#
+# Why the wide end can afford it: `_covering_interior` borrows the interior from
+# the narrowest photograph whose own mouth still covers the live opening, so a
+# wide rung already answers a range rather than a point. Near the foot it cannot
+# — 0.05 and 0.15 are a closed mouth and a speaking one.
+WIDE_ABOVE = 0.70
+WIDE_STEP = 0.07
+WIDE_WIDTH_STEP = 0.08
+
 ROLE = "source_speech_step"
 
 
@@ -272,7 +300,14 @@ def measure(
     return step, float(result.head_pose.yaw)
 
 
-def best_per_cell(steps: list[Step], step_size: float, width_step: float) -> list[Step]:
+def best_per_cell(
+    steps: list[Step],
+    step_size: float,
+    width_step: float,
+    wide_above: float = WIDE_ABOVE,
+    wide_step: float = WIDE_STEP,
+    wide_width_step: float = WIDE_WIDTH_STEP,
+) -> list[Step]:
     """The best frame in each cell of the grid, ordered along the parting axis.
 
     **A cell, not a band**: one band of parting and one of width. Filing by
@@ -304,12 +339,24 @@ def best_per_cell(steps: list[Step], step_size: float, width_step: float) -> lis
     one frame in it is a moment of the clip rather than a shape the mouth makes,
     and installing it spends a face detection at load on a rung that will win
     almost nothing.
+
+    **And the cell is not one size.** Above :data:`WIDE_ABOVE` it is
+    :data:`WIDE_STEP` of parting by :data:`WIDE_WIDTH_STEP` of width rather than
+    ``step_size`` by ``width_step``, because that is
+    where the rungs pile up and it is not where the owner's mouth needs them —
+    the constants carry the table. Pass ``wide_step=step_size`` for the old
+    uniform grid.
     """
-    cells: dict[tuple[int, int], list[Step]] = {}
+    cells: dict[tuple[int, int, int], list[Step]] = {}
     for step in steps:
         if step.refused is not None:
             continue
-        key = (round(step.parted / step_size), round(step.widened / width_step))
+        # The first number is which grid the cell belongs to, so a coarse cell
+        # and a fine one can never collide on one pair of indices.
+        wide = step.parted > wide_above
+        size = wide_step if wide else step_size
+        across = wide_width_step if wide else width_step
+        key = (int(wide), round(step.parted / size), round(step.widened / across))
         cells.setdefault(key, []).append(step)
 
     held = []
@@ -425,6 +472,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--avatar", type=Path, default=REPO_ROOT / "avatars" / "my_avatar")
     parser.add_argument("--step", type=float, default=DEFAULT_STEP)
     parser.add_argument("--width-step", type=float, default=DEFAULT_WIDTH_STEP)
+    parser.add_argument("--wide-above", type=float, default=WIDE_ABOVE)
+    parser.add_argument("--wide-step", type=float, default=WIDE_STEP)
+    parser.add_argument("--wide-width-step", type=float, default=WIDE_WIDTH_STEP)
     parser.add_argument("--min-parted", type=float, default=DEFAULT_MIN_PARTED)
     parser.add_argument("--min-widened", type=float, default=DEFAULT_MIN_WIDENED)
     parser.add_argument("--max-parted", type=float, default=DEFAULT_MAX_PARTED)
@@ -505,9 +555,13 @@ def main(argv: list[str] | None = None) -> int:
         print("\nNo parted lips in any of those folders.")
         return 1
 
-    chosen = best_per_cell(found, args.step, args.width_step)
+    chosen = best_per_cell(
+        found, args.step, args.width_step, args.wide_above, args.wide_step, args.wide_width_step
+    )
     print(
-        f"\n{len(chosen)} rung(s), one per {args.step:g} of parting by {args.width_step:g} of width"
+        f"\n{len(chosen)} rung(s), one per {args.step:g} of parting by "
+        f"{args.width_step:g} of width, and one per {args.wide_step:g} "
+        f"above a parting of {args.wide_above:g}"
     )
     print(f"{'parted':>7}{'widened':>9}{'lip gap':>9}{'sharp':>7}{'face px':>9}{'drift':>7}  frame")
     for step in chosen:

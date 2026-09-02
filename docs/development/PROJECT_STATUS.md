@@ -3,7 +3,7 @@
 **Living document.** Update it at the end of each working day. For the frozen
 record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
-**Last updated:** 2026-09-03 · **The clip was written for, generated and measured: it does everything the prompt asked, the window it was bought for goes from six rungs to twenty-two, and the middle band of his own frames gets a quarter closer to its photograph. What it does *not* fix is the fast opening — measured, that jump is his own movement between two camera frames and not a hole in the library. See "The take came back the same night" under "Where day 19 starts". He has tested day 18 and the eyes and the head are answered: the pupils glitching and the face shaking on a five-degree head movement were one defect — every ladder in this engine had a foot except yaw, and the rung next to rest is a different *generation* from the portrait. Both ladders now have a foot the tracker's noise cannot cross. What is left on the mouth is his own diagnosis and it is material: the grid holds the ends of the movement and not its middle.** Start at **"His verdict on day 18"**, then **"Where day 19 starts"**, then the three day-18 passes, then the day-17 passes, then **"What `test001.mkv` actually shows"** for the rest of the open list.
+**Last updated:** 2026-09-03 · **The clip is generated, measured and installed — 175 rungs where 178 stood, 22 of them in the window that held six, and the load is yesterday's load because the wide end was coarsened to pay for it. it does everything the prompt asked, the window it was bought for goes from six rungs to twenty-two, and the middle band of his own frames gets a quarter closer to its photograph. What it does *not* fix is the fast opening — measured, that jump is his own movement between two camera frames and not a hole in the library. See "The take came back the same night" under "Where day 19 starts". He has tested day 18 and the eyes and the head are answered: the pupils glitching and the face shaking on a five-degree head movement were one defect — every ladder in this engine had a foot except yaw, and the rung next to rest is a different *generation* from the portrait. Both ladders now have a foot the tracker's noise cannot cross. What is left on the mouth is his own diagnosis and it is material: the grid holds the ends of the movement and not its middle.** Start at **"His verdict on day 18"**, then **"Where day 19 starts"**, then the three day-18 passes, then the day-17 passes, then **"What `test001.mkv` actually shows"** for the rest of the open list.
 
 ---
 
@@ -2614,6 +2614,50 @@ on the plane, in the engine's own metric:
 | the middle band (474 frames), p50 | 0.041 | **0.031** |
 | the middle band, p90 | 0.071 | **0.049** |
 
+### Installed, and it costs nothing to load — the wide end pays for the middle
+
+**The grid is in: 175 rungs, three fewer than the 178 it replaces, with 22 in
+the window against six.** `metadata.json` now lists 250 assets. The rung images
+are owner data and are not in git; the four sets this replaced are on disk as
+`superseded-speech-day17`, `-day18`, `-day19-fine` and `superseded-speech`, and
+the manifest it replaced is `superseded-speech-day17/metadata-before-day19.json`.
+
+**The first install was the honest version of the trade and it was too
+expensive.** Fine everywhere, the three folders build 221 rungs and the avatar
+carries 253 — and the load went from about 36 s to about 61 s. That is what the
+owner's condition was set against, so it was measured, not shipped.
+
+**Then the wide end was measured instead of assumed.** 155 of those 221 rungs
+sit above a parting of 0.70, where 1429 of his frames are; 34 sit in the band he
+complained about, where 474 are. So the cell is now **0.07 by 0.08 above a
+parting of 0.70** and unchanged below it — `WIDE_ABOVE`, `WIDE_STEP` and
+`WIDE_WIDTH_STEP` in `build_speech_ladder.py`, with four tests on the rule,
+including the one that matters: a coarse cell and a fine one can land on the
+same pair of indices, so the key carries which grid it belongs to.
+
+| his 3196 frames | rungs | all p50 | above 0.70, p50 | the middle, p50 / p90 |
+|---|---|---|---|---|
+| the day before | 178 | 0.037 | 0.065 | 0.041 / 0.071 |
+| fine everywhere | 253 | 0.031 | 0.057 | **0.032 / 0.048** |
+| **installed** | **175** | 0.034 | 0.061 | **0.032 / 0.048** |
+
+**The middle keeps every rung it gained, the wide end gives up a twentieth of a
+cell, and the grid still reads better than yesterday's everywhere — on three
+fewer photographs.**
+
+**And the load is yesterday's load**, which is the only way this could be said
+honestly: measured back to back, fresh process each, `day18-before` (178 rungs)
+**54.7 s** against the installed grid's **53.1 s**, and a second pair 244.3 s
+against 54.8 s. **The machine's mood is the whole variance** — the same avatar
+read 35 s earlier in the evening and 244 s an hour later — so only the pairs
+mean anything, and the pairs say the two grids cost the same.
+
+`recordings/day19-mouth-before-after.png` is `moment-20260827-201814` — the
+capture that is 83% middle band — thirty frames, yesterday's grid above and this
+one below.
+
+**Still his to judge.** Nothing here has been seen by his eye yet.
+
 ### And the "make" jump is not the library's to fix — measured
 
 **His complaint was one sentence with two claims in it**, and they turn out to
@@ -2646,7 +2690,7 @@ proxy is applied to both grids.)
 
 ### What it costs to install, measured on this machine tonight
 
-**178 rungs to 253, and the avatar's load goes from about 36 s to about 48 s.**
+**178 rungs to 253, and the avatar's load goes from about 36 s to about 60 s** — which is what sent the wide end back to be measured, one section up.
 Fresh process each, alternating: `my_avatar` 44.2 / 35.4 / 37.3 / 35.2 s and the
 trial build 46.5 / 78.7 / 47.9 s; in one process, back to back, 106.3 s against
 113.5 s. **The absolute number is this machine's mood** — the same avatar
