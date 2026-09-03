@@ -2512,6 +2512,61 @@ or eight camera frames.** Lip sync starts to read as wrong at about 100 ms. This
 is two and a half times that, and it is the whole of *"it needs more speed, the
 application needs a much better reaction."*
 
+### The engine's own 23 ms, and the 27% of frames that missed the budget
+
+**He has no webcam, so the camera half of the delay is parked until there is
+something to compare against.** What is ours is the 31.2 ms a frame, and it
+matters for a second reason: the camera delivers one every 33.2 ms, so **27% of
+frames were over budget** — the application was keeping up only by dropping
+what it could not finish.
+
+**Profiled first, on his own speech clip, 370 frames.** The engine's 23 ms split
+almost evenly between OpenCV doing the work and Python asking it to:
+
+| | own time, a frame |
+|---|---|
+| `warp_mesh`, the Python around the loop | 4.5 ms |
+| `warpAffine`, 248 triangles | 3.4 ms |
+| `_warp_onto`, the blend arithmetic | 3.9 ms |
+| `_match_colour` | 2.5 ms |
+| `astype`, 752 calls a frame | 1.4 ms |
+| `copyTo`, `getAffineTransform`, `boundingRect`, `fillConvexPoly` | 2.2 ms |
+
+**Two changes, both of which leave every pixel exactly where it was.**
+
+**One: the triangle loop stops recomputing what it already knows.** It gathered
+three points, called `cv2.boundingRect` and cast to `float32` twice for each of
+248 triangles — 750 allocations a frame to set up work OpenCV then did in
+microseconds. Both point sets are now gathered and boxed in one numpy pass, and
+the *source* half is cached by array identity, because it only changes when the
+blended photograph brings its own geometry. `cv2.boundingRect`'s float
+behaviour was reproduced exactly rather than assumed — floor on the low corner,
+ceil on the high one, verified against it on twenty thousand random triangles,
+because a pixel of disagreement here is a seam across the face.
+
+**Two: the blend goes through OpenCV instead of numpy.** `region * (1 - alpha) +
+matched * alpha` is three multiplies and an add over half a million floats, and
+numpy walks them on one core. Measured on a 460x400 box: **4.15 ms with numpy,
+1.78 ms with `cv2`**, comparing equal element for element because the operations
+and their order are unchanged. The same applies inside `_match_colour`.
+
+| | before | after |
+|---|---|---|
+| the engine, p50 | 23.0 ms | **17.9 ms** |
+| the engine, p90 | 26.3 ms | **21.8 ms** |
+| tracker and engine together, p50 | 31.2 ms | **25.8 ms** |
+| **frames over the camera's 33.2 ms** | **27%** | **1%** |
+
+**Every frame identical.** 120 frames of his clip rendered by the engine as it
+stands and by the engine as it was committed, compared pixel by pixel: not one
+differs by a single grey level. That is the only reason a change this size to
+the hot path is safe to make without his eye — it cannot look different, because
+it is not different.
+
+**What it does not do is fix what he reported.** The delay he feels is ~260 ms
+and this took 5 of them. What it buys is the 26% of frames that were being
+dropped, and the headroom to spend on the refiner later.
+
 ### Why nothing found it until now
 
 **Every measurement in this project compares frame N with frame N.** The nearest
