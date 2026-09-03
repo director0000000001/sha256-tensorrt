@@ -2539,12 +2539,18 @@ frame it is handed the mouth. It is on time inside a pipeline that is not.
 ### The levers, in the order their size says
 
 1.  **The camera path — 220 ms of the 260.** The ZV-E10 in USB Streaming is not
-    a webcam pipeline; it encodes internally. Two cheap tests before spending
-    anything: `use_mjpeg = false` in `configs/local.toml`, and the same
-    measurement with any ordinary USB webcam, which separates "this camera" from
-    "this machine". If a webcam comes back at 60-80 ms, the delivery question
-    becomes a hardware one — an HDMI capture card, or a different camera — and
-    it is his to decide.
+    a webcam pipeline; it encodes internally.
+
+    **MJPEG was the first suspect and it is not the cause.** Measured the same
+    hour, the same way, with it off: **201, 238, 264, 278 ms** against **212,
+    222, 227, 231** with it on. No better and less consistent, so it goes back
+    on — the delay is the camera's pipeline rather than the compression inside
+    it. `configs/local.toml` carries that result where the setting is.
+
+    What is left to separate is *this camera* from *this machine*, and any
+    ordinary USB webcam answers it in one run. If a webcam comes back at 60-80
+    ms, the delivery question becomes a hardware one — an HDMI capture card, or
+    a different camera — and it is his to decide.
 2.  **The engine's 23 ms a frame.** Ten times smaller than the camera's share,
     but it is also what puts 27% of frames over the 33.2 ms budget, so it costs
     both delay and dropped frames.
