@@ -3,7 +3,7 @@
 **Living document.** Update it at the end of each working day. For the frozen
 record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
-**Last updated:** 2026-09-03 · **The picture is about 260 ms behind his face, and that is the whole of "it does not react".** Measured on his own machine with the screen's own clock: 227 ms before the engine starts, plus the engine's 31 ms. Every other measurement in this document compares frame N with frame N and could not see it. The grid, the tracker's filter and the hold were each tested against his eye the same day and each stays as it is. Start at "Day 21". Before it: the mouth at speed, and the attempt his eye rejected. The engine chooses the right photograph the same frame and the application runs at the camera's own rate, so the lag is the tracker's own filter — measured at 0.090 of the speech axis and one frame on fast movement. Letting the lips out of that filter measured better on every number and he judged it **worse** in the application, so it is reverted. **The clip every number was measured on holds eight seconds of ordinary talking and no fast speech**, which is why the next step is a 39-second recording of the mouth at speed: `record_driving_clip.py --script speech`. Start at "Day 20". Before it: the clip is generated, measured and installed — 175 rungs where 178 stood, 22 of them in the window that held six, and the load is yesterday's load because the wide end was coarsened to pay for it. it does everything the prompt asked, the window it was bought for goes from six rungs to twenty-two, and the middle band of his own frames gets a quarter closer to its photograph. What it does *not* fix is the fast opening — measured, that jump is his own movement between two camera frames and not a hole in the library. See "The take came back the same night" under "Where day 19 starts". He has tested day 18 and the eyes and the head are answered: the pupils glitching and the face shaking on a five-degree head movement were one defect — every ladder in this engine had a foot except yaw, and the rung next to rest is a different *generation* from the portrait. Both ladders now have a foot the tracker's noise cannot cross. What is left on the mouth is his own diagnosis and it is material: the grid holds the ends of the movement and not its middle.** Start at **"His verdict on day 18"**, then **"Where day 19 starts"**, then the three day-18 passes, then the day-17 passes, then **"What `test001.mkv` actually shows"** for the rest of the open list.
+**Last updated:** 2026-09-03 · **Start at "Where day 22 starts": the mouth is his priority and the camera is now part of it.** The picture is about 260 ms behind his face, and that is the whole of "it does not react".** Measured on his own machine with the screen's own clock: 227 ms before the engine starts, plus the engine's 31 ms. Every other measurement in this document compares frame N with frame N and could not see it. The grid, the tracker's filter and the hold were each tested against his eye the same day and each stays as it is. Start at "Day 21". Before it: the mouth at speed, and the attempt his eye rejected. The engine chooses the right photograph the same frame and the application runs at the camera's own rate, so the lag is the tracker's own filter — measured at 0.090 of the speech axis and one frame on fast movement. Letting the lips out of that filter measured better on every number and he judged it **worse** in the application, so it is reverted. **The clip every number was measured on holds eight seconds of ordinary talking and no fast speech**, which is why the next step is a 39-second recording of the mouth at speed: `record_driving_clip.py --script speech`. Start at "Day 20". Before it: the clip is generated, measured and installed — 175 rungs where 178 stood, 22 of them in the window that held six, and the load is yesterday's load because the wide end was coarsened to pay for it. it does everything the prompt asked, the window it was bought for goes from six rungs to twenty-two, and the middle band of his own frames gets a quarter closer to its photograph. What it does *not* fix is the fast opening — measured, that jump is his own movement between two camera frames and not a hole in the library. See "The take came back the same night" under "Where day 19 starts". He has tested day 18 and the eyes and the head are answered: the pupils glitching and the face shaking on a five-degree head movement were one defect — every ladder in this engine had a foot except yaw, and the rung next to rest is a different *generation* from the portrait. Both ladders now have a foot the tracker's noise cannot cross. What is left on the mouth is his own diagnosis and it is material: the grid holds the ends of the movement and not its middle.** Start at **"His verdict on day 18"**, then **"Where day 19 starts"**, then the three day-18 passes, then the day-17 passes, then **"What `test001.mkv` actually shows"** for the rest of the open list.
 
 ---
 
@@ -2479,6 +2479,93 @@ shape rather than the worse one — though after this fix either can be filed.
 *   `measure_quality.py` shows geometry unchanged as expected — warp residual
     7.37 -> 7.38, near-eye sharpness 360 -> 360, face sharpness 174 -> 172. What
     changed is which photograph is chosen, which that tool does not score.
+
+## Where day 22 starts — the mouth is the priority, and the camera is now part of the mouth
+
+**His instruction, 2026-09-03, closing the day:** *"Is 220 ms a bad result? Does
+it definitely need improving? Let us stop for today — write down the next steps.
+The mouth's movements are the most important thing now, to bring to a good
+level."*
+
+### Is 220 ms bad — the honest answer
+
+**It is high.** An ordinary USB webcam is 60-120 ms glass to glass; the ZV-E10 in
+USB Streaming is not a webcam pipeline and encodes internally. **But whether it
+must be fixed depends on who is in front of it**, and that is not decided:
+
+*   **For him, watching his own preview**, a quarter of a second is plainly
+    visible and is what he has been reporting all day.
+*   **For the person on the other end of a call**, what matters is his voice
+    against his lips. Audio takes the conferencing application's own path and
+    arrives roughly when he speaks; the video arrives 250 ms later. Lip sync is
+    detectable at about 45 ms of audio lead and uncomfortable past ~125 ms, so
+    at 250 the receiver sees lips behind the voice.
+*   **For the client's own machine**, it may not exist at all. If their presenter
+    uses a normal webcam the delay is a third of this. **Nobody has asked what
+    camera they will use, and it changes the answer.**
+
+**Two fixes that cost nothing to know about:**
+
+1.  **Any other camera answers whether it is the camera.** He has no webcam, but
+    a phone is one — Windows' own Phone Link, or DroidCam / Iriun over USB.
+    One run of `scripts/measure_latency.py` with it settles the question.
+2.  **The sync half is fixable without hardware**, if it comes to it: delaying
+    his microphone by the same amount (VoiceMeeter, EqualizerAPO) puts the voice
+    back with the lips. It does not make the avatar answer sooner — but 200 ms
+    of extra delay in a conversation is inside what a video call already has.
+
+### And why the camera is now a mouth question, not only a delay one
+
+**His mouth crosses a third of the parting axis between two camera frames.**
+Measured over his thirteen captures on day 19: p50 0.337 during a fast opening,
+worst 0.742, and a fast opening lasts three frames. Everything since has
+confirmed the engine follows that faithfully — the photograph it picks moves
+0.169 where he moved 0.158.
+
+**So the largest remaining lever on "the mouth does not follow at speed" is
+sampling, and it is the same hardware decision.** An HDMI capture card off the
+ZV-E10 would give **1080p60 and a much shorter path**: twice the samples through
+every syllable *and* less delay, from one purchase. That is the first thing on
+this list that could change the mouth rather than measure it again.
+
+**What it would need from the engine:** at 60 fps the budget per frame is 16.7
+ms and the frame path is 25.8 today. So 60 fps is not free — it needs roughly
+another 9 ms out of the engine, on top of the 5 already found. The profile says
+where the next ones are: `warpAffine` over 248 triangles (3.2 ms), the mask and
+the copy (about 1.6), `_match_colour` (1.6 after the OpenCV change). Halving the
+triangle count is the honest candidate and it is a quality trade, so it needs
+his eye on a side-by-side.
+
+### The list, in the order it should be taken
+
+1.  **Answer the camera question with a phone** — free, and it decides both the
+    delay and whether 60 fps is on the table.
+2.  **Look at the mouth's *interior*, which nobody has examined.** Every
+    measurement so far is about *which* photograph and *when*; none is about
+    what the mouth looks like at the size it is drawn. At a 455 px face the
+    interior is perhaps 60x30 px, and "the letters do not follow" may be a
+    statement about teeth and tongue rather than about timing. Measure the
+    interior's size and sharpness on his own frames before assuming anything.
+3.  **If the camera goes to 60 fps, spend the engine time to match it** — the
+    triangle count first, judged by eye.
+4.  **The refiner.** It is still the plan's centre and it has never been
+    started. It is the only thing on this page that could change *appearance*
+    rather than choice or timing, and the two-week deadline is now twelve days.
+
+### What was settled today and should not be re-opened
+
+*   **The tracker's filter stays at 0.35** and the lips stay under it — his eye,
+    on a side-by-side of his own recording.
+*   **The hold stays at 0.05**, same test, same answer, though 0.02 measured
+    29% closer. **Twice in one day he chose the steadier option over the more
+    accurate one.**
+*   **MJPEG is not the delay** — 201, 238, 264, 278 ms without it against 212,
+    222, 227, 231 with it.
+*   **A third axis on the mouth is not worth building** — within one grid cell
+    every mouth blendshape varies by only 4-19% of its range.
+*   **The engine's frame path is 25.8 ms** and 1% of frames miss the budget,
+    against 31.2 and 27% this morning, with the picture unchanged to the grey
+    level.
 
 ## Day 21 — the picture is a quarter of a second behind him, and none of it is the avatar
 
