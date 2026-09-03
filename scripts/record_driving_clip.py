@@ -65,6 +65,31 @@ STEPS: tuple[tuple[float, str], ...] = (
     (3.0, "SIT STILL again. Relax."),
 )
 
+# The speech script, added 2026-09-03 for one question the long clip cannot
+# answer: **the mouth at speed.**
+#
+# The owner tested the tracker's lip filter and said it was worse — *"the mouth
+# barely follows, it has closed up, it does not move freely"* — while every
+# number measured on `driving.mkv` said it was better. That clip holds **eight
+# seconds of ordinary talking** and no fast speech at all, so it cannot show the
+# thing being argued about. A clip that can is one command, and after it every
+# setting is answerable offline instead of costing him another round trip.
+#
+# The still four seconds at the front are not optional in either script: the
+# engine learns the resting face in about a second and everything after is
+# measured against it.
+SPEECH_STEPS: tuple[tuple[float, str], ...] = (
+    (4.0, "SIT STILL. Look straight at the camera. Relax your face."),
+    (8.0, "TALK normally, as if on a call."),
+    (8.0, "TALK FAST. As fast as you can while still being understood."),
+    (6.0, 'Say "make, make, make" quickly, over and over.'),
+    (6.0, "COUNT fast, out loud: one two three four five six..."),
+    (4.0, "TALK FAST again, a different sentence."),
+    (3.0, "SIT STILL again. Relax."),
+)
+
+SCRIPTS: dict[str, tuple[tuple[float, str], ...]] = {"full": STEPS, "speech": SPEECH_STEPS}
+
 LEAD_IN = 5.0
 
 
@@ -72,10 +97,17 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--out",
-        default=str(REPO_ROOT / "recordings" / "driving.mkv"),
-        help="Where to write the clip. Gitignored.",
+        default=None,
+        help="Where to write the clip. Gitignored. Defaults to the script's own name.",
+    )
+    parser.add_argument(
+        "--script",
+        choices=sorted(SCRIPTS),
+        default="full",
+        help="'full' is the 62-second guided clip; 'speech' is 39 seconds of the mouth at speed.",
     )
     args = parser.parse_args()
+    steps = SCRIPTS[args.script]
 
     import cv2
 
@@ -89,10 +121,11 @@ def main() -> int:
         use_mjpeg=settings.camera.use_mjpeg,
     )
 
-    out = Path(args.out)
+    default_name = "driving.mkv" if args.script == "full" else f"driving-{args.script}.mkv"
+    out = Path(args.out) if args.out else REPO_ROOT / "recordings" / default_name
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    total = sum(seconds for seconds, _ in STEPS)
+    total = sum(seconds for seconds, _ in steps)
     print("=" * 68)
     print("Recording a driving clip")
     print("=" * 68)
@@ -147,8 +180,8 @@ def main() -> int:
         print()
         segments = []
         frames = 0
-        for index, (seconds, instruction) in enumerate(STEPS, start=1):
-            print(f"[{index:>2}/{len(STEPS)}]  {instruction}", flush=True)
+        for index, (seconds, instruction) in enumerate(steps, start=1):
+            print(f"[{index:>2}/{len(steps)}]  {instruction}", flush=True)
             started = frames
             deadline = time.perf_counter() + seconds
             while time.perf_counter() < deadline:

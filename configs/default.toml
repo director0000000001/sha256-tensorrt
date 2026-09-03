@@ -67,17 +67,24 @@ delegate = "auto"
 # drift — and is the first thing to lower if the avatar feels laggy.
 smoothing = 0.35
 
-# **And the lips are not filtered at all, since 2026-09-03.** The owner: "at
-# fast speech the photographs cannot follow the mouth; when I speak slowly they
-# roughly match" — which is what a low-pass filter does, because it is
-# speed-selective by construction. Measured on the speech window of his own
-# recording: at 0.35 the mouth reading sits 0.090 from the unfiltered one at p50
-# and 0.309 at worst on the frames where he moves fast — six to nine cells of
-# the speech grid — and one frame late. At 0.0 it is exact and on time, and the
-# face's own shake barely moves (0.045 to 0.046 px at p50, 1.095 to 1.118 at
-# p99, second differences on 400 quiet frames) because the lips are not what the
-# filter was steadying. See MOUTH_LANDMARKS in the MediaPipe tracker.
-mouth_smoothing = 0.0
+# The lips can be filtered separately, and **they are not, by default, because
+# he judged the unfiltered version worse in the application on 2026-09-03.**
+#
+# The measurement said the opposite, and it is worth stating plainly rather than
+# quietly reverting. Unfiltered, on the speech window of `recordings/driving.mkv`
+# through the real tracker and the real engine, the photograph on screen sat
+# **0.054 from his real mouth against 0.080** on both axes together, used the
+# same 44 rungs, and changed slightly *less* often. His eye disagreed: *"now the
+# result is worse — the mouth barely follows, it has closed up, it does not move
+# freely, and it seems some of the photographs it used before are no longer
+# used."*
+#
+# **His eye has been right against these numbers repeatedly, so the setting goes
+# back to matching `smoothing` until the difference is reproduced on frames from
+# his own session rather than on a clip from 2026-08-14.** The knob and its
+# tests stay: what is wrong is not knowing which of the two is right, and a
+# setting that can be moved in one line is how that gets answered.
+mouth_smoothing = 0.35
 
 [engine]
 # Warps the avatar portrait onto the tracked face. Deterministic, CPU-only, and

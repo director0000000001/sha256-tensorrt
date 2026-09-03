@@ -3,7 +3,7 @@
 **Living document.** Update it at the end of each working day. For the frozen
 record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
-**Last updated:** 2026-09-03 · **He tested the new grid and named the next thing: at fast speech the photographs cannot follow his mouth. Measured — the engine chooses the right photograph the same frame and the application runs at the camera's own rate, so the speed was being taken by the tracker's own filter, which is speed-selective by construction. The lips are now filtered separately from the rest of the face and the photograph on screen sits 0.033 from his real mouth instead of 0.056, with its p90 error down 61%. Start at "Day 20". Before it: the clip is generated, measured and installed — 175 rungs where 178 stood, 22 of them in the window that held six, and the load is yesterday's load because the wide end was coarsened to pay for it. it does everything the prompt asked, the window it was bought for goes from six rungs to twenty-two, and the middle band of his own frames gets a quarter closer to its photograph. What it does *not* fix is the fast opening — measured, that jump is his own movement between two camera frames and not a hole in the library. See "The take came back the same night" under "Where day 19 starts". He has tested day 18 and the eyes and the head are answered: the pupils glitching and the face shaking on a five-degree head movement were one defect — every ladder in this engine had a foot except yaw, and the rung next to rest is a different *generation* from the portrait. Both ladders now have a foot the tracker's noise cannot cross. What is left on the mouth is his own diagnosis and it is material: the grid holds the ends of the movement and not its middle.** Start at **"His verdict on day 18"**, then **"Where day 19 starts"**, then the three day-18 passes, then the day-17 passes, then **"What `test001.mkv` actually shows"** for the rest of the open list.
+**Last updated:** 2026-09-03 · **The mouth at speed is open and the last attempt at it was rejected by his eye.** The engine chooses the right photograph the same frame and the application runs at the camera's own rate, so the lag is the tracker's own filter — measured at 0.090 of the speech axis and one frame on fast movement. Letting the lips out of that filter measured better on every number and he judged it **worse** in the application, so it is reverted. **The clip every number was measured on holds eight seconds of ordinary talking and no fast speech**, which is why the next step is a 39-second recording of the mouth at speed: `record_driving_clip.py --script speech`. Start at "Day 20". Before it: the clip is generated, measured and installed — 175 rungs where 178 stood, 22 of them in the window that held six, and the load is yesterday's load because the wide end was coarsened to pay for it. it does everything the prompt asked, the window it was bought for goes from six rungs to twenty-two, and the middle band of his own frames gets a quarter closer to its photograph. What it does *not* fix is the fast opening — measured, that jump is his own movement between two camera frames and not a hole in the library. See "The take came back the same night" under "Where day 19 starts". He has tested day 18 and the eyes and the head are answered: the pupils glitching and the face shaking on a five-degree head movement were one defect — every ladder in this engine had a foot except yaw, and the rung next to rest is a different *generation* from the portrait. Both ladders now have a foot the tracker's noise cannot cross. What is left on the mouth is his own diagnosis and it is material: the grid holds the ends of the movement and not its middle.** Start at **"His verdict on day 18"**, then **"Where day 19 starts"**, then the three day-18 passes, then the day-17 passes, then **"What `test001.mkv` actually shows"** for the rest of the open list.
 
 ---
 
@@ -2596,6 +2596,75 @@ from drifting apart: the tracker names them itself rather than importing across
 the layer, and a test asserts the two sets are equal. **663 pass** — 636 without
 the UI files and 27 with them, in two processes, because of the crash noted under
 "Where day 19 starts" that predates all of this.
+
+### He tested it and it is worse — reverted, and the numbers never saw it
+
+**His words, 2026-09-03, minutes after it was installed:** *"Now we have a worse
+result. The frames barely follow the mouth compared with before the last change.
+It has closed up, it is not as free any more and it does not move. The letters
+do not follow the mouth at all. I will not like it, it must be fixed. Some of the
+photographs it used before, I think it no longer uses on the mouth."*
+
+**`mouth_smoothing` is back to 0.35 — the same value as `smoothing`, which is
+exactly the behaviour he had before.** The knob and its six tests stay: what is
+wrong is not knowing which setting is right, and a value that moves in one line
+is how that gets settled.
+
+**Every number said the opposite, and that is the finding.** The same speech
+window, the real tracker into the real engine, the photograph on screen scored
+against his *unfiltered* mouth on both axes:
+
+| | frames | distinct rungs | 2-D error p50 | parting | width | changes/s |
+|---|---|---|---|---|---|---|
+| no filter at all | 212 | 44 | 0.071 | 0.032 | 0.058 | 13.30 |
+| 0.35 everywhere | 217 | 41 | 0.080 | 0.056 | 0.049 | 13.82 |
+| lips let go | 216 | **44** | **0.054** | 0.033 | 0.033 | 12.36 |
+
+Better on both axes, *more* photographs used rather than fewer, and no extra
+churn. **His specific observation — that some photographs stopped being used —
+is measurably false on this clip: 44 distinct rungs against 41, and no named
+mouth photograph wins a frame under either setting.**
+
+**So the clip is the problem, not the eye.** `recordings/driving.mkv` was
+recorded on 2026-08-14 and holds **eight seconds of ordinary talking** and no
+fast speech at all; the thing he is describing happens at a speed this clip does
+not contain, in a room whose light and camera gain are today's rather than three
+weeks ago's. Measuring a fast-speech defect on a clip with no fast speech in it
+is the same mistake as the day-18 instrumentation that only recorded the frames
+it was already looking at.
+
+**This is the seventh time his eye has disagreed with these numbers and the
+seventh time the measurement was the thing that was wrong.** The lesson is not
+"trust the eye over the numbers" — it is that the numbers were computed on
+material that could not show the defect.
+
+### What the next attempt needs, and it is one command
+
+`scripts/record_driving_clip.py --script speech` — **39 seconds**: four still for
+the neutral, eight of normal talking, eight of talking *fast*, six of "make,
+make, make", six of counting fast, four more fast, three still. It writes
+`recordings/driving-speech.mkv` with the same sidecar the long clip writes.
+
+With that on disk every question about the mouth at speed is answerable offline
+and he never has to be the test rig again. **The two hypotheses it would
+separate:**
+
+*   **Noise into the width axis.** Unfiltered lips make `widened` rattle, and the
+    engine's own hysteresis assumes a smoothed signal: `_SPEECH_KEEP` keeps the
+    incumbent unless a challenger is nearer by a whole cell, and day 18's texture
+    tie-break prefers the photograph that looks like the one leaving. Both favour
+    the incumbent, so a noisier reading can make the mouth *stickier* rather than
+    faster — which is exactly "it has closed up and does not move". On this clip
+    the width error fell rather than rose, so if it is happening it needs his
+    room's noise to show.
+*   **The lag was doing work nobody costed.** A filter delays, and it also
+    *interpolates*: at 30 fps a smoothed reading passes through the values
+    between two samples, where an unfiltered one jumps. The grid then shows a
+    photograph for each in-between value. Removing the filter may have removed
+    the only thing making a three-frame opening look like a movement.
+
+Both are testable in an afternoon **on frames that contain the defect**, and
+neither is worth guessing at before then.
 
 ### What is left on speed, in order
 
