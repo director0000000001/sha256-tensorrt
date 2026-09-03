@@ -67,6 +67,45 @@ BLENDSHAPE_SCHEME = "mediapipe_52"
 
 DEFAULT_MODEL_RELATIVE_PATH = Path("downloads") / "face_landmarker.task"
 
+# The lips, in MediaPipe's own numbering: the outer ring and the inner one.
+#
+# **They are filtered separately from the rest of the face, and the reason is
+# measured.** The owner, 2026-09-03: *"at fast speech the photographs cannot
+# follow the mouth; when I speak slowly they roughly match."* That is the
+# signature of a low-pass filter, which is speed-selective by construction, and
+# the numbers say the same. On the speech window of `recordings/driving.mkv`,
+# the same 320 frames through this tracker twice, filtered at 0.35 and not
+# filtered at all: on the 17% of frames where his mouth moves 0.10 of the speech
+# axis or more between frames, the filtered reading sits **0.090 away at p50,
+# 0.231 at p90 and 0.309 at worst** — six to nine cells of the speech grid — and
+# it is one frame late. The engine was measured the same evening and is not
+# late at all: the rung it chooses is nearest the mouth it was handed, same
+# frame, offset zero on three of his captures.
+#
+# **What the filter is actually for is somewhere else.** It exists for landmark
+# jitter around the mask edge and near the ladders' feet, which is a property of
+# a face at rest, and the lips are not what it steadies. Measured on 400 quiet
+# frames as second differences in pixels — a slow real movement does not count,
+# only the frame-to-frame rattle — leaving the lips unfiltered moves the whole
+# face's shake from 0.045 to 0.046 at p50 and 1.095 to 1.118 at p99, while the
+# mouth's lag goes to **zero**. The rattle it adds is on the lip contour alone
+# (1.036 to 1.348 px at p99), and the mouth region is drawn from a photograph
+# rather than from that contour.
+#
+# The face-height reference the parting is measured against — the forehead and
+# chin landmarks — stays filtered on purpose: it is a denominator, and a steady
+# one is worth more than a fast one.
+#
+# The same two rings the renderer knows as `_OUTER_LIPS` and `_INNER_LIPS`. They
+# are a fact about the 478-point mesh rather than about the avatar, which is why
+# they are stated here rather than imported across the layer.
+MOUTH_LANDMARKS: tuple[int, ...] = (
+    # outer ring
+    61, 91, 84, 17, 314, 321, 291, 270, 267, 0, 37, 40,
+    # inner ring
+    78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308, 415, 310, 311, 312, 13, 82, 81, 80, 191,
+)  # fmt: skip
+
 Delegate = Literal["cpu", "gpu", "auto"]
 
 
@@ -84,9 +123,13 @@ class MediaPipeFaceTracker:
         min_tracking_confidence: float = 0.5,
         output_blendshapes: bool = True,
         smoothing: float = 0.0,
+        mouth_smoothing: float = 0.0,
     ) -> None:
         if not 0.0 <= smoothing < 1.0:
             msg = f"smoothing must be in [0, 1), got {smoothing}"
+            raise ValueError(msg)
+        if not 0.0 <= mouth_smoothing < 1.0:
+            msg = f"mouth_smoothing must be in [0, 1), got {mouth_smoothing}"
             raise ValueError(msg)
 
         self._model_path = Path(model_path)
@@ -97,6 +140,8 @@ class MediaPipeFaceTracker:
         self._min_tracking_confidence = min_tracking_confidence
         self._output_blendshapes = output_blendshapes
         self._smoothing = smoothing
+        self._mouth_smoothing = mouth_smoothing
+        self._mouth_rows = np.asarray(MOUTH_LANDMARKS, dtype=np.intp)
 
         self._landmarker: Any = None
         self._running = False
@@ -347,7 +392,7 @@ class MediaPipeFaceTracker:
         pose = self._head_pose(result)
         blendshapes = self._blendshapes(result)
 
-        if self._smoothing > 0.0:
+        if self._smoothing > 0.0 or self._mouth_smoothing > 0.0:
             points, pose, blendshapes = self._smooth(points, pose, blendshapes)
 
         extras: dict[str, float] = {}
@@ -410,11 +455,24 @@ class MediaPipeFaceTracker:
         output is still ``a`` of the way toward the previous frame's value. It is
         off by default, and the trade-off has to be measured rather than tuned by
         eye — see ``docs/benchmarks/PERFORMANCE_PLAN.md``.
+
+        **The lips have their own factor**, because the two halves of the
+        trade-off live on different landmarks: the shimmer this filter exists
+        for is the mask edge and the ladders near rest, and the speed it costs
+        is spent on the mouth. See :data:`MOUTH_LANDMARKS` for the measurement
+        that separated them. With one factor for both the behaviour is exactly
+        what it was.
         """
         alpha = self._smoothing
+        mouth_alpha = self._mouth_smoothing
 
         if self._smoothed_points is not None and self._smoothed_points.shape == points.shape:
-            points = alpha * self._smoothed_points + (1.0 - alpha) * points
+            previous = self._smoothed_points
+            blended = alpha * previous + (1.0 - alpha) * points
+            if mouth_alpha != alpha:
+                rows = self._mouth_rows
+                blended[rows] = mouth_alpha * previous[rows] + (1.0 - mouth_alpha) * points[rows]
+            points = blended
         self._smoothed_points = points
 
         if pose is not None:

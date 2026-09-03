@@ -79,6 +79,18 @@ class TrackingSettings(_Section):
             "the trade-off must be measured, not guessed."
         ),
     )
+    mouth_smoothing: float = Field(
+        default=0.0,
+        ge=0.0,
+        lt=1.0,
+        description=(
+            "The same factor for the lips alone. They carry the fastest movement "
+            "on a face and none of the shimmer the filter exists for, so they are "
+            "filtered separately — see MOUTH_LANDMARKS in the MediaPipe tracker "
+            "for the measurement. Set it equal to `smoothing` for one filter over "
+            "the whole face."
+        ),
+    )
     num_faces: int = Field(
         default=1,
         ge=1,

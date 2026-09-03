@@ -3,7 +3,7 @@
 **Living document.** Update it at the end of each working day. For the frozen
 record of the foundation milestone see `FOUNDATION_STATUS.md`.
 
-**Last updated:** 2026-09-03 · **The clip is generated, measured and installed — 175 rungs where 178 stood, 22 of them in the window that held six, and the load is yesterday's load because the wide end was coarsened to pay for it. it does everything the prompt asked, the window it was bought for goes from six rungs to twenty-two, and the middle band of his own frames gets a quarter closer to its photograph. What it does *not* fix is the fast opening — measured, that jump is his own movement between two camera frames and not a hole in the library. See "The take came back the same night" under "Where day 19 starts". He has tested day 18 and the eyes and the head are answered: the pupils glitching and the face shaking on a five-degree head movement were one defect — every ladder in this engine had a foot except yaw, and the rung next to rest is a different *generation* from the portrait. Both ladders now have a foot the tracker's noise cannot cross. What is left on the mouth is his own diagnosis and it is material: the grid holds the ends of the movement and not its middle.** Start at **"His verdict on day 18"**, then **"Where day 19 starts"**, then the three day-18 passes, then the day-17 passes, then **"What `test001.mkv` actually shows"** for the rest of the open list.
+**Last updated:** 2026-09-03 · **He tested the new grid and named the next thing: at fast speech the photographs cannot follow his mouth. Measured — the engine chooses the right photograph the same frame and the application runs at the camera's own rate, so the speed was being taken by the tracker's own filter, which is speed-selective by construction. The lips are now filtered separately from the rest of the face and the photograph on screen sits 0.033 from his real mouth instead of 0.056, with its p90 error down 61%. Start at "Day 20". Before it: the clip is generated, measured and installed — 175 rungs where 178 stood, 22 of them in the window that held six, and the load is yesterday's load because the wide end was coarsened to pay for it. it does everything the prompt asked, the window it was bought for goes from six rungs to twenty-two, and the middle band of his own frames gets a quarter closer to its photograph. What it does *not* fix is the fast opening — measured, that jump is his own movement between two camera frames and not a hole in the library. See "The take came back the same night" under "Where day 19 starts". He has tested day 18 and the eyes and the head are answered: the pupils glitching and the face shaking on a five-degree head movement were one defect — every ladder in this engine had a foot except yaw, and the rung next to rest is a different *generation* from the portrait. Both ladders now have a foot the tracker's noise cannot cross. What is left on the mouth is his own diagnosis and it is material: the grid holds the ends of the movement and not its middle.** Start at **"His verdict on day 18"**, then **"Where day 19 starts"**, then the three day-18 passes, then the day-17 passes, then **"What `test001.mkv` actually shows"** for the rest of the open list.
 
 ---
 
@@ -2479,6 +2479,139 @@ shape rather than the worse one — though after this fix either can be filed.
 *   `measure_quality.py` shows geometry unchanged as expected — warp residual
     7.37 -> 7.38, near-eye sharpness 360 -> 360, face sharpness 174 -> 172. What
     changed is which photograph is chosen, which that tool does not score.
+
+## Day 20 — the mouth was late because the lips were filtered with the rest of the face
+
+**He tested the day-19 grid and reported the next thing in his own words,
+2026-09-03:** *"At fast speech the photographs cannot follow the mouth. When I
+speak slowly the mouth's movements roughly match what I am saying, but it is
+still not a good result. It needs more speed — the application needs a much
+better reaction to the face's changes, so it follows the mimics exactly. The
+other sounds we will fix, we are getting to a good result now."*
+
+**That sentence contains the diagnosis.** Slow speech follows, fast speech does
+not, and a low-pass filter is speed-selective by construction — it costs nothing
+on a slow movement and clips a fast one. There is exactly one in the path.
+
+### Three measurements, and the first two are what made the third findable
+
+**One: the engine is not late.** On three of his captures, the rung it chose was
+compared against the mouth it was handed at offsets of nought to five frames:
+
+| capture | offset 0 | 1 | 2 | 3 |
+|---|---|---|---|---|
+| `201806` | **0.032** | 0.046 | 0.063 | 0.078 |
+| `201814` | **0.061** | 0.060 | 0.060 | 0.059 |
+| `000951` | **0.027** | 0.045 | 0.060 | 0.080 |
+
+Offset 0 wins everywhere it can (on `201814` his mouth barely moves, so nothing
+separates the offsets). On the fast frames alone the error at offset 0 is
+0.011-0.033. **The photograph is chosen the same frame the mouth moves.**
+
+**Two: the application is not dropping frames.** From the timestamps his own
+captures carry: **28.6 to 29.8 fps** across the thirteen, median gap 33.2-34.6
+ms against the camera's own 33.19. Only the last capture wobbles (27.2 fps, 34
+gaps over 50 ms).
+
+**Three: so it is the filter, and here is what it costs.** `tracking.smoothing =
+0.35`, an exponential blend toward the previous frame, applied to every landmark
+alike. The same 320 frames of `recordings/driving.mkv` through the same tracker
+twice, filtered and not, on the 17% of frames where his mouth moves 0.10 of the
+speech axis or more between frames:
+
+| | filtered against unfiltered |
+|---|---|
+| p50 | **0.090** |
+| p90 | **0.231** |
+| worst | **0.309** |
+
+**Six to nine cells of the speech grid, and one frame late** — the error on those
+frames falls from 0.090 to 0.064 at an offset of one. On slow frames it costs
+nothing, which is exactly the shape of his report.
+
+### The obvious fix was measured and it is worse
+
+**A one-euro filter is the textbook answer** — the cutoff rises with the speed of
+the signal, so a still face is filtered hard and a moving one is not. Measured on
+his frames, at 30 fps, **it is worse than the fixed filter on both counts that
+matter**:
+
+| filter | shake p50 / p99 (px, quiet) | late p50 / p90 | best offset |
+|---|---|---|---|
+| none | 0.070 / 1.610 | — | 0 |
+| exponential 0.35 | 0.045 / 1.095 | 0.090 / 0.231 | 1 |
+| one-euro 1.0 / 15 | 0.017 / 0.893 | 0.250 / 0.473 | **2** |
+| one-euro 2.0 / 40 | 0.025 / 1.107 | 0.162 / 0.252 | **1** |
+
+**Its adaptation cannot arrive in time.** The speed estimate is itself low-passed,
+and at 30 fps a syllable is two or three frames — the cutoff is still rising when
+the movement is already over. One-euro is built for pointing devices at 60-120
+Hz, and this is a face at 30. **Written down so nobody builds it again.**
+
+### What actually works: the lips are not what the filter is for
+
+**The filter exists for landmark jitter around the mask edge and near the
+ladders' feet, which is a property of a face at rest — and the lips are not what
+it steadies there.** They are different landmarks, so they do not have to share a
+setting. `mouth_smoothing`, new in `configs/default.toml` and defaulting to
+**0.0**, filters the two lip rings separately from the rest of the face, which
+keeps its 0.35.
+
+| quiet face, second differences in px | shake p50 | p99 | the lip contour, p99 |
+|---|---|---|---|
+| 0.35 everywhere (as shipped) | 0.045 | 1.095 | 1.036 |
+| **lips let go, face at 0.35** | 0.046 | 1.118 | 1.348 |
+
+**The face is as steady as it was.** What gets noisier is the lip contour alone,
+and the mouth region is drawn from a photograph rather than from that contour.
+The face-height reference the parting is divided by — forehead and chin — stays
+filtered on purpose: a denominator is worth more steady than fast.
+
+### Measured end to end, camera through tracker through engine
+
+The speech window of his own recording, rendered by the real engine over the
+real grid, with the chosen photograph compared against **his unfiltered mouth**
+rather than against whatever each configuration handed the engine:
+
+| | err p50 | p90 | changes/s | step p50 | travel/s |
+|---|---|---|---|---|---|
+| as shipped, 0.35 everywhere | 0.056 | 0.205 | 13.82 | 0.108 | 1.96 |
+| **lips let go** | **0.033** | **0.079** | **12.22** | 0.134 | 2.04 |
+| no filter at all — the floor | 0.032 | 0.074 | 13.16 | 0.112 | 2.08 |
+
+**The photograph on screen is now 0.033 from his real mouth at p50 and 0.079 at
+p90, against 0.056 and 0.205 — the p90 error falls by 61% — and it is
+indistinguishable from having no filter at all.** And it is not flicker bought
+with noise: the photograph changes *less* often (13.82 to 12.22 a second) and
+travels the same total distance (1.96 to 2.04 a second), in slightly fewer,
+slightly larger steps. **The travel is reported beside the rate for the reason
+this document keeps repeating: smoothness scored alone is maximised by a mouth
+that does not move.**
+
+`recordings/day20-lips-filter-before-after.png` is thirty frames of that window
+— his own mouth on top, the filtered avatar in the middle, the new one below.
+
+**Six new tests**, including the one that keeps the two copies of the lip rings
+from drifting apart: the tracker names them itself rather than importing across
+the layer, and a test asserts the two sets are equal. **663 pass** — 636 without
+the UI files and 27 with them, in two processes, because of the crash noted under
+"Where day 19 starts" that predates all of this.
+
+### What is left on speed, in order
+
+*   **The blendshapes are still filtered at 0.35**, and the F gate reads one of
+    them (`mouthRollLower`). The speech grid is geometry, so this change does not
+    touch it, but the F is about a frame late and nobody has measured what that
+    costs.
+*   **The end-to-end latency has never been read.** The pipeline already records
+    it — `PipelineStage.END_TO_END`, from `rendered.pipeline_latency` — and what
+    it does *not* include is the camera's own delay, which on a ZV-E10 over USB
+    is the larger half. That is the number behind "reaction", and it is one run
+    of the application away.
+*   **Then the 30 fps ceiling.** His mouth crosses a third of the parting scale
+    between two camera frames; at that rate a fast syllable is sampled two or
+    three times and no filter can invent the rest. Past this point the levers are
+    a faster camera path or drawing a frame between two.
 
 ## His verdict on day 18, and the one thing left on the mouth
 

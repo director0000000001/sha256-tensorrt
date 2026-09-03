@@ -27,6 +27,7 @@ from sha256.core.types import FrameMetadata, VideoFrame
 from sha256.tracking.mediapipe_tracker import (
     BLENDSHAPE_SCHEME,
     LANDMARK_SCHEME,
+    MOUTH_LANDMARKS,
     MediaPipeFaceTracker,
     _head_pose_from_matrix,
 )
@@ -447,9 +448,11 @@ class TestSmoothing:
         fake_mediapipe["created"][0].position = 1.0
         result = tracker.process(make_frame(frame_id=1, timestamp=100.1))
 
-        # Half way between where the face was and where it now is.
+        # Half way between where the face was and where it now is — everywhere
+        # except the lips, which have their own factor and default to none of it.
         assert result.landmarks is not None
-        assert result.landmarks.points == pytest.approx(0.5)
+        rest = [i for i in range(478) if i not in set(MOUTH_LANDMARKS)]
+        assert result.landmarks.points[rest] == pytest.approx(0.5)
 
     def test_smoothing_also_applies_to_expression(self, fake_mediapipe):
         tracker = make_tracker(fake_mediapipe, smoothing=0.5)
@@ -485,6 +488,70 @@ class TestSmoothing:
         assert tracker._smoothed_points is None
         assert tracker.is_running
         assert len(fake_mediapipe["created"]) == 1
+
+
+class TestTheLipsAreFilteredOnTheirOwn:
+    """`mouth_smoothing`, and the owner's report that produced it.
+
+    2026-09-03, after testing: *"at fast speech the photographs cannot follow
+    the mouth; when I speak slowly they roughly match."* A low-pass filter is
+    speed-selective by construction, which is exactly that shape, and the
+    measurement agreed — at 0.35 the mouth reading is 0.090 from the unfiltered
+    one at p50 on the frames where he moves fast, 0.309 at worst, and one frame
+    late, while the engine choosing the photograph was measured the same evening
+    and is not late at all.
+
+    The filter is not wrong; it is aimed at the wrong landmarks. What it steadies
+    is the mask edge and the ladders near rest, which is a still face, and the
+    lips are not what it steadies there.
+    """
+
+    def _moved(self, fake_mediapipe, **kwargs):
+        tracker = make_tracker(fake_mediapipe, **kwargs)
+        tracker.start()
+        fake_mediapipe["created"][0].position = 0.0
+        tracker.process(make_frame(frame_id=0, timestamp=100.0))
+        fake_mediapipe["created"][0].position = 1.0
+        result = tracker.process(make_frame(frame_id=1, timestamp=100.1))
+        assert result.landmarks is not None
+        return result.landmarks.points
+
+    def test_the_lips_arrive_while_the_face_is_still_catching_up(self, fake_mediapipe):
+        points = self._moved(fake_mediapipe, smoothing=0.5, mouth_smoothing=0.0)
+
+        lips = list(MOUTH_LANDMARKS)
+        rest = [i for i in range(len(points)) if i not in set(lips)]
+        assert points[lips] == pytest.approx(1.0)
+        assert points[rest] == pytest.approx(0.5)
+
+    def test_one_factor_for_both_is_the_filter_it_replaced(self, fake_mediapipe):
+        """The old behaviour has to remain reachable, or the change cannot be
+        undone by configuration alone."""
+        points = self._moved(fake_mediapipe, smoothing=0.5, mouth_smoothing=0.5)
+
+        assert points == pytest.approx(0.5)
+
+    def test_the_lips_can_be_the_filtered_ones(self, fake_mediapipe):
+        """Filtering only the lips is the same code path backwards, and it also
+        proves the filter runs at all when `smoothing` itself is zero."""
+        points = self._moved(fake_mediapipe, smoothing=0.0, mouth_smoothing=0.5)
+
+        lips = list(MOUTH_LANDMARKS)
+        rest = [i for i in range(len(points)) if i not in set(lips)]
+        assert points[lips] == pytest.approx(0.5)
+        assert points[rest] == pytest.approx(1.0)
+
+    def test_a_factor_outside_the_range_is_refused(self, fake_mediapipe):
+        with pytest.raises(ValueError, match="mouth_smoothing"):
+            make_tracker(fake_mediapipe, mouth_smoothing=1.0)
+
+    def test_the_lips_named_here_are_the_ones_the_renderer_reads(self):
+        """The two rings are a fact about the mesh, and they are written down in
+        two places — here and `engine_warp` — because the tracker must not import
+        across the layer. This is what keeps them from drifting apart."""
+        from sha256.avatar.engine_warp import _INNER_LIPS, _OUTER_LIPS
+
+        assert set(MOUTH_LANDMARKS) == set(_OUTER_LIPS) | set(_INNER_LIPS)
 
 
 class TestHeadPoseConversion:

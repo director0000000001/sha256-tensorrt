@@ -309,6 +309,7 @@ def _create_tracker(registries: Registries, settings: Settings, paths: AppPaths)
         min_presence_confidence=tracking.min_presence_confidence,
         min_tracking_confidence=tracking.min_tracking_confidence,
         smoothing=tracking.smoothing,
+        mouth_smoothing=tracking.mouth_smoothing,
     )
     return tracker
 
