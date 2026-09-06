@@ -52,6 +52,15 @@ tracking = ["mediapipe>=1.0,<2"]
 # (Blackwell, sm_120) requires a CUDA 12.8+ build. Verify with scripts/check_gpu.py.
 onnx = ["onnxruntime-gpu>=1.20"]
 
+# The LivePortrait engine. PyTorch's CUDA wheels come from PyTorch's own index,
+# not PyPI — on the reference machine:
+#
+#     uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+#
+# The network code is vendored (MIT) under src/sha256/avatar/liveportrait; the
+# weights are fetched by scripts/fetch_liveportrait.py and never enter Git.
+neural = ["torch>=2.5", "torchvision>=0.20"]
+
 # WARNING: pyvirtualcam is GPL-2.0. Linking it into sha256 has copyleft
 # implications for distribution. Do not enable without reading
 # docs/decisions/ADR-0005-virtual-camera-strategy.md.
@@ -91,6 +100,11 @@ packages = ["src/sha256"]
 line-length = 100
 target-version = "py312"
 src = ["src", "tests"]
+# LivePortrait's networks (src/sha256/avatar/liveportrait/), vendored MIT code
+# with no style conventions of its own — the same reasoning as the mypy
+# override below applies here: it is not this project's code to reformat, and
+# leaving it linted would drown real findings in 300+ pre-existing ones.
+extend-exclude = ["src/sha256/avatar/liveportrait"]
 
 [tool.ruff.lint]
 select = [
@@ -151,6 +165,18 @@ follow_untyped_imports = true
 # returns sha256 types, so the untyped surface stops at that boundary.
 module = ["pyvirtualcam.*"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# LivePortrait's networks (src/sha256/avatar/liveportrait/), vendored MIT code
+# with no type annotations of its own -- see that package's __init__.py for
+# provenance. Retrofitting stubs onto someone else's forward passes is not a
+# four-line change, and unlike mediapipe's or pyvirtualcam's compiled wheels
+# there is no installed-package boundary to ignore imports past -- the source
+# is checked whether asked to be or not, so it is excluded outright. Each of
+# the handful of calls into it from engine_liveportrait.py, the only module
+# that imports it, carries its own `# type: ignore[no-untyped-call]`.
+module = ["sha256.avatar.liveportrait.*"]
+ignore_errors = true
 
 [[tool.mypy.overrides]]
 # `scripts/` is not part of the package and is not on mypy's path — the tests
