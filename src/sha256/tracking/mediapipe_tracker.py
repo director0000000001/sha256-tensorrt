@@ -108,6 +108,16 @@ MOUTH_LANDMARKS: tuple[int, ...] = (
 
 Delegate = Literal["cpu", "gpu", "auto"]
 
+# ``"video"`` is the frame path. ``"image"`` is for still photographs — the
+# avatar's own library at load — and it is not a convenience. VIDEO mode carries
+# state from one frame into the next: measured 2026-09-04, one still frame
+# handed to it ten times drifts 0.8 px mean and 5.7 px at worst, and a frame
+# read after a different one lands 3.3 px from where it reads on its own. So a
+# landmarker in VIDEO mode cannot be shared between photographs, and one in
+# IMAGE mode can: each is read as if it were the first frame ever seen, which is
+# exactly what a fresh VIDEO landmarker gave each photograph before, to 0.000 px.
+RunningMode = Literal["video", "image"]
+
 
 class MediaPipeFaceTracker:
     """MediaPipe Face Landmarker behind the :class:`FaceTracker` protocol."""
@@ -124,6 +134,7 @@ class MediaPipeFaceTracker:
         output_blendshapes: bool = True,
         smoothing: float = 0.0,
         mouth_smoothing: float = 0.0,
+        running_mode: RunningMode = "video",
     ) -> None:
         if not 0.0 <= smoothing < 1.0:
             msg = f"smoothing must be in [0, 1), got {smoothing}"
@@ -141,6 +152,7 @@ class MediaPipeFaceTracker:
         self._output_blendshapes = output_blendshapes
         self._smoothing = smoothing
         self._mouth_smoothing = mouth_smoothing
+        self._running_mode = running_mode
         self._mouth_rows = np.asarray(MOUTH_LANDMARKS, dtype=np.intp)
 
         self._landmarker: Any = None
@@ -259,11 +271,16 @@ class MediaPipeFaceTracker:
                 model_asset_path=str(self._model_path),
                 delegate=delegate_enum.GPU if delegate == "gpu" else delegate_enum.CPU,
             ),
-            # VIDEO rather than IMAGE: the task then carries tracking state
-            # between frames instead of re-detecting from scratch every time.
+            # VIDEO rather than IMAGE on the frame path: the task then carries
+            # tracking state between frames instead of re-detecting from scratch
+            # every time. IMAGE for stills — see :data:`RunningMode`.
             # LIVE_STREAM would deliver results through a callback, which does
             # not fit a synchronous `process()` and buys nothing here.
-            running_mode=vision.RunningMode.VIDEO,
+            running_mode=(
+                vision.RunningMode.IMAGE
+                if self._running_mode == "image"
+                else vision.RunningMode.VIDEO
+            ),
             num_faces=self._num_faces,
             min_face_detection_confidence=self._min_detection_confidence,
             min_face_presence_confidence=self._min_presence_confidence,
@@ -309,10 +326,14 @@ class MediaPipeFaceTracker:
             return FaceTrackingResult.no_face(frame.metadata, tracker_id=self.backend_id)
 
         image = self._to_mediapipe_image(frame)
-        timestamp_ms = self._next_timestamp_ms(frame.metadata)
 
         try:
-            result = self._landmarker.detect_for_video(image, timestamp_ms)
+            if self._running_mode == "image":
+                # No timestamp and no state: every still is the first one.
+                result = self._landmarker.detect(image)
+            else:
+                timestamp_ms = self._next_timestamp_ms(frame.metadata)
+                result = self._landmarker.detect_for_video(image, timestamp_ms)
         except Exception as exc:
             msg = f"MediaPipe failed on frame {frame.metadata.frame_id}: {exc}"
             raise TrackingError(msg) from exc

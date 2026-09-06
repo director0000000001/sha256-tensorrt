@@ -16,6 +16,7 @@ from pathlib import Path
 
 from sha256.app.registry import Registries
 from sha256.avatar.cache import ResidencyCache
+from sha256.avatar.engine_liveportrait import LivePortraitEngine
 from sha256.avatar.engine_null import NullAvatarEngine
 from sha256.avatar.engine_warp import WarpAvatarEngine
 from sha256.avatar.manager import AvatarManager
@@ -89,6 +90,12 @@ def register_builtin_backends(registries: Registries) -> None:
         WarpAvatarEngine,
         description="Warps a portrait photograph onto the tracked face. No model weights.",
         requires=("cv2",),
+    )
+    registries.engine.register(
+        "liveportrait",
+        LivePortraitEngine,
+        description="Generates the portrait's face every frame with LivePortrait. Needs CUDA.",
+        requires=("cv2", "torch"),
     )
     registries.renderer.register(
         "null",
@@ -265,11 +272,22 @@ def _create_engine(registries: Registries, settings: Settings, paths: AppPaths) 
     landmarks when it loads a portrait — the same model the tracker uses, so the
     two meshes are the same topology by construction.
     """
+    models_root = paths.resolve_relative(settings.models.root_path)
+    if settings.engine.backend == "liveportrait":
+        # The same landmark model, for the portrait's face and the driver's
+        # crop, plus LivePortrait's own weights under the models root.
+        from sha256.avatar.engine_liveportrait import DEFAULT_WEIGHTS_RELATIVE_PATH
+
+        neural: AvatarEngine = registries.engine.create(
+            "liveportrait",
+            model_path=models_root / DEFAULT_MODEL_RELATIVE_PATH,
+            weights=models_root / DEFAULT_WEIGHTS_RELATIVE_PATH,
+        )
+        return neural
     if settings.engine.backend != "warp":
         placeholder: AvatarEngine = registries.engine.create(settings.engine.backend)
         return placeholder
 
-    models_root = paths.resolve_relative(settings.models.root_path)
     engine: AvatarEngine = registries.engine.create(
         "warp", model_path=models_root / DEFAULT_MODEL_RELATIVE_PATH
     )

@@ -18,7 +18,15 @@ import numpy as np
 import pytest
 
 from sha256.core.enums import PixelFormat
-from sha256.core.types import FaceTrackingResult, FrameMetadata, RenderedFrame, VideoFrame
+from sha256.core.types import (
+    BlendshapeSet,
+    FaceTrackingResult,
+    FrameMetadata,
+    HeadPose,
+    LandmarkSet,
+    RenderedFrame,
+    VideoFrame,
+)
 from sha256.pipeline.runner import PipelineRunner
 
 
@@ -33,6 +41,9 @@ class FakeController:
         self.fail_after = fail_after
         self._produce_none = produce_none
         self._lock = threading.Lock()
+        # Set by a test that wants particular tracking published with a frame;
+        # left ``None``, the controller reports no face, as it always did.
+        self.tracking: FaceTrackingResult | None = None
 
     def start(self) -> None:
         if self.start_error is not None:
@@ -63,14 +74,18 @@ class FakeController:
 
     @property
     def last_source_frame(self) -> VideoFrame | None:
+        # Not the rendered frame's zeros: a capture must be able to tell the
+        # camera frame from the frame on screen.
         return VideoFrame(
-            data=np.zeros((4, 4, 3), dtype=np.uint8),
+            data=np.full((4, 4, 3), 200, dtype=np.uint8),
             pixel_format=PixelFormat.BGR24,
             metadata=FrameMetadata(frame_id=self.frames, capture_timestamp=0.0),
         )
 
     @property
     def last_tracking(self) -> FaceTrackingResult | None:
+        if self.tracking is not None:
+            return self.tracking
         return FaceTrackingResult.no_face(
             FrameMetadata(frame_id=self.frames, capture_timestamp=0.0)
         )
@@ -265,3 +280,81 @@ class TestThroughput:
 
     def test_fps_is_zero_before_anything_runs(self, runner_factory):
         assert runner_factory(FakeController()).fps == 0.0
+
+
+def tracked(frame_id: int, *, face: bool) -> FaceTrackingResult:
+    """One frame of tracking the way the real tracker reports it."""
+    metadata = FrameMetadata(frame_id=frame_id, capture_timestamp=frame_id / 30.0)
+    if not face:
+        return FaceTrackingResult.no_face(metadata)
+    return FaceTrackingResult(
+        metadata=metadata,
+        face_detected=True,
+        landmarks=LandmarkSet(
+            points=np.full((478, 3), 0.5, dtype=np.float32), scheme="mediapipe_478"
+        ),
+        head_pose=HeadPose(yaw=1.0),
+        blendshapes=BlendshapeSet(
+            names=("jawOpen", "mouthPucker"), weights=np.array([0.1, 0.2], dtype=np.float32)
+        ),
+    )
+
+
+class TestCapture:
+    """The "That looked wrong" button, and the frames it must not choke on."""
+
+    def _publish(self, runner: PipelineRunner, controller: FakeController, faces: list[bool]):
+        for index, face in enumerate(faces):
+            controller.tracking = tracked(index, face=face)
+            frame = controller.process_once()
+            assert frame is not None
+            runner._publish(frame)
+
+    def test_a_frame_without_a_face_does_not_lose_the_capture(self, runner_factory, tmp_path):
+        """Frames 3 and 7 have no face: a tracking dropout inside the ten
+        seconds, which is the very moment the button exists for."""
+        controller = FakeController()
+        runner = runner_factory(controller)
+        self._publish(runner, controller, [i not in (3, 7) for i in range(10)])
+
+        target = runner.capture(tmp_path)
+
+        data = np.load(target / "tracking.npz", allow_pickle=False)
+        assert data["landmarks"].shape == (10, 478, 3)
+        assert data["detected"].tolist() == [i not in (3, 7) for i in range(10)]
+        assert not data["detected"][3] and not data["detected"][7]
+        assert data["weights"].shape == (10, 2)
+        assert data["pose"].shape == (10, 3)
+        assert data["timestamps"].shape == (10,)
+
+    def test_a_capture_holds_the_screen_frame_and_the_camera_frame(self, runner_factory, tmp_path):
+        """Day 12: the neural engine reads pixels, so a complaint can only be
+        replayed against the camera frame of the same tick as the frame that
+        was on screen. Both are written, and they are not the same picture."""
+        import cv2
+
+        controller = FakeController()
+        runner = runner_factory(controller)
+        self._publish(runner, controller, [True] * 3)
+
+        target = runner.capture(tmp_path)
+
+        seen = cv2.imread(str(target / "seen.png"))
+        camera = cv2.imread(str(target / "camera.png"))
+        assert seen is not None and camera is not None
+        assert seen.shape == camera.shape == (4, 4, 3)
+        assert not seen.any()  # the rendered frame: zeros
+        assert (camera == 200).all()  # the source frame: what the camera gave
+
+    def test_ten_seconds_with_no_face_at_all_is_still_written(self, runner_factory, tmp_path):
+        """A loss lasting the whole window is a report in its own right: the
+        file holds no points and ``detected`` says so on every row."""
+        controller = FakeController()
+        runner = runner_factory(controller)
+        self._publish(runner, controller, [False] * 10)
+
+        target = runner.capture(tmp_path)
+
+        data = np.load(target / "tracking.npz", allow_pickle=False)
+        assert data["landmarks"].shape == (10, 0, 3)
+        assert not data["detected"].any()

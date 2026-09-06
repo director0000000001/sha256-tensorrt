@@ -226,6 +226,23 @@ class AvatarEngine(Component, Protocol):
         """
         ...
 
+    def reset_anchor(self, avatar_id: str) -> None:
+        """Learn the driver's resting face again from the next frames.
+
+        For an engine with no notion of a learned rest (the warp engine picks
+        a photograph fresh every frame, nothing to re-anchor), this is a no-op.
+        No-op too on an avatar this engine has not loaded.
+        """
+        ...
+
+    def rest_status(self, avatar_id: str) -> str | None:
+        """A line for the UI while the rest is still being learned, or
+        ``None`` when it is already known, unneeded, or the avatar is not
+        loaded. An engine with no notion of a learned rest always returns
+        ``None``.
+        """
+        ...
+
 
 # ---------------------------------------------------------------------------
 # Rendering

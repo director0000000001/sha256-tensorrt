@@ -64,19 +64,15 @@ class FakeLandmarker:
         self.closed = False
         self.timestamps: list[int] = []
         self.images: list[object] = []
+        self.stills = 0
         # Every landmark sits at this coordinate. Settable so a test can move
         # the "face" between frames and watch what the filters do.
         self.position = 0.5
+        # Set by FakeFaceLandmarker.create_from_options, so a test can read
+        # back what running mode (and anything else) it was built with.
+        self.options: object | None = None
 
-    def detect_for_video(self, image: object, timestamp_ms: int) -> FakeResult:
-        self.images.append(image)
-        if self.timestamps and timestamp_ms <= self.timestamps[-1]:
-            # The real task raises on a non-increasing timestamp; so does this,
-            # otherwise the adapter's guard would be untested.
-            msg = f"timestamp {timestamp_ms} is not greater than {self.timestamps[-1]}"
-            raise ValueError(msg)
-        self.timestamps.append(timestamp_ms)
-
+    def _result(self) -> FakeResult:
         if self.raises:
             msg = "inference exploded"
             raise RuntimeError(msg)
@@ -94,6 +90,24 @@ class FakeLandmarker:
             face_blendshapes=[blendshapes],
             facial_transformation_matrixes=[np.eye(4, dtype=np.float32)],
         )
+
+    def detect_for_video(self, image: object, timestamp_ms: int) -> FakeResult:
+        self.images.append(image)
+        if self.timestamps and timestamp_ms <= self.timestamps[-1]:
+            # The real task raises on a non-increasing timestamp; so does this,
+            # otherwise the adapter's guard would be untested.
+            msg = f"timestamp {timestamp_ms} is not greater than {self.timestamps[-1]}"
+            raise ValueError(msg)
+        self.timestamps.append(timestamp_ms)
+        return self._result()
+
+    def detect(self, image: object) -> FakeResult:
+        # IMAGE mode: no timestamp, no monotonic guard — every still is read
+        # as if it were the first frame ever seen. See RunningMode in
+        # sha256/tracking/mediapipe_tracker.py.
+        self.images.append(image)
+        self.stills += 1
+        return self._result()
 
     def close(self) -> None:
         self.closed = True
@@ -136,6 +150,7 @@ def fake_mediapipe(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
             landmarker = FakeLandmarker(
                 detects=bool(control["detects"]), raises=bool(control["raises"])
             )
+            landmarker.options = options
             created.append(landmarker)
             return landmarker
 
@@ -145,6 +160,7 @@ def fake_mediapipe(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 
         class RunningMode:
             VIDEO = "VIDEO"
+            IMAGE = "IMAGE"
 
     class FakeMp:
         Image = FakeImage
@@ -262,6 +278,40 @@ class TestStart:
 
     def test_stopping_a_stopped_tracker_is_safe(self, fake_mediapipe):
         make_tracker(fake_mediapipe).stop()
+
+
+class TestRunningMode:
+    """VIDEO is the frame path; IMAGE is for stills read with no shared state
+    — see :data:`sha256.tracking.mediapipe_tracker.RunningMode`."""
+
+    def test_video_is_the_default(self, fake_mediapipe):
+        tracker = make_tracker(fake_mediapipe)
+        tracker.start()
+
+        options = fake_mediapipe["created"][0].options
+        assert options.kwargs["running_mode"] == "VIDEO"
+
+    def test_image_mode_calls_detect_with_no_timestamp(self, fake_mediapipe):
+        tracker = make_tracker(fake_mediapipe, running_mode="image")
+        tracker.start()
+        tracker.process(make_frame())
+
+        landmarker = fake_mediapipe["created"][0]
+        assert landmarker.options.kwargs["running_mode"] == "IMAGE"
+        assert landmarker.stills == 1
+        assert landmarker.timestamps == []
+
+    def test_image_mode_has_no_monotonic_guard(self, fake_mediapipe):
+        """Two stills at the same timestamp both detect — the guard that
+        rejects a non-increasing timestamp only exists on the VIDEO path."""
+        tracker = make_tracker(fake_mediapipe, running_mode="image")
+        tracker.start()
+
+        first = tracker.process(make_frame(frame_id=0, timestamp=100.0))
+        second = tracker.process(make_frame(frame_id=1, timestamp=100.0))
+
+        assert first.face_detected
+        assert second.face_detected
 
 
 class TestProcess:

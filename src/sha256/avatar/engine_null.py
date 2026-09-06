@@ -111,6 +111,15 @@ class NullAvatarEngine:
         """
         return None
 
+    def reset_anchor(self, avatar_id: str) -> None:
+        """No-op: this engine synthesises from tracking alone, nothing learned."""
+        del avatar_id
+
+    def rest_status(self, avatar_id: str) -> str | None:
+        """Always ``None``: nothing here is ever mid-learning."""
+        del avatar_id
+        return None
+
     def animate(
         self, avatar_id: str, tracking: FaceTrackingResult, frame: VideoFrame
     ) -> RenderedFrame:

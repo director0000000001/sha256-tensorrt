@@ -102,7 +102,7 @@ from sha256.avatar.engine_warp import (
 from sha256.avatar.engine_warp import _OVAL_SLICE as OVAL_COUNT_SLICE
 from sha256.core.avatar import AvatarDescriptor, AvatarManifest
 from sha256.core.enums import PixelFormat
-from sha256.core.errors import AvatarLoadError
+from sha256.core.errors import AvatarLoadError, TrackingError
 from sha256.core.interfaces import AvatarEngine
 from sha256.core.types import FaceTrackingResult, FrameMetadata, LandmarkSet, VideoFrame
 
@@ -467,6 +467,14 @@ class TestProtocolConformance:
         """None means "not measured"; zero would read as a measurement."""
         assert WarpAvatarEngine().estimated_vram_mb("anything") is None
 
+    def test_reset_anchor_and_rest_status_are_no_ops(self):
+        """This engine picks a fresh photograph every frame; nothing is
+        learned to re-anchor, so both are inert -- see the LivePortrait
+        engine for the one that isn't."""
+        built = WarpAvatarEngine()
+        built.reset_anchor("anything")  # must not raise
+        assert built.rest_status("anything") is None
+
 
 class TestLoading:
     def test_loads_an_avatar_and_builds_a_mesh(self, engine, tmp_path):
@@ -530,6 +538,116 @@ class TestLoading:
 
         with pytest.raises(AvatarLoadError, match="front-facing"):
             built.load_avatar(make_descriptor(tmp_path))
+
+
+class _RecordingTracker:
+    """Stands in for ``MediaPipeFaceTracker`` in the shared-load-tracker tests.
+
+    ``_landmarks_of`` imports the real class locally on every call
+    (``from sha256.tracking.mediapipe_tracker import MediaPipeFaceTracker``),
+    so patching the attribute on that module -- not on the engine -- is what
+    reaches it.
+    """
+
+    #: every instance built, in construction order.
+    log: ClassVar[list[_RecordingTracker]] = []
+    #: how many of the next ``start()`` calls should raise, across all instances.
+    fail_starts: ClassVar[int] = 0
+
+    def __init__(self, *, model_path: Path, running_mode: str = "video") -> None:
+        self.model_path = model_path
+        self.running_mode = running_mode
+        self.started = False
+        self.stopped = False
+        type(self).log.append(self)
+
+    def start(self) -> None:
+        if type(self).fail_starts > 0:
+            type(self).fail_starts -= 1
+            msg = "the landmarker could not be started"
+            raise TrackingError(msg)
+        self.started = True
+
+    def stop(self) -> None:
+        self.stopped = True
+
+    def process(self, frame: VideoFrame) -> FaceTrackingResult:
+        del frame
+        return FaceTrackingResult(
+            metadata=FrameMetadata(frame_id=0, capture_timestamp=0.0),
+            face_detected=True,
+            landmarks=LandmarkSet(points=synthetic_landmarks(), scheme="mediapipe_478"),
+        )
+
+
+@pytest.fixture
+def recording_tracker(monkeypatch: pytest.MonkeyPatch) -> type[_RecordingTracker]:
+    _RecordingTracker.log = []
+    _RecordingTracker.fail_starts = 0
+    monkeypatch.setattr(
+        "sha256.tracking.mediapipe_tracker.MediaPipeFaceTracker", _RecordingTracker
+    )
+    return _RecordingTracker
+
+
+class TestSharedLoadTracker:
+    """One landmarker for a whole load, not one per photograph.
+
+    These build a bare ``WarpAvatarEngine()`` rather than using the ``engine``
+    fixture, which stubs ``_landmarks_of`` itself and so never reaches the
+    tracker construction under test here.
+    """
+
+    def test_one_tracker_serves_the_whole_load(self, recording_tracker):
+        built = WarpAvatarEngine()
+        built._load_open = True
+        image = np.zeros((8, 8, 3), dtype=np.uint8)
+
+        for _ in range(3):
+            built._landmarks_of(image, "avatar_test")
+
+        assert len(recording_tracker.log) == 1
+        tracker = recording_tracker.log[0]
+        assert tracker.running_mode == "image"
+        assert not tracker.stopped
+        assert built._load_tracker is tracker
+
+    def test_outside_a_load_each_photograph_gets_its_own(self, recording_tracker):
+        built = WarpAvatarEngine()
+        image = np.zeros((8, 8, 3), dtype=np.uint8)
+
+        for _ in range(3):
+            built._landmarks_of(image, "avatar_test")
+
+        assert len(recording_tracker.log) == 3
+        assert all(tracker.stopped for tracker in recording_tracker.log)
+        assert all(tracker.running_mode == "video" for tracker in recording_tracker.log)
+
+    def test_a_shared_tracker_that_fails_to_start_falls_back_per_photograph(
+        self, recording_tracker
+    ):
+        built = WarpAvatarEngine()
+        built._load_open = True
+        recording_tracker.fail_starts = 1
+        image = np.zeros((8, 8, 3), dtype=np.uint8)
+
+        points = built._landmarks_of(image, "avatar_test")
+
+        assert points is not None
+        assert len(recording_tracker.log) == 2
+        failed, fallback = recording_tracker.log
+        assert not failed.started
+        assert fallback.started
+        assert fallback.stopped
+        assert built._load_tracker is None
+
+    def test_load_avatar_closes_its_load_state(self, engine, tmp_path):
+        """`engine` stubs `_landmarks_of` directly -- this checks `load_avatar`'s
+        own bookkeeping around it, not the tracker construction itself."""
+        engine.load_avatar(make_descriptor(tmp_path))
+
+        assert engine._load_open is False
+        assert engine._load_tracker is None
 
 
 class TestAnimation:

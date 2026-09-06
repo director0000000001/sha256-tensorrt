@@ -53,6 +53,23 @@ _HISTORY_FRAMES = 300
 _IDLE_SLEEP_SECONDS = 0.002
 
 
+def _as_bgr(data: Any, pixel_format: PixelFormat) -> Any | None:
+    """``data`` as the BGR that ``cv2.imwrite`` expects, or ``None`` for a
+    layout with no cheap conversion (NV12 is never seen past the camera)."""
+    import cv2
+
+    if pixel_format is PixelFormat.BGR24:
+        return data
+    conversions = {
+        PixelFormat.RGB24: cv2.COLOR_RGB2BGR,
+        PixelFormat.RGBA32: cv2.COLOR_RGBA2BGR,
+        PixelFormat.BGRA32: cv2.COLOR_BGRA2BGR,
+        PixelFormat.GRAY8: cv2.COLOR_GRAY2BGR,
+    }
+    code = conversions.get(pixel_format)
+    return None if code is None else cv2.cvtColor(data, code)
+
+
 class PipelineSnapshot:
     """The newest frame and its context, taken as one consistent set.
 
@@ -187,12 +204,18 @@ class PipelineRunner:
         button when it looks wrong instead, and the exact seconds that produced
         it arrive as a file.
 
-        **Tracking, not video.** Landmarks, blendshapes and head pose fully
-        determine what the engine did, and they are a few kilobytes a second
-        against a hundred megabytes for the frames. They are also not a
-        photograph of anyone: the only imagery written is the single rendered
-        frame, which is the avatar, and it is written so that what the owner saw
-        can be compared with what a replay produces.
+        **Tracking, not video.** Landmarks, blendshapes and head pose are a few
+        kilobytes a second against a hundred megabytes for the frames, and for
+        the photograph engine they fully determine what it drew. Two frames are
+        written beside them, both from the tick of the press: ``seen.png``, the
+        composited output that was on screen, and ``camera.png``, the camera
+        frame it was made from. The second one **is a photograph of the
+        person**, and it is written knowingly: the neural engine reads raw
+        pixels, so its output cannot be replayed from landmarks, and a jaw band
+        or a lost smile can only be measured as output against scene at the
+        same instant. Day 11's four complaints had to be guessed at from old
+        clips because this file did not exist. The window says which file is
+        which when the button is pressed.
         """
         import numpy as np
 
@@ -214,13 +237,28 @@ class PipelineRunner:
             (),
         )
         width = len(names)
+        # A frame without a face has no landmarks, and its placeholder has to be
+        # the shape of a real reading or ``np.stack`` refuses the whole capture.
+        # It was ``(1, 3)`` against a real ``(478, 3)``, so any tracking loss in
+        # the ten seconds — the very moment the button exists for — turned the
+        # press into a warning and the moment was lost. The count comes from the
+        # first frame that has one, the way ``width`` does above; ``detected``
+        # below says which rows are placeholders, so nothing is invented. With
+        # no face in any frame the capture is still written, holding no points
+        # at all: a ten-second loss is itself a report worth having on disk.
+        count = next((r.landmarks.count for r in history if r.landmarks is not None), 0)
+        if count == 0:
+            _LOG.warning(
+                "No face in any of the last %d frame(s); the capture holds no landmarks",
+                len(history),
+            )
         np.savez_compressed(
             target / "tracking.npz",
             landmarks=np.stack(
                 [
                     r.landmarks.points
                     if r.landmarks is not None
-                    else np.zeros((1, 3), dtype=np.float32)
+                    else np.zeros((count, 3), dtype=np.float32)
                     for r in history
                 ]
             ),
@@ -246,13 +284,19 @@ class PipelineRunner:
             names=np.array(names),
         )
 
-        if snapshot is not None and snapshot.frame is not None:
+        if snapshot is not None:
             import cv2
 
-            seen: Any = snapshot.frame.data
-            if snapshot.frame.pixel_format is PixelFormat.RGB24:
-                seen = cv2.cvtColor(seen, cv2.COLOR_RGB2BGR)
-            cv2.imwrite(str(target / "seen.png"), seen)
+            # One snapshot, so the two pictures are the same tick: the frame on
+            # screen and the camera frame it was composited from.
+            for name, picture in (("seen.png", snapshot.frame), ("camera.png", snapshot.source)):
+                if picture is None:
+                    continue
+                bgr = _as_bgr(picture.data, picture.pixel_format)
+                if bgr is None:
+                    _LOG.warning("%s not written: cannot convert %s", name, picture.pixel_format)
+                    continue
+                cv2.imwrite(str(target / name), bgr)
 
         _LOG.info("Captured %d frame(s) of tracking to %s", len(history), target)
         return target

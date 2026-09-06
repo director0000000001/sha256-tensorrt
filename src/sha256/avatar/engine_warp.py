@@ -2342,6 +2342,12 @@ class WarpAvatarEngine:
         self._last_face: dict[str, tuple[np.ndarray, FaceTrackingResult, float]] = {}
         self._warned: dict[str, bool] = {}
 
+        # One landmarker for every photograph of a load, opened by the first
+        # photograph that needs it and closed when the load ends. See
+        # :meth:`_landmarks_of`. Outside a load both are cleared.
+        self._load_open = False
+        self._load_tracker: Any = None
+
     # --- Component ---------------------------------------------------------
 
     @property
@@ -2388,22 +2394,31 @@ class WarpAvatarEngine:
             )
             raise AvatarLoadError(msg)
 
-        full = self._read_portrait(descriptor)
-        full_points = self._landmarks_of(full, descriptor.id)
+        # Every photograph read during this load shares one landmarker — see
+        # :meth:`_landmarks_of` — and it is closed however the load ends.
+        self._load_open = True
+        try:
+            full = self._read_portrait(descriptor)
+            full_points = self._landmarks_of(full, descriptor.id)
 
-        # Crop to the face before anything else. Blending sources is a
-        # per-pixel cost paid every frame, and a 1024x1024 portrait is mostly
-        # background and shoulders that the mesh never samples. Cropping first
-        # measured 31 ms down to single digits.
-        image, points = _crop_to_face(full, full_points)
-        # Before triangulating, not after: an iris standing proud of its own
-        # eyelid makes the triangles between them inside-out, and a
-        # triangulation computed from that is wrong for every frame after.
-        _contain_irises(points)
-        triangles = _triangulate(points, image.shape[1], image.shape[0])
-        sources, source_points, gaps, ladder, smiles, eyes, brows, speech = self._align_variants(
-            descriptor, image, points, triangles
-        )
+            # Crop to the face before anything else. Blending sources is a
+            # per-pixel cost paid every frame, and a 1024x1024 portrait is mostly
+            # background and shoulders that the mesh never samples. Cropping first
+            # measured 31 ms down to single digits.
+            image, points = _crop_to_face(full, full_points)
+            # Before triangulating, not after: an iris standing proud of its own
+            # eyelid makes the triangles between them inside-out, and a
+            # triangulation computed from that is wrong for every frame after.
+            _contain_irises(points)
+            triangles = _triangulate(points, image.shape[1], image.shape[0])
+            sources, source_points, gaps, ladder, smiles, eyes, brows, speech = (
+                self._align_variants(descriptor, image, points, triangles)
+            )
+        finally:
+            self._load_open = False
+            tracker, self._load_tracker = self._load_tracker, None
+            if tracker is not None:
+                tracker.stop()
         full_gap = gaps.get(_OPENING_REFERENCE_ROLE, _LIP_GAP_FULL)
 
         self._loaded[descriptor.id] = _LoadedAvatar(
@@ -2752,6 +2767,16 @@ class WarpAvatarEngine:
         del avatar_id
         return None
 
+    def reset_anchor(self, avatar_id: str) -> None:
+        """No-op: this engine picks a fresh photograph every frame, nothing
+        learned to re-anchor."""
+        del avatar_id
+
+    def rest_status(self, avatar_id: str) -> str | None:
+        """Always ``None``: nothing here is ever mid-learning."""
+        del avatar_id
+        return None
+
     def animate(
         self, avatar_id: str, tracking: FaceTrackingResult, frame: VideoFrame
     ) -> RenderedFrame:
@@ -2853,6 +2878,19 @@ class WarpAvatarEngine:
         The same tracker that drives the pipeline is used, so the avatar's mesh
         and the live mesh are guaranteed to be the same topology — a different
         detector here would silently pair up unrelated points.
+
+        **One landmarker for the whole load, in IMAGE mode.** It was one per
+        photograph — built, started and closed for each of the library's 250
+        assets — and building the graph is the cost: measured 2026-09-04,
+        0.093 to 0.135 s per photograph against 0.006 s for the detection
+        itself, about 24 s of a 48 s load. It cannot simply be the same VIDEO
+        landmarker reused, because VIDEO mode carries state from one frame to
+        the next and every photograph would then be read through the one before
+        it. IMAGE mode reads each still as the first frame ever seen, which is
+        what a fresh VIDEO landmarker did, and the two agree to 0.000 px on
+        every asset in the owner's library. The shared one is opened here by
+        the first photograph of a load and closed by :meth:`load_avatar`; if it
+        cannot be opened, each photograph gets its own, as before.
         """
         from sha256.tracking.mediapipe_tracker import (
             DEFAULT_MODEL_RELATIVE_PATH,
@@ -2860,8 +2898,24 @@ class WarpAvatarEngine:
         )
 
         model_path = self._model_path or (Path("models") / DEFAULT_MODEL_RELATIVE_PATH)
-        tracker = MediaPipeFaceTracker(model_path=model_path)
-        tracker.start()
+        tracker = self._load_tracker
+        if tracker is None and self._load_open:
+            try:
+                tracker = MediaPipeFaceTracker(model_path=model_path, running_mode="image")
+                tracker.start()
+            except Exception:
+                _LOG.warning(
+                    "Avatar %s: could not open one landmarker for the load; "
+                    "reading each photograph with its own",
+                    avatar_id,
+                    exc_info=True,
+                )
+                tracker = None
+            self._load_tracker = tracker
+        owned = tracker is None
+        if owned:
+            tracker = MediaPipeFaceTracker(model_path=model_path)
+            tracker.start()
         try:
             result = tracker.process(
                 VideoFrame(
@@ -2871,7 +2925,8 @@ class WarpAvatarEngine:
                 )
             )
         finally:
-            tracker.stop()
+            if owned:
+                tracker.stop()
 
         if not result.face_detected or result.landmarks is None:
             msg = (

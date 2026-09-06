@@ -271,6 +271,18 @@ class MainWindow(QMainWindow):
         self._capture_button.clicked.connect(self._on_capture)
         layout.addWidget(self._capture_button)
 
+        # An engine that learns a resting face from the first frames after
+        # load gets it wrong if the owner was not sitting still and frontal
+        # right then (day 5, 2026-09-05: a call reached for the mouse and the
+        # avatar sat visibly off-centre for the rest of the session). This is
+        # the one knob that says "measure it again" -- see AvatarEngine.reset_anchor.
+        self._recentre_button = QPushButton("Re-centre")
+        self._recentre_button.setToolTip(
+            "Learn the resting face again — look straight at the camera for a second."
+        )
+        self._recentre_button.clicked.connect(self._on_recentre)
+        layout.addWidget(self._recentre_button)
+
         layout.addStretch(1)
 
         # Empty unless something went wrong, so the bar stays quiet in normal
@@ -335,9 +347,10 @@ class MainWindow(QMainWindow):
         """Save the moment that looked wrong, and say where it went.
 
         Where it went is not a detail. What is written is tracking — landmarks
-        and expression readings, not a photograph — plus the one frame that was
-        on screen, and the person pressing the button is entitled to know which
-        of those is which and where both landed.
+        and expression readings, not a photograph — plus the frame that was on
+        screen and, since day 12, the camera frame it came from, which is a
+        photograph of the person pressing the button. They are entitled to know
+        which file is which and where all of them landed.
         """
         try:
             target = self._runner.capture(self._context.paths.captures)
@@ -352,8 +365,21 @@ class MainWindow(QMainWindow):
             "Saved the last ten seconds.\n\n"
             f"{target}\n\n"
             "tracking.npz — landmark and expression readings, no imagery\n"
-            "seen.png — the frame that was on screen",
+            "seen.png — the frame that was on screen (the avatar)\n"
+            "camera.png — the camera frame at the same instant (your face)",
         )
+
+    def _on_recentre(self) -> None:
+        """Learn the resting face again, for whichever avatar is active.
+
+        A no-op for an engine (or an avatar) with no learned rest — see
+        AvatarEngine.reset_anchor — so this is safe to press at any time,
+        including before anything is loaded.
+        """
+        engine = self._context.avatars.engine
+        active = self._context.avatars.active_id
+        if engine is not None and active is not None:
+            engine.reset_anchor(active)
 
     def _on_publish_toggled(self, enabled: bool) -> None:
         try:
@@ -455,8 +481,16 @@ class MainWindow(QMainWindow):
         if running and tracking is not None and not tracking.face_detected:
             self._status_line.setText("Face not found — holding the avatar")
         else:
-            self._status_line.setText("")
-        self._status_line.setText("")
+            # Once a face is found, an engine still learning its rest (see
+            # AvatarEngine.rest_status) gets to say so — the owner then knows
+            # to sit still and frontal rather than wonder why the avatar looks
+            # off, for the second or so that takes.
+            rest = None
+            engine = self._context.avatars.engine
+            active = self._context.avatars.active_id
+            if running and engine is not None and active is not None:
+                rest = engine.rest_status(active)
+            self._status_line.setText(rest or "")
 
         if not self._publish_check.isEnabled():
             # Poll only for the one transition that matters — the owner installs
