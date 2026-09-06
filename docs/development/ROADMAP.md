@@ -2781,6 +2781,93 @@ remains. The portrait's own moustache and chin stubble are now the
 mismatch in the other direction; a clean-shaven portrait would remove it
 (his call, a portrait lever). Tests: the default test reads 0.0.
 
+**Day 12, night (2026-09-07, 00:15-01:40; his four captures were to come, one
+did): "the face trembles when I smile -- it cannot settle how wide the smile
+should be." Found, and it was not the smile.**
+
+*The trail.* His capture at 00:15:55 (the night jaw: band gone, step +0.8
+grey levels against +16 on the clips with the beard; the forehead line is
+what shows now). Then the smile, on driving.mkv's closed-lip smile
+(806-870, his width steady at 0.628-0.636, gates 1.00 throughout, crop
+constant to 0.5 px, pose constant, no hold, no blink): the avatar's mouth
+width fell 0.666 -> 0.561 in two frames and climbed back over twelve,
+three times in sixty frames, the corners dropping 6-8 px with it. Not the
+camera (the mouth box's sharpness, brightness and frame-to-frame change
+flat at the drops), not the measuring tracker (stills of the render show
+it: 815 smiling, 816-819 neutral, 824 half, 828 smiling). The motion
+extractor's own reading, read eagerly on the same crops: keypoint 14's y
+relative to the anchor flipping -0.010 / -0.007 / -0.004 between
+consecutive frames -- three levels, no in-between.
+
+*The cause.* The extractor ran in fp16 by a plain `.half()` on the whole
+module (day 1). LivePortrait's own half-precision is `torch.autocast`,
+which keeps the normalisations in fp32; ours put the ConvNeXt-V2's global
+norms in fp16 too. That is not a precision loss, it is a different
+function: on the portrait, fp16 read scale 1.86 (fp32: 1.01), t -0.073
+(-0.010), the eye keypoints' y at -0.31..-0.14 (+0.23..+0.30) and the
+anchor's eye expression at -0.07 (-0.002). Frame-to-frame |change| on a
+held smile, fp16 against fp32: keypoint 14 y 0.0030 vs 0.0002, yaw 0.64
+vs 0.07 degrees, scale 0.022 vs 0.003, t x 0.0034 vs 0.0003 (bf16 nearly
+as good as fp32). The cost is nothing: 5.1 ms fp16, 5.0 ms fp32 eager
+(cuDNN's convolutions run TF32 either way). The other three networks in
+fp16 are fine: warping, decoder and the three MLPs re-run in fp32 give
+the same picture (mean 0.12-0.16 grey levels, p99 2; the tracked EAR,
+mouth ratio and width identical), so they stay half.
+
+*What it explains.* Twelve days of gains were fitted to that function:
+eye_gain 0.25 against LivePortrait's own 1.0 (the eye network was reading
+an out-of-range x_s); the lip network "only ever pressed the lips
+thinner" and stitching "sat the face to the side" (both read x_s); the
+crop-scale cliff and the grimaces at 2.1/2.3; "the avatar wanders while
+I sit still"; "the face bounces on the slightest sideways shift"; day
+7's EMA that could not clear its bar. And the relative expression came
+out about 1.8x too large, flickering -- the closed-lip smile he liked was
+partly noise.
+
+*The build now.* Motion extractor in fp32 (`_load_nets`), the image cast
+on the way in. `eye_gain` 1.0 (0.25 barely closed the eyes on the
+correct x_s: blink gain 0.16). A new `expression_gain` (default 1.0,
+[0, 3]; the day-6 lever) on the whole relative expression except the
+eyes' rows, so the amplitude is put back by measurement; his metadata
+carries 1.8. `mouth_smile_gain`'s bound is [0, 3] now, for the closed
+smile if he wants it wider. Measured on both clips (eye_gain 1.0):
+
+| driving.mkv | fp16, day 11 | fp32, eg 1.0 | fp32, eg 1.5 | **fp32, eg 1.8** | fp32, eg 2.2 |
+|---|---|---|---|---|---|
+| blink gain (>= 0.85) | 0.902 | 0.971 | 0.972 | **0.971** | 0.971 |
+| talk + open-mouth mar gain | 0.636 | 0.842 | 0.957 | **0.987** | 0.953 |
+| natural talk 713-1306 mar gain (>= 0.85) | 0.859 | -- | -- | **0.941** | -- |
+| smile width gain (both smiles / closed) | 0.728 / 1.383 | 0.182 / 0.078 | 0.320 / 0.202 | **0.441 / 0.288** | 0.588 / 0.383 |
+| brow gain | 0.641 | 0.674 | 0.693 | 0.701 | 0.711 |
+| closed smile: avatar width jitter p90 | 2.46% | 0.30% | 0.44% | **0.50%** | 0.54% |
+| still: avatar EAR / brow / width spread | .038 / .013 / .022 | .027 / .015 / .016 | same | **.027 / .015 / .016** | same |
+| turn L/R: dx_nose p90 | 47.7 px | 19.7 | 19.6 | **19.9** | 19.9 |
+| natural 681 / 1576 dy_eye | -5.2 / -1.6 | -- | -- | -6.8 / -6.9 | -- |
+
+1.8 kept: the talk gain reads 1.0 on driving and 0.94 on natural, the
+blink 0.97, the turn lag less than half of day 11's, the smile's jitter a
+fifth, and the still face steadier than it has ever been. What he will
+see smaller: the closed-lip smile (0.29 against the old, inflated 1.38)
+-- `mouth_smile_gain` above 1 is the knob, unmeasured. The natural
+clip's still-segment EAR spread is 0.044 against 0.035 (eye_gain 1.0
+passes more of the tracker's own jitter on his lids), and 1576's dy_eye
+-6.9 sits at the edge of the rest +-5 bar. 213 engine tests; ruff and
+mypy as before. Not committed until he has looked.
+
+*His look, 03:00 (five captures 02:52-02:55: closed smile, toothy smile,
+turn with a blink, eyes shut, a 42-degree turn).* "The only thing I do
+not like is that my forehead shows -- that line is bad and noticeable.
+Everything else is good. Push this version to main, it is the best we
+have had." Pushed. The forehead line -- the mask's top edge at the
+hairline, the portrait's paler forehead over his -- is the next thing.
+
+*Re-opened by this, in order of likely payoff, each a measurement away:*
+lip_retargeting and stitching (both read x_s, both were judged on the
+broken one); the crop scale (2.2 was chosen against fp16's cliffs, and
+2.2 in our box is about LivePortrait's 2.5 -- the expression reads small
+partly for that); eye_headroom / eye_scale; the gate thresholds do not
+move (they read his geometry, not the network).
+
 ### Phase 2 — live, days 6-9
 
 - Engine in the app, live camera, the owner testing daily.
