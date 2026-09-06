@@ -260,8 +260,9 @@ def main() -> int:
     parser.add_argument(
         "--jaw-shrink",
         type=float,
-        default=0.08,
-        help="Capture mode: the driver oval's jaw shrink to measure under (0 = day 11).",
+        default=0.0,
+        help="Capture mode: the driver oval's jaw shrink to measure under (0 = the join at "
+        "the contour, the default; 0.08 = the bearded setting).",
     )
     parser.add_argument(
         "--option",

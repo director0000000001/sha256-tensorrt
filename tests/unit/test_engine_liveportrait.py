@@ -1399,8 +1399,11 @@ class TestRegionMasks:
     def test_mouth_axis_gain_reads_and_validates(self):
         assert _mouth_axis_gain({}, "mouth_lateral_gain", 0.0) == 0.0
         assert _mouth_axis_gain({"mouth_smile_gain": 0.8}, "mouth_smile_gain", 1.0) == 0.8
+        assert (
+            _mouth_axis_gain({"mouth_smile_gain": 1.5}, "mouth_smile_gain", 1.0) == 1.5
+        )  # day 12: up to 3
         with pytest.raises(ValueError, match="mouth_smile_gain"):
-            _mouth_axis_gain({"mouth_smile_gain": 1.5}, "mouth_smile_gain", 1.0)
+            _mouth_axis_gain({"mouth_smile_gain": 3.5}, "mouth_smile_gain", 1.0)
 
     def test_rel_mask_at_gain_one_is_uniformly_ones(self):
         """1.0 is a no-op wherever it appears in the mask, eye keypoints

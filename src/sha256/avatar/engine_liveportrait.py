@@ -1401,10 +1401,34 @@ def _mouth_tilt_trim(options: dict[str, Any]) -> float:
     return t
 
 
+def _expression_gain(options: dict[str, Any]) -> float:
+    """``expression_gain`` in ``[0, 3]``, default 1.0: one multiplier on the
+    whole relative expression (``exp_now - exp_d0``) except the eyes' rows.
+
+    Day 12 (2026-09-07). Until today the motion extractor ran in fp16 by a
+    plain ``.half()``, and that was not a precision loss but a different
+    function: on the portrait it read scale 1.86 (fp32: 1.01), t -0.073
+    (-0.010) and keypoints of the wrong sign, and its relative expression
+    came out about 1.8x too large and flickering (see _load_nets). Twelve
+    days of gains were fitted to that. With the extractor in fp32 the
+    reading is right and steady, and everything the mouth does reads
+    smaller than he is used to: on driving.mkv the talk mouth gain 0.64 ->
+    0.85 but the closed smile's width gain 0.73 -> 0.18, on natural.mkv
+    the talk gain 0.86 -> 0.50. This is the day-6 lever, built now, so the
+    amplitude can be put back by measurement instead of by the old noise.
+    """
+    g = float(options.get("expression_gain", 1.0))
+    if not (0.0 <= g <= 3.0):
+        raise ValueError(f"expression_gain must be in [0, 3], got {g}")
+    return g
+
+
 def _mouth_axis_gain(options: dict[str, Any], key: str, default: float) -> float:
     g = float(options.get(key, default))
-    if not (0.0 <= g <= 1.0):
-        raise ValueError(f"{key} must be in [0, 1], got {g}")
+    # Day 12: up to 3 -- with the extractor in fp32 the smile axis reads
+    # smaller than the fp16 noise made it, and a gain past 1 is a lever now.
+    if not (0.0 <= g <= 3.0):
+        raise ValueError(f"{key} must be in [0, 3], got {g}")
     return g
 
 
@@ -1416,6 +1440,7 @@ def _region_masks(
     *,
     mouth_lateral_gain: float = 0.0,
     mouth_smile_gain: float = 1.0,
+    expression_gain: float = 1.0,
 ) -> tuple[Any, Any]:
     """The two masks :meth:`LivePortraitEngine._drive` multiplies into the
     relative expression and the eye retargeting network's own output --
@@ -1440,14 +1465,17 @@ def _region_masks(
     :func:`_eye_expression_gain`, the only caller that reads it from an
     option).
     """
-    rel_mask = torch.ones(1, NUM_KP, 3, device=device, dtype=torch.float32)
+    # Day 12: ``expression_gain`` scales the whole relative expression except
+    # the eyes' rows (the retargeting network drives those). See
+    # _expression_gain for why it exists at all.
+    rel_mask = torch.full((1, NUM_KP, 3), expression_gain, device=device, dtype=torch.float32)
     rel_mask[0, list(EYE_KEYPOINTS), :] = eye_expression_gain
     # The mouth's own axes (day 9, later; see _MOUTH_LATERAL/_MOUTH_SMILE):
     # the tilt components and the smile component, each weighted.
     for k, axis in _MOUTH_LATERAL:
-        rel_mask[0, k, axis] = mouth_lateral_gain
+        rel_mask[0, k, axis] = mouth_lateral_gain * expression_gain
     for k, axis in _MOUTH_SMILE:
-        rel_mask[0, k, axis] = mouth_smile_gain
+        rel_mask[0, k, axis] = mouth_smile_gain * expression_gain
     eye_mask = torch.zeros(1, NUM_KP, 3, device=device, dtype=torch.float32)
     if eye_mask_output:
         eye_mask[0, list(EYE_KEYPOINTS), :] = 1.0
@@ -2356,7 +2384,7 @@ class LivePortraitEngine:
         loaded.c_s_lip = c_s_lip
 
         with torch.no_grad():
-            info = self._nets["motion"](image)
+            info = self._nets["motion"](image.float())
             loaded.f_s = self._nets["appearance"](image)
             loaded.x_c_s = info["kp"].float().view(1, NUM_KP, 3)
             # Day 10, Fable's review of Step 1: a fixed point on the
@@ -2424,6 +2452,7 @@ class LivePortraitEngine:
                 self._device,
                 mouth_lateral_gain=_mouth_axis_gain(loaded.options, "mouth_lateral_gain", 0.0),
                 mouth_smile_gain=_mouth_axis_gain(loaded.options, "mouth_smile_gain", 1.0),
+                expression_gain=_expression_gain(loaded.options),
             )
             loaded.crop_filters = _crop_filters(loaded.options)
 
@@ -2987,7 +3016,7 @@ class LivePortraitEngine:
         evolves purely by EMA from that clean starting point.
         """
         torch = self._torch
-        info = self._nets["motion"](image)
+        info = self._nets["motion"](image.float())
         sums = loaded.anchor_sum
         parts = {
             "exp": info["exp"].float().view(1, NUM_KP, 3),
@@ -3072,7 +3101,7 @@ class LivePortraitEngine:
         """Motion in, the portrait's face out. Tensor arithmetic only, so it
         captures into a graph; every reference it reads is a static tensor."""
         torch = self._torch
-        info = self._nets["motion"](image)
+        info = self._nets["motion"](image.float())
         exp = info["exp"].float().view(1, NUM_KP, 3)
         scale = info["scale"].float().view(1, 1)
         t = info["t"].float().view(1, 3)
@@ -3434,14 +3463,26 @@ class LivePortraitEngine:
             )
             raise EngineError(msg)
 
-        def build(net: Any, path: Path, key: str | None = None) -> Any:
+        def build(net: Any, path: Path, key: str | None = None, dtype: Any = None) -> Any:
             state = torch.load(path, map_location="cpu", weights_only=True)
             if key is not None:
                 state = state[key]
             state = {name.replace("module.", ""): value for name, value in state.items()}
             net.load_state_dict(state)
-            return net.to(self._device).half().eval()
+            return net.to(self._device, dtype or torch.float16).eval()
 
+        # Day 12 (2026-09-07), his "the smile trembles": the motion extractor
+        # runs in fp32, the other three in fp16. In fp16 its reading of a
+        # *held* closed-lip smile (driving.mkv 806-834, his mouth and the
+        # camera still to the pixel) flipped between three levels -- full
+        # smile, half, neutral -- from one frame to the next, and every head
+        # with it: frame-to-frame |change| p90, fp16 against fp32: mouth
+        # keypoint 14 y 0.0030 vs 0.0002, yaw 0.64 vs 0.07 degrees, scale
+        # 0.022 vs 0.003, t x 0.0034 vs 0.0003. The day-7 EMA on these
+        # outputs (motion_smoothing, rejected) was treating this. It costs
+        # nothing: 5.1 ms fp16, 5.0 ms fp32 eager on this machine (cuDNN's
+        # convolutions run TF32 either way); the image it reads is cast on
+        # the way in. bf16 was nearly as good (0.0004 / 0.09 / 0.004).
         return {
             "appearance": build(
                 AppearanceFeatureExtractor(**_APPEARANCE_PARAMS),  # type: ignore[no-untyped-call]
@@ -3450,6 +3491,7 @@ class LivePortraitEngine:
             "motion": build(
                 MotionExtractor(**_MOTION_PARAMS),  # type: ignore[no-untyped-call]
                 files["motion"],
+                dtype=torch.float32,
             ),
             "warping": build(
                 WarpingNetwork(**_WARPING_PARAMS),  # type: ignore[no-untyped-call]

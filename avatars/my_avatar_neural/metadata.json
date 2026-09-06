@@ -30,7 +30,7 @@
     "crop_scale": 2.2,
     "crop_vy_ratio": -0.125,
     "stitching": false,
-    "eye_gain": 0.25,
+    "eye_gain": 1.0,
     "eye_headroom": 1.1,
     "eye_scale": 0.95,
     "lip_retargeting": false,
@@ -55,6 +55,7 @@
     "translation_gain_y": 0.0,
     "crop_centre": "eyeline",
     "gaze_gain": 1.0,
-    "mask_jaw_shrink": 0.0
+    "mask_jaw_shrink": 0.0,
+    "expression_gain": 1.8
   }
 }
