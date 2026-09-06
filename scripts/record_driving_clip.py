@@ -88,7 +88,29 @@ SPEECH_STEPS: tuple[tuple[float, str], ...] = (
     (3.0, "SIT STILL again. Relax."),
 )
 
-SCRIPTS: dict[str, tuple[tuple[float, str], ...]] = {"full": STEPS, "speech": SPEECH_STEPS}
+# The natural script, added 2026-09-05 (day 6) for the two things the owner
+# sees live that the guided clip never holds: *a face simply kept still* (the
+# avatar "tries expressions on its own") and *the head tilted slightly down*
+# (the avatar turns sulky). Both happen in a call posture -- eyes on the
+# screen, a little below the camera -- which the guided clip's "look straight
+# at the camera" instructions never produce. The still four seconds at the
+# front stay: the anchor is only learned from frontal frames (see
+# ``_anchor_frame_ok``), and without them there is no anchor at all.
+NATURAL_STEPS: tuple[tuple[float, str], ...] = (
+    (4.0, "SIT STILL. Look straight at the camera. Relax your face."),
+    (10.0, "Now look at the SCREEN, as on a call. Stay still, relaxed. Do nothing."),
+    (10.0, "Tilt your head SLIGHTLY down, hold two seconds, come back. Three times."),
+    (20.0, "TALK normally, as if on a call. Move the way you naturally would."),
+    (5.0, "Smile, then relax."),
+    (5.0, "Raise your eyebrows, then frown, then relax."),
+    (3.0, "SIT STILL again. Relax."),
+)
+
+SCRIPTS: dict[str, tuple[tuple[float, str], ...]] = {
+    "full": STEPS,
+    "speech": SPEECH_STEPS,
+    "natural": NATURAL_STEPS,
+}
 
 LEAD_IN = 5.0
 
@@ -104,7 +126,15 @@ def main() -> int:
         "--script",
         choices=sorted(SCRIPTS),
         default="full",
-        help="'full' is the 62-second guided clip; 'speech' is 39 seconds of the mouth at speed.",
+        help="'full' is the 62-second guided clip; 'speech' is 39 seconds of the mouth at "
+        "speed; 'natural' is 57 seconds of a call posture: still, head slightly down, talk.",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace an existing clip of the same name. Without it, an existing clip is "
+        "kept -- on 2026-09-05 a re-run silently replaced the clip every measurement of "
+        "the day had been made on.",
     )
     args = parser.parse_args()
     steps = SCRIPTS[args.script]
@@ -124,6 +154,9 @@ def main() -> int:
     default_name = "driving.mkv" if args.script == "full" else f"driving-{args.script}.mkv"
     out = Path(args.out) if args.out else REPO_ROOT / "recordings" / default_name
     out.parent.mkdir(parents=True, exist_ok=True)
+    if out.exists() and not args.overwrite:
+        print(f"{out} already exists. Pass --out <new name> to keep it, or --overwrite.")
+        return 2
 
     total = sum(seconds for seconds, _ in steps)
     print("=" * 68)
