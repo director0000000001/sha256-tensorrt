@@ -2868,6 +2868,58 @@ broken one); the crop scale (2.2 was chosen against fp16's cliffs, and
 partly for that); eye_headroom / eye_scale; the gate thresholds do not
 move (they read his geometry, not the network).
 
+**Day 13 opens with (2026-09-07; his two last captures of the night, 03:24,
+an "o" and a wide-open mouth, and his words: "if we fix these too it will
+be very good").** In this order, each measured before the next, on the
+fp32 build (a5d1217):
+
+1. **`scale_gain`** -- the eyes and brows grow when the mouth opens. On
+   driving.mkv's wide-open frames the avatar's inter-ocular distance is
+   1.087 of its rest (his 1.007), correlation 0.98 with his mouth ratio,
+   and the extractor's relative scale reads 1.081 on the same frames; in
+   fp16 the scale head did not respond (1.010), which is why this is new.
+   The crop is already sized from his resting face height by head-pose
+   distance, so the driver's relative scale carries only what the
+   extractor mistakes for it -- the day-11 argument for
+   `translation_gain_y`, applied to `scale_new`: `scale_gain` in
+   `[0, 1]`, default 0 (the portrait's own scale, always), the old line
+   bit-exact at 1. Bars: on the wide-open frames avatar inter-ocular
+   within 2% of rest; talk mar gain and blink gain unchanged (>= 0.85);
+   the head-turn lag not worse than 20 px p90.
+2. **The jaw under an open mouth** -- his own jaw shows below the
+   avatar's on an "o". The paste mask is the portrait's oval intersected
+   with his; his oval follows his dropped jaw, the portrait's is the
+   closed-mouth chin, and the intersection stops there. Fix: the
+   portrait's oval re-rendered per frame with its points below the mouth
+   line moved down by his chin's drop from rest (crop pixels, ramped
+   from the mouth to the chin), so the join follows the opening; the
+   mask box extended downward by the largest drop the anchor's face
+   height allows. Metric: the jaw band (`jaw_band.py`) on driving.mkv
+   986-1103 and on the two 03:24 captures' open frames (clip mode on
+   the capture is not possible -- the last frame is after the "o" -- so
+   the driving segment is the bar); stills at 1040 and 1060 for him.
+   Bars: jaw abs on the open frames not worse than the shut ones'; blink
+   and talk gains unchanged.
+3. **The forehead line** -- his one complaint on the build, worse on a
+   turn. Measured tonight on his frontal captures: the avatar's forehead
+   is +25 grey levels brighter than his in the ten pixels inside the
+   mask's top edge (the jaw: -6). First the number on driving.mkv's
+   turns (1380-1600, the day-3 "left-turn hairline band"), then two
+   levers in order: the top edge lower on the forehead
+   (`_OVAL_FOREHEAD_REACH` 0.85 -> a sweep), and the colour correction
+   from a plane to the warp engine's blurred low-resolution difference,
+   which can darken the forehead band alone. Bars: forehead step within
+   +-8 grey levels frontal and turned, the jaw's not worse.
+4. Then Phase 3 as agreed on the night of day 12: GPU check with the
+   photograph engine as the fallback, a shippable virtual camera,
+   enrolment, the `.exe`, the kill switch.
+
+Re-opened by the fp32 finding and not on this list unless a step above
+needs them: lip_retargeting, stitching, the crop scale,
+eye_headroom/eye_scale, `mouth_smile_gain` above 1 for the closed smile.
+A clean-shaven portrait taken in his room with his camera is the largest
+single lever and is his to take.
+
 ### Phase 2 — live, days 6-9
 
 - Engine in the app, live camera, the owner testing daily.
