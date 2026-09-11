@@ -7,6 +7,11 @@ sha256 runs in two shapes and they need different roots:
     it, and so a clean checkout is a clean state.
 *   **Installed** — run from a packaged build. Program files are read-only on
     Windows, so user data must live under ``%LOCALAPPDATA%``.
+*   **Portable** (day 16, D4) — the frozen ``.exe`` with ``avatars/``,
+    ``models/`` and ``configs/`` beside it, on a USB drive or in a folder:
+    everything stays together, which is how the owner hands it out. A
+    frozen build uses this layout when a ``models`` folder sits beside the
+    executable, else the installed one.
 
 Resolving this in one place means no module ever hard-codes a path, and the
 switch between the two is a single decision made at startup.
@@ -14,6 +19,7 @@ switch between the two is a single decision made at startup.
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -70,12 +76,32 @@ class AppPaths:
         return self.root / "captures"
 
     @classmethod
+    def portable_root(cls) -> Path | None:
+        """The folder of a frozen executable that carries its own ``models``
+        directory, else ``None``."""
+        if not getattr(sys, "frozen", False):
+            return None
+        root = Path(sys.executable).resolve().parent
+        return root if (root / "models").is_dir() else None
+
+    @classmethod
     def resolve(cls, *, force_development: bool | None = None) -> AppPaths:
         """Detect the run shape and build the matching layout.
 
         Args:
             force_development: Override detection. Useful in tests.
         """
+        portable = cls.portable_root() if force_development is None else None
+        if portable is not None:
+            return cls(
+                root=portable,
+                avatars=portable / "avatars",
+                models=portable / "models",
+                configs=portable / "configs",
+                logs=portable / "logs",
+                cache=portable / ".cache",
+                is_development=False,
+            )
         repo_root = find_repo_root()
         development = repo_root is not None if force_development is None else force_development
 

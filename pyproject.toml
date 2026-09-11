@@ -80,6 +80,8 @@ dev = [
     "ruff>=0.7",
     "mypy>=1.13",
     "pre-commit>=4.0",
+    # Day 16 (D4): the portable build (packaging/sha256.spec, scripts/build_exe.py).
+    "pyinstaller>=6.10",
 ]
 
 [project.scripts]

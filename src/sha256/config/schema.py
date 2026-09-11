@@ -22,6 +22,7 @@ __all__ = [
     "CameraSettings",
     "EngineSettings",
     "GpuSettings",
+    "KillSwitchSettings",
     "OutputSettings",
     "PerformanceSettings",
     "RenderingSettings",
@@ -200,6 +201,16 @@ class OutputSettings(_Section):
     )
 
 
+class KillSwitchSettings(_Section):
+    """The courtesy switch (day 16, D1) -- see ``sha256.app.kill_switch``.
+    With no URL nothing is ever fetched; the committed default is none.
+    Anyone with the files can clear it, and that is by design."""
+
+    url: str = Field(default="", description="The switch file; empty = no check, no network.")
+    check_hours: float = Field(default=1.0, gt=0.0, le=168.0)
+    timeout_seconds: float = Field(default=5.0, gt=0.0, le=60.0)
+
+
 class GpuSettings(_Section):
     vram_budget_mb: int = Field(
         default=6144,
@@ -324,6 +335,7 @@ class Settings(BaseSettings):
     virtual_camera: VirtualCameraSettings = Field(default_factory=VirtualCameraSettings)
     output: OutputSettings = Field(default_factory=OutputSettings)
     gpu: GpuSettings = Field(default_factory=GpuSettings)
+    kill_switch: KillSwitchSettings = Field(default_factory=KillSwitchSettings)
     avatars: AvatarSettings = Field(default_factory=AvatarSettings)
     performance: PerformanceSettings = Field(default_factory=PerformanceSettings)
     models: ModelSettings = Field(default_factory=ModelSettings)

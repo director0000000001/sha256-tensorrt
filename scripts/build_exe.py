@@ -1,0 +1,141 @@
+"""Build the portable folder (day 16, D4): the frozen application with the
+models, the avatars' manifests, the configuration and the guide beside it.
+
+    uv run python scripts/build_exe.py            # dist/sha256-portable/ and .zip
+    uv run python scripts/build_exe.py --no-freeze  # lay out beside an existing dist/sha256
+
+What the folder holds, and why each part is where it is:
+
+* ``sha256.exe`` + its libraries -- PyInstaller's output for
+  ``packaging/sha256.spec`` (torch's CUDA runtime included; ~2-3 GB).
+* ``models/`` -- the face landmarker and LivePortrait's weights, copied from
+  this checkout's ``models/`` (fetched by ``scripts/fetch_face_landmarker.py``
+  and ``scripts/fetch_liveportrait.py``). Never in git, so never in the
+  bundle: copied at build time.
+* ``avatars/`` -- the neural avatars named on the command line (``--avatar``),
+  each directory whole (portrait, manifest, profile). None by default: a
+  portrait is the owner's to hand out.
+* ``configs/default.toml`` -- the committed defaults, unchanged -- and
+  ``configs/local.toml`` with the shipped backends (the neural engine, the
+  camera, the tracker, the virtual camera through the OBS device; the
+  development defaults are the null backends), the kill switch URL from
+  ``--switch-url`` and the default avatar, layered over the defaults the
+  way a machine's own local.toml is.
+* ``USER_GUIDE.md`` -- ``docs/USER_GUIDE.md``.
+
+The layout is what ``AppPaths.portable_root`` recognises: a frozen
+executable with ``models`` beside it keeps everything in its own folder.
+"""
+
+from __future__ import annotations
+
+import argparse
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DIST = REPO_ROOT / "dist"
+FROZEN = DIST / "sha256"
+PORTABLE = DIST / "sha256-portable"
+
+SHIPPED_OVERRIDES = """
+# --- shipped build (scripts/build_exe.py) ----------------------------------
+# This machine's file, written by the build: the neural engine, the camera,
+# the tracker and the virtual camera through the OBS device. Edit freely.
+[engine]
+backend = "liveportrait"
+
+[virtual_camera]
+backend = "pyvirtualcam"
+
+[camera]
+backend = "opencv"
+
+[tracking]
+backend = "mediapipe"
+"""
+
+
+def freeze() -> None:
+    spec = REPO_ROOT / "packaging" / "sha256.spec"
+    print(f"PyInstaller: {spec}")
+    subprocess.run(
+        [sys.executable, "-m", "PyInstaller", str(spec), "--noconfirm", "--clean"],
+        check=True,
+        cwd=REPO_ROOT,
+    )
+
+
+def lay_out(avatars: list[str], switch_url: str | None) -> Path:
+    if not FROZEN.is_dir():
+        raise SystemExit(f"{FROZEN} is not there -- freeze first (or drop --no-freeze)")
+    if PORTABLE.exists():
+        shutil.rmtree(PORTABLE)
+    shutil.copytree(FROZEN, PORTABLE)
+
+    models = REPO_ROOT / "models"
+    for name in ("downloads", "liveportrait"):
+        source = models / name
+        if not source.is_dir():
+            raise SystemExit(f"{source} is missing -- run the fetch scripts first")
+        shutil.copytree(source, PORTABLE / "models" / name)
+
+    library = PORTABLE / "avatars"
+    library.mkdir(exist_ok=True)
+    shutil.copy2(REPO_ROOT / "avatars" / "README.md", library / "README.md")
+    for avatar_id in avatars:
+        source = REPO_ROOT / "avatars" / avatar_id
+        if not source.is_dir():
+            raise SystemExit(f"avatar {avatar_id!r} is not in {REPO_ROOT / 'avatars'}")
+        shutil.copytree(
+            source, library / avatar_id, ignore=shutil.ignore_patterns("cache", "frames")
+        )
+
+    configs = PORTABLE / "configs"
+    configs.mkdir(exist_ok=True)
+    shutil.copy2(REPO_ROOT / "configs" / "default.toml", configs / "default.toml")
+    # The shipped backends go in local.toml, layered over the defaults the
+    # way a machine's own file is -- a TOML table may be declared once per
+    # file, so nothing is appended to default.toml (the first build did,
+    # and the frozen application died on "Cannot declare ('engine',) twice").
+    local = SHIPPED_OVERRIDES
+    if switch_url:
+        local += f'\n[kill_switch]\nurl = "{switch_url}"\n'
+    if avatars:
+        local += f'\n[avatars]\ndefault_avatar_id = "{avatars[0]}"\n'
+    (configs / "local.toml").write_text(local, encoding="utf-8")
+
+    shutil.copy2(REPO_ROOT / "docs" / "USER_GUIDE.md", PORTABLE / "USER_GUIDE.md")
+    # The window's background photograph, when this checkout has one (it is
+    # the owner's, gitignored; the window falls back to a plain colour).
+    assets = REPO_ROOT / "assets"
+    if assets.is_dir():
+        shutil.copytree(assets, PORTABLE / "assets", dirs_exist_ok=True)
+    for name in ("captures", "recordings", "logs"):
+        (PORTABLE / name).mkdir(exist_ok=True)
+    return PORTABLE
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--no-freeze", action="store_true", help="Skip PyInstaller; lay out only.")
+    parser.add_argument("--avatar", action="append", default=[], help="An avatar id to include.")
+    parser.add_argument("--switch-url", default=None, help="The courtesy switch's file URL.")
+    parser.add_argument("--zip", action="store_true", help="Also write dist/sha256-portable.zip.")
+    args = parser.parse_args()
+    if not args.no_freeze:
+        freeze()
+    folder = lay_out(args.avatar, args.switch_url)
+    print(f"portable folder: {folder}")
+    if args.zip:
+        archive = shutil.make_archive(
+            str(folder), "zip", root_dir=folder.parent, base_dir=folder.name
+        )
+        print(f"archive: {archive}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

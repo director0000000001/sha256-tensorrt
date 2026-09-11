@@ -125,6 +125,17 @@ device_name = "sha256 Virtual Camera"
 # every application's camera list before anyone asked for it is not acceptable.
 auto_start = false
 
+[kill_switch]
+# The courtesy switch (the 2026-08-15 decision, built day 16): a static
+# file on a host the owner controls, read at start and every check_hours,
+# with the words `{"enabled": false, "message": "..."}` (or the text `off`)
+# stopping the application politely. Everything else -- no host, a
+# missing file, a slow line -- lets it run. Empty here: no network call is
+# made unless a URL is set. Anyone with the files can clear it.
+url = ""
+check_hours = 1.0
+timeout_seconds = 5.0
+
 [gpu]
 # Conservative default for a 16 GB card: leaves headroom for the desktop
 # compositor, the browser running the video call, and the encoder.
