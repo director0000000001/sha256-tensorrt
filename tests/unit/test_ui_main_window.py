@@ -189,10 +189,22 @@ class TestBlackScreenUnmirrored:
         conditioner.set_manual(False)
 
 
+@pytest.fixture
+def guide_accepted(monkeypatch):
+    """The photo guide (day 16) answered "choose the photograph"."""
+    from sha256.ui import main_window as module
+
+    monkeypatch.setattr(
+        module.PhotoGuideDialog,
+        "exec",
+        lambda self: int(module.PhotoGuideDialog.DialogCode.Accepted),
+    )
+
+
 class TestOwnerAndAddAvatar:
     """Day 15: "Add avatar" appears only behind the owner's passphrase; the
     passphrase is set on the first login; the import is checked and the
-    library re-read."""
+    library re-read. Day 16: the photo guide comes first."""
 
     def test_add_avatar_is_hidden_until_the_owner_logs_in(self, window, monkeypatch):
         from sha256.ui import main_window as module
@@ -226,7 +238,36 @@ class TestOwnerAndAddAvatar:
         assert not window._owner.is_unlocked and window._add_avatar_button.isHidden()
         assert warned and "not the passphrase" in warned[0]
 
-    def test_adding_an_avatar_imports_refreshes_and_selects_it(self, window, monkeypatch, tmp_path):
+    def test_the_guide_can_be_declined(self, window, monkeypatch):
+        from sha256.ui import main_window as module
+
+        window._owner.set_passphrase("open sesame")
+        window._refresh_owner_state()
+        monkeypatch.setattr(
+            module.PhotoGuideDialog,
+            "exec",
+            lambda self: int(module.PhotoGuideDialog.DialogCode.Rejected),
+        )
+        opened: list[int] = []
+        monkeypatch.setattr(module.QFileDialog, "getOpenFileName", lambda *a, **k: opened.append(1))
+        window._on_add_avatar()
+        assert not opened
+
+    def test_the_guide_carries_the_requirements_and_both_prompts(self, qtbot):
+        from sha256.avatar.photo_guide import PARTED_LIPS_PROMPT, PORTRAIT_PROMPT
+        from sha256.ui.photo_guide_dialog import PhotoGuideDialog
+
+        dialog = PhotoGuideDialog()
+        qtbot.addWidget(dialog)
+        text = dialog.text
+        assert "STRAIGHT at the camera" in text and "BELOW THE CHIN" in text
+        assert PORTRAIT_PROMPT.strip() in text and PARTED_LIPS_PROMPT.strip() in text
+        dialog._copy(PORTRAIT_PROMPT)
+        assert dialog._copied.text() == "Copied."
+
+    def test_adding_an_avatar_imports_refreshes_and_selects_it(
+        self, window, monkeypatch, tmp_path, guide_accepted
+    ):
         from sha256.ui import main_window as module
 
         window._owner.set_passphrase("open sesame")
@@ -264,7 +305,7 @@ class TestOwnerAndAddAvatar:
         assert window._context.avatars.active_id == "nino"
 
     def test_a_refused_photograph_is_reported_and_nothing_changes(
-        self, window, monkeypatch, tmp_path
+        self, window, monkeypatch, tmp_path, guide_accepted
     ):
         from sha256.avatar.importer import AvatarImportError
         from sha256.ui import main_window as module
