@@ -2920,6 +2920,745 @@ eye_headroom/eye_scale, `mouth_smile_gain` above 1 for the closed smile.
 A clean-shaven portrait taken in his room with his camera is the largest
 single lever and is his to take.
 
+**Day 13 (2026-09-08): the scale, the jaw under an open mouth, the forehead
+line -- the three in the order they were listed, each measured before the
+next, on the fp32 build (a5d1217).**
+
+*Step 1 -- `scale_gain`, the eyes that grew with an open mouth.* The
+measurement first, on driving.mkv with `measure_follow.py` (a `rel_scale`
+column now: the extractor's size-smoothed relative scale as `_drive` reads
+it): on the wide-open frames (986-1103, his mouth ratio over half the
+segment's peak, 55 frames) the extractor reads 1.100 of the anchor (p50;
+1.105 max) and the avatar's inter-ocular distance 1.088 of its rest, his
+own 1.005, correlation with his mouth ratio 0.98 -- the day-13 note's
+numbers, reproduced. The same head also reads 1.065 (p90) while he talks,
+1.099 while he raises his brows and 1.077 through the right turn: whatever
+makes the face taller or wider in the crop is read as nearer, and the crop
+is already sized from his resting face height by head-pose distance, so
+none of it is distance. `scale_gain` in `[0, 1]`, default 0: `scale_new =
+scale_s * (1 + (scale_now / scale_d0 - 1) * scale_gain)`, the old line
+bit-exact at 1 (the run at 1.0 reproduces the baseline frame for frame:
+avatar inter-ocular within 0.02 px at the median). A (1, 1) tensor baked
+at load like `t_gain`.
+
+| driving.mkv | scale_gain 1 (old) | **scale_gain 0** | bar |
+|---|---|---|---|
+| wide-open: avatar inter-ocular / rest, p50 / p90 | 1.088 / 1.093 | **1.001 / 1.004** | within 2% |
+| talk: avatar inter-ocular / rest, p50 / p90 | 1.042 / 1.056 | **1.014 / 1.029** | |
+| brow raise: avatar inter-ocular / rest, p50 / p90 | 1.039 / 1.116 | **1.016 / 1.033** | |
+| blink gain | 0.919 | **0.931** | >= 0.85 |
+| talk + open-mouth mar gain | 0.988 | **1.112** | >= 0.85 |
+| smile width gain / brow gain | 0.442 / 0.701 | 0.445 / 0.702 | unchanged |
+| turns 1342-1641: dx_nose p90 | 19.9 px | **22.5 px** | <= 20 px |
+
+Three of the four bars clear; the turn lag does not, and the reason is
+worth having: through the right turn the extractor reads the face 7.7%
+larger (rel_scale 1.077), and at gain 1 that inflation happened to push
+the avatar's nose the way his was turning -- the tracker read the avatar's
+inter-ocular at 0.876 of rest on that turn against the foreshortened
+0.823 it reads now. The scale was hiding two and a half pixels of the yaw
+lag that is already on the open list ("yaw pivot"), by growing the whole
+face 6% on every turn. Kept at 0: the eyes, brows and face that grew on
+every open mouth, every word and every brow raise were what he saw; the
+2.5 px on a turn is the lag's own, and the pivot is the fix for it. The
+mar gain at 1.11 is the avatar's mouth width no longer inflated with the
+face -- the opening itself is unchanged in pixels; `expression_gain`
+below 1.8 would trim it and the smile with it (0.44), so it stays.
+
+*Step 2 -- the jaw under an open mouth.* His nose-tip-to-chin reach in
+crop pixels (`_nose_chin`; the chin's own y moves with the crop's
+centring, this does not) is learned at the anchor like the brow rest
+(`rest_chin`, `chin_sample` into `_learn_anchor`), and each rendered
+frame's excess over it (`_chin_drop`, never negative, capped at
+`_CHIN_DROP_MAX` 0.35 of the portrait's crop face height, ~80 px) lets
+the portrait's oval down: `_oval_mask(chin_drop=...)` moves its points
+below the mouth line down by the drop ramped from nothing at the mouth
+corners to all of it at the chin, `_frame_mask` rebuilds the portrait's
+half with it when the drop is over half a pixel, and the mask box is
+extended below by the cap at load (`_mask_bbox(reach_below=...)`) so the
+paste still warps into one fixed box. A held frame reads a drop of 0 --
+its chin has not moved. `chin_follow` in `[0, 1]`, default 1, is the
+measured-against knob (0 is the day-12 mask). Measured with
+`jaw_band.py` on driving.mkv:
+
+| jaw band abs, grey levels | chin_follow 0 | **chin_follow 1** |
+|---|---|---|
+| open 986-1103, p50 / p90 / max | 27.3 / 35.3 / 43.2 | **27.5 / 33.2 / 35.0** |
+| open 986-1103, step p90 / max | +33.5 / +41.9 | **+28.4 / +34.9** |
+| shut 0-119, p50 / p90 | 29.4 / 29.8 | 29.8 / 30.4 |
+
+The bar (open not worse than shut) holds at the median as it already did;
+where the fix lives is the tail, the wide-open frames: the worst frame
+43 -> 35, and the stills at 1040 and 1060 (`recordings/day13-jaw-cf{0,1}-
+driving-f*.png`) show it -- at 1060 the day-12 mask stops at the
+avatar's closed-mouth chin with his own open jaw under it, the day-13
+mask follows the jaw down. At rest the drop reads 3 px (p90) -- the
+anchor's reach is a mean, the frame's a reading -- under a 16-px
+feather; open, 24 px at the median and 51 at the widest.
+
+*Step 3 -- the forehead line.* The number first. `jaw_band.py` reads the
+forehead now (the same ten-pixel band over the mask's top fifth of rows,
+`fore abs` / `fore step`) and has a `--render` capture mode: the capture's
+300 frames of tracking fed to *this* build's engine with `camera.png` as
+the picture, the last frame measured against `camera.png` under the mask
+the engine actually pasted with -- so a mask or colour change is judged on
+the frames he complained about, not only on a clip shot in daylight. His
+five 02:52-02:55 captures re-rendered by the day-12 build: forehead step
++26.1..+27.1 grey levels, abs 46-51 (the two 03:24 captures, sat lower:
+-1.8 / +11.3); the jaw band on the same captures +2.5 (his shave).
+driving.mkv's turns 1380-1600: +1.8 p50, +17.6 p90, +27.3 max; frontal
+0-119: -2.6 -- the clip barely has it, which is why it took his captures
+to see it.
+
+Why the plane cannot fix it: one brightness and one gradient per channel
+is what a plane is, and a face too pale at its top edge and slightly dark
+at its bottom while right in the middle is curvature at the edges -- the
+thing the warp engine's own measurement kept the plane from representing,
+because the same curvature *inside* the face is a brow shadow or a beard,
+the user's own, which must never be printed onto the avatar. So the plane
+stays the whole-face correction and what it leaves is put back **at the
+mask's edge alone** (`_edge_residual`): the residual (alpha-weighted
+difference minus the plane, at the same eighth-scale box), blurred over
+`_EDGE_BLUR` cells with the blur weighted by the mask, faded from all of
+it at the contour to nothing `_EDGE_REACH` (0.2) of the box's height
+inside. The join is where the two pictures have to agree; the middle of
+the face keeps the avatar's features. `edge_match` in `[0, 1]`, default 1
+(0 is the plane alone). The second lever, `mask_forehead_reach` (the
+ovals' reach up the forehead, 0.85 in code as before), was swept with it.
+Over the seven captures (median / the worst, 025329, the toothy smile):
+
+| captures, re-rendered | forehead step | forehead abs | jaw abs |
+|---|---|---|---|
+| plane alone, reach 0.85 (day 12) | +26.3 / +27.1 | 48.0 | 21.9 |
+| plane alone, reach 0.65 | +13.0 / +15.2 | 43.7 | 21.1 |
+| edge 0.5, blur 5, reach 0.85 | +17.8 / +22.1 | 31.3 | 14.7 |
+| edge 1, blur 5, reach 0.85 | +9.3 / +17.6 | 15.6 | 9.2 |
+| edge 1, blur 5, reach 0.65 | +5.4 / +12.5 | 14.4 | 9.2 |
+| edge 1, blur 5, reach 0.55 | +3.6 / +7.9 | 14.8 | 9.2 |
+| edge 1, blur 3, reach 0.85 | +6.0 / +15.0 | 13.0 | 8.4 |
+| edge 1, blur 3, reach 0.75 | +4.3 / +12.9 | 13.0 | 8.4 |
+| **edge 1, blur 3, reach 0.65** | **+3.0 / +11.2** | **12.5** | **8.4** |
+
+The reach alone moves the join onto skin and leaves the two skins
+different (abs 43.7); the edge match is what closes it, and the narrower
+blur (3 cells, 24 px) keeps more of the edge's own reading. On the clip,
+with the kept settings:
+
+| driving.mkv | plane, reach 0.85 | **edge 1, blur 3, reach 0.65** | bar |
+|---|---|---|---|
+| turns 1380-1600: forehead step p50 / p90 / max | +1.8 / +17.6 / +27.3 | **-0.1 / +5.3 / +8.4** | within +-8 |
+| turns: forehead abs p50 / p90 | 12.3 / 22.2 | **5.3 / 10.6** | |
+| turns: jaw abs p50 / p90 | 24.4 / 29.5 | **11.7 / 14.0** | not worse |
+| frontal 0-119: forehead step / abs | -2.6 / 11.1 | **-0.9 / 3.4** | within +-8 |
+| frontal: jaw abs p50 | 29.8 | **11.6** | not worse |
+
+Kept: `edge_match` 1 and `_EDGE_BLUR` 3 in the code, `mask_forehead_reach`
+0.65 in his metadata.json -- the code default stays 0.85, the whole
+forehead, for the reason the warp engine kept it (his 2026-08 ask); 0.65
+is the measured setting for this portrait over this face and is his to
+move. What he will see: the top third of his brow-to-hairline is his own
+forehead, the avatar's below it; the pale line gone on the frontal
+captures (025254, both stills), softened to a gradient on the toothy
+smile (025329 at +11 -- his hair over the forehead's left, structure, not
+tone); on the turn (1490) the hairline band gone and the jaw edge sunk
+into his beard's tone. Stills: `recordings/day13-forehead-*.png`. The jaw
+band falling from 22-30 to 8-12 everywhere is the same mechanism at the
+bottom edge; the day-12 "white line" measure now reads a third of what it
+did.
+
+*His look, 2026-09-09 02:12 (one capture, `moment-20260909-021214`): "it
+looks like the AI face came down a little and my eyebrows show."* The
+face had not moved (the tracker on the composite against his frame: eyes
+-0.4 px, nose -15, chin -9 -- the avatar's features sit where they did,
+above his). The mask had: at reach 0.65 its 0.5 contour sat 18 px above
+the top of MediaPipe's brow points at the face's centre and its feather
+(alpha 0.05) 26 px above -- and his brow hair reaches higher than the
+points that trace it, so the feather ran across his brows and they showed
+through as a dark smear over the avatar's own (the still
+`recordings/day13-brows-r0.65.png`). The same capture re-rendered at
+0.75: 26 px; at 0.85: 37 px, the brows clean, and the forehead step on
+this night's capture +0.8 (abs 6.1) -- the edge match carries it alone
+here (`day13-brows-r0.85.png`). **Reverted: `mask_forehead_reach` 0.85 in
+his metadata.json, the code default.** The lesson is the rule's shape,
+not the number: a fraction of the brow-to-hairline distance has no floor
+above the brows, and on a short forehead (his, tilted 6 degrees down
+that night) two thirds of it lands the feather on the brow hair. If the
+reach is ever lowered again it needs a clearance floor -- the erosion
+(4% of face width) plus the feather (7%) plus the brows' own height above
+their points -- measured, not assumed. The 09-07 captures at 0.85 with
+the edge match: +6.0 median / +15.0 worst, the table above.
+
+*His second look, the same night (a screenshot, brows raised): "not fixed
+-- the eyebrows show; when I raise them, and fainter at rest. Look for
+the dark colour above the AI face's brows."* Not the mask this time: on
+the 02:12 capture (his brows are raised in it) the mask's alpha reaches
+0.95 a full 29 px above his brow top. The edge match itself: re-rendered
+with `edge_match` 0 the smear is absent and with 1 it is there (the
+zooms `recordings/day13-brows2-plane.png` / `-edge-excluded.png`, left
+half before the fix). The residual's fade reaches a fifth of the box
+inside the contour -- about 100 px at his distance -- and his brows sit
+30-40 px inside it at rest, 15-20 on a raise, so their darkness was
+blurred into the correction and printed onto the avatar's forehead: the
+warp engine's own "a brow shadow, 70% passed" failure, back at the edge.
+Fix: the features that are his and not the join are cut out of the
+residual. `_EDGE_FEATURES` (each brow with its eye's corners and lids,
+the mouth) are kept from every tracked frame in frame pixels
+(`loaded.features`), handed through `_paste` to
+`_face_colour_correction`, drawn as convex hulls on the eighth-scale
+grid and dilated 2 cells (`_feature_exclusion`, the brow hair above
+MediaPipe's brow line), and `_edge_residual(exclude=)` zeroes those
+cells in the residual *and* in the blur's weight, so they read as
+unknown and fill from the skin around them. On his capture the band
+6-30 px above his brow top: darkest tenth 173 -> 178 grey levels, the
+smear gone in the zoom; forehead step -0.4. The 09-07 captures again,
+reach 0.85 with the exclusion: forehead step **+3.9 median / +13.8
+worst** (was +6.0 / +15.0 without it -- his brows had been pulling the
+residual there too), jaw abs 8.4. Cost: three small polygons and a
+dilation on a ~60x60 grid, nothing measurable. The rule this leaves: an
+edge-matched colour field must exclude his features explicitly; a fade
+alone is no protection once he raises his brows.
+
+*His third look (02:52, a screenshot): "a small smudge, like low-quality
+pixels, above the brows; and when I raise my brows the jaw shows too,
+look at the jaw line; and when I bow my head and look down moderately,
+my jaw shows more."* Three things.
+
+(1) The pixels were the exclusion zone itself: a hard-edged zone on the
+eighth-scale grid, resized up by eight, is eight-pixel blocks wherever
+the residual steps at its edge. Softening the zone and fading the
+residual to the plane alone over it took the blocks away and left a
+dark patch instead (the band 6-30 px above his brow top, darkest tenth:
+178 hard, 163 soft-to-plane; his forehead that night was brighter than
+the avatar's, the residual around the zone was *brightening* it, and
+the zone stayed dark). What the zone needs is the skin's own correction
+carried across it: the same skin-only residual blurred wide
+(`_EDGE_FILL_BLUR`, 15 cells) reaches over the brows from the forehead
+above and the cheek below, and is blended in by the zone softened over
+`_EDGE_EXCLUDE_SOFTEN` (5 cells). Darkest tenth 177, no step, no patch
+(`recordings/day13-brows3-edge-filled.png`); forehead step on the
+capture -0.2, the 09-07 captures unchanged.
+
+(2) The jaw, on the clips first: driving.mkv's brow raise (1642-1760),
+its look up-and-down (421-538) and natural.mkv's tilt (417-712), today's
+build against yesterday's settings (`chin_follow 0, scale_gain 1,
+edge_match 0`): jaw abs p50 11.2 / 11.0 / 10.5 against 28.5 / 28.5 /
+23.4, the stills at 1700, 520 and 681 clean. The clips do not show what
+he sees; his beard on them is a week fuller than tonight's stubble and
+hides the join. The mechanism that fits all three of his words: under a
+pitch the avatar's chin, turned about the eyes by the extractor's
+under-read pitch, and the mask's bottom part company -- the mask's
+portrait half sat at the portrait's *resting* chin because `_chin_drop`
+was clamped at zero for a rise, so on a look down the portrait's neck
+was pasted between the avatar's risen chin and the mask, and the edge
+match now paints that band in his jaw's tone: "my jaw shows more". The
+drop is signed now (`+-chin_drop_max`; `_oval_mask` moves the jaw
+points up for a negative one), so the mask's bottom follows his chin up
+as well as down. On the tilt clip: jaw abs p90 13.8 -> 11.7, max 25.3
+-> 19.3, step p90 9.2 -> 6.5 (the deepest frames); the look segment
+unchanged (11.0); stills 681/687 (`recordings/day13-jaw-tilt-f681-
+{before,signed}.png`). **His two captures then said no, and the signed
+drop is reverted** -- and behind them was a wall the whole day-13 jaw
+work had been standing on. In order:
+
+*The replay, fixed first.* `jaw_band.py --render` fed the capture's 300
+frames of tracking over `camera.png`, and that picture is the *last*
+frame's only: an anchor learned from the other 299 frames' landmarks was
+cut from a picture they do not match, and the render came out smeared
+(the first chin reading on 021214, which the signed drop had been judged
+on, was that smear's). It now feeds the last frame's own tracking every
+time -- a sane render at the moment's own geometry, the anchor learned
+from that frame when it is frontal enough (03:28:24 was, 15 of 15;
+03:28:34, yaw -5.5, was not). What a replay still cannot carry is his
+live expression, since the frame is then its own anchor; the capture
+writing the live anchor is the tool that would.
+
+*What his captures showed (03:28:24 brows raised, 03:28:34 looking
+down).* The **render is right**: MediaPipe on the raw 512 render, mapped
+into the frame, puts the avatar's chin within 4 px of his own on both
+(+3.4 and -0.3 px). The **mask is not**: its 0.5 contour sits 5 px
+*above* his chin on both, and its feather reaches the chin line, so the
+avatar fades out across his chin and the underside of his own shows
+through -- "my jaw". A signed drop makes it worse, not better: on the
+brow-raise capture his nose-to-chin reach read 9 px short of rest, so the
+mask went *up* 9 px while the rendered chin had not moved, cutting the
+avatar's chin 12 px short (contour at 518 against his chin at 534,
+against 529 with the drop off). `_chin_drop` is clamped at 0 again and
+its docstring says why. The tilt clip's apparent gain was the mask
+cutting into a beard thick enough to hide it; a bearded clip is no
+measure of a bare chin.
+
+*So: `mask_chin_reach`* -- both ovals let down at the chin by a fraction
+of the portrait's crop face height, ramped from the mouth line like the
+drop, so the join sits under his chin on his neck where the portrait's
+own under-chin skin is pasted and the edge match carries the tone. Swept
+on the two captures (mask contour against his chin / jaw band abs):
+
+| reach | contour vs his chin | jaw abs |
+|---|---|---|
+| 0 (the mask as it was) | -5 / -5 px | 9.6 / 9.7 |
+| 0.04 (~9 px) | +10 / +10 | 9.8 / 9.1 |
+| 0.08 (~19 px) | +26 / +24 | 11.9 / 11.3 |
+| 0.12 (~28 px) | +41 / +38 | 11.9 / 11.9 |
+
+0.04 is where the join leaves his chin line without becoming a chin of
+its own (`recordings/day13-chin-reach-*.png`; the band's abs rises with
+the reach because the band itself moves onto the neck's shadow).
+
+**And then the wall.** Measured on his portrait's own crop: face height
+233 px, the portrait's chin at row **489 of 512** -- twenty-two pixels of
+crop below the chin, because `crop_vy_ratio` -0.125 spends the crop's
+room *above* the face (256 px of hair) and leaves almost none under it.
+The oval's own edge needs more than that: the erosion pulls its 0.5
+contour in by `_OVAL_SHRINK` (4% of face width, 9 px) and the feather
+fades over about half its kernel (8 px) past that. A hull let down past
+the last row is not let down at all -- `fillConvexPoly` clips it at the
+array's edge and `erode` does not shrink a shape at that border -- so the
+mask ends in a **hard row instead of a feather**, and the paste draws a
+straight dark line across his neck. That is what today's drop had been
+doing: on driving.mkv's open-mouth segment the mask's alpha reached the
+crop's last row on **118 of 118 frames** (the still at 1060 shows the
+line). The same wall limits the *render*: on 18 of those frames the
+avatar's own rendered chin sits within 10 px of the crop's bottom, row
+510 at the widest.
+
+So the drop and the reach now share whatever room the crop actually has,
+less that edge margin (`load_avatar`, logged at load). On his portrait
+that room is **zero**: both are clamped to 0, the mask is exactly the
+one he had before today's jaw work, and the clipping is gone -- 0 of 118
+frames at the last row, the mask's 0.5 contour at row 492 with its tail
+at 497, the open-mouth band 11.7 p50 / 16.5 max and no line
+(`recordings/day13-jaw-open-f1060-capped.png`). The features stay,
+tested, for a crop that has room.
+
+**The jaw join cannot move in this crop, and that is the finding.** The
+lever is the framing itself -- `crop_vy_ratio`, which decides how the
+crop's 512 rows are spent between his hair and his neck -- and it moves
+what the motion extractor sees, which is the day-6 cliff's own axis. It
+gets a sweep of its own, both clips, every gain, before anything is
+kept. Until then the join sits where the mask's erosion and feather put
+it: about 5 px above his chin line.
+
+*One more thing in that capture.* 032824 has no face at all for its first
+74 frames -- two and a half seconds in which the engine's passthrough put
+his own face on the virtual camera. Exactly the case his "connection
+dropped" blur is for (parked above).
+
+**Who wrote which half of this day, and what the next session should
+check (2026-09-09, ~03:45).** Fable 5.1 reached its usage limit partway
+through the jaw work and he switched to Opus 5 (1M context), which
+continued in the same session with the whole conversation in context.
+The line falls exactly here: **Fable 5.1** did steps 1-3 (`scale_gain`,
+the chin drop, the forehead line), his first look (the reach reverted to
+0.85), his second (the feature exclusion), his third (the fill, the
+signed drop, `mask_chin_reach` and its sweep on the two captures, up to
+writing 0.08 into his metadata.json). **Opus 5** did everything after the
+reach sweep: the clip A/B that showed the reach making the band worse,
+the crop measurement behind it, `crop_room.py`, the headroom cap and its
+edge margin, taking `mask_chin_reach` back out of his metadata, and this
+entry from "And then the wall" onward.
+
+Four judgements of that second half are worth a second opinion, in
+order of how much rests on them:
+
+1. **The edge margin's shape.** `_OVAL_SHRINK + _OVAL_FEATHER / 2` plus
+   one pixel is an argument about how `erode` and `GaussianBlur` behave
+   at an array's border, not a measured constant. It is verified only by
+   its effect (118 of 118 clipped frames -> 0 of 118, the mask's tail at
+   row 497 of 511), so it may be a pixel or two conservative. If the
+   crop sweep gives the chin real room, this constant decides how much
+   of it the mask may use, and it should be measured then rather than
+   argued.
+2. **Reverting the signed chin drop on two captures.** One of them
+   (03:28:34, yaw -5.5) could not seed an anchor, so its numbers are the
+   frame's own geometry, not his live state; the other (03:28:24) did,
+   15 of 15. Both agree the rendered chin lands within 4 px of his, and
+   the clips agree, but two captures and a beard-hiding clip is thin
+   evidence for a mechanism that only shows on a bare chin.
+3. **`mask_chin_reach` kept in the code at default 0 and out of his
+   metadata.** It is inert on his portrait (the crop has no room), so it
+   ships untested live -- a feature whose only measurements are a sweep
+   on two still captures. The alternative was to delete it until the
+   crop can use it.
+4. **The clip A/B that started this.** Reach 0.08 read *worse* than 0 on
+   both clip segments (open 13.2 vs 11.4, shut 14.2 vs 11.4) while the
+   captures' stills read *better*. The reading taken was that the band
+   metric moves onto the neck's own shadow and stops describing the
+   join -- which is an argument for distrusting the metric exactly where
+   it was asked a new question, and it deserves a look.
+
+(3) A limit of the capture replay found on the way: `jaw_band.py
+--render` learns its anchor from the capture's own 300 frames, and
+`_anchor_frame_ok` takes only |pitch| <= 4 degrees -- on 021214 (pitch
+-6.2 throughout) every frame is rejected, so the replay ran without an
+anchor (`rest_*` None, chin drop 0, the expression relative to the
+portrait's own). The mask and colour numbers on it stand; anything
+anchor-relative does not. The fix is the capture writing the live
+anchor (exp_d0, R_d0, t_d0, scale_d0, the rest values) so a replay is
+the session itself -- not built tonight; until it is, a capture taken
+while frontal earlier in the same moment is the workaround.
+
+*Cost, and the whole build measured once more.* Per-stage timings over
+driving.mkv 950-1650 (open mouth, talk, turns), this machine:
+
+| ms, p50 / p90 | chin_follow 0, edge_match 0 | **the day-13 build** |
+|---|---|---|
+| crop | 0.64 / 0.69 | 0.64 / 0.70 |
+| model (graph replay) | 29.6 / 30.0 | 29.4 / 29.7 |
+| mask | 1.51 / 1.61 | **2.62 / 2.83** |
+| paste | 7.91 / 9.23 | **8.36 / 9.73** |
+| total | 39.6 / 40.7 | **40.9 / 42.0** |
+
++1.2 ms a frame: the portrait's oval rebuilt whenever the drop is over
+half a pixel (it is on most frames -- at rest the reach jitters 3 px,
+under a 16-px feather), and the edge residual with a box 80 px taller.
+The day-11 arithmetic stands: 30 fps needs the tracker and the paste
+off the GPU's frame, not these. If it ever matters, a 4-px dead band on
+the drop skips the rebuild at rest for nothing visible. The chin drop
+itself on the clip: p50 24 px on the open segment, 51 px at the widest,
+3 px at rest -- well inside the 80-px cap.
+
+`measure_follow.py` on the whole build (scale 0, chin follow, edge
+match, reach 0.65), against the step-1 run: blink gain 0.964, talk +
+open-mouth mar gain 1.22, brow gain 0.77, smile width 0.48, wide-open
+avatar inter-ocular 0.981 / 1.005 of rest (p50 / p90), turns dx_nose p90
+18.6 px. Read with care: the mask now hands the tracker HIS upper
+forehead and a matched edge, and MediaPipe's whole-face fit on the
+composite moves with that -- the brow, mouth and nose readings shift
+without the rendered face changing. The step-1 table (same mask both
+sides) is the honest A/B for the scale; this line is what the tracker
+reads of what he will see. CSVs: `recordings/driving-follow-day13-*.csv`
+(`sg0`/`sg1` the scale A/B, `final` the build).
+
+*The build.* `scale_gain` 0, `chin_follow` 1, `edge_match` 1 in the
+code's defaults, `mask_forehead_reach` 0.85 (the default; 0.65 tried and
+reverted on his look, above) -- all four written into his metadata.json,
+like every option before them. 231 engine tests
+(five new classes: `TestScaleGain`, `TestChinDrop`, `TestForeheadLine`
+and the mask tests' chin-drop cases); ruff and mypy as before. Not
+committed until he has looked.
+
+**Day 14 opens with:** the crop's own framing -- `crop_vy_ratio`, swept
+the way day 6 swept `crop_scale` (both clips, blink / talk / smile /
+brow gains, turn lag, and the grimace frames), for room below the chin
+so the jaw join can sit under it and a wide-open jaw can be followed at
+all. Then the capture carrying its live anchor, so a replay is the
+session and his moments can be measured directly. Then, in order of what
+today exposed: the yaw lag the scale was hiding
+(turns dx_nose p90 22.5 px; the pivot for yaw, on the open list since day
+10); the mouth gain at 1.11 (expression_gain 1.8 was fitted with the
+face's inflation in -- a lower value trims the smile too, so it is a
+measurement, not a number); the toothy smile's forehead (hair over skin,
+structure -- a reach that follows his hairline per frame, if it is worth
+it). Then Phase 3 as agreed. Still open from day 12: lip_retargeting,
+stitching, the crop scale, eye_headroom/eye_scale, `mouth_smile_gain`
+above 1, gaze_down_relief (his call), vertical gaze, crop C, fps
+pipelining, the clean-shaven portrait.
+
+**Parked on his ask (2026-09-09, 02:30): his two ideas, to be built in
+Phase 3 -- "save these for sure".** The app is to be shown by his friends
+to their boss; a failure in front of the boss must look like the
+internet, not like the app.
+
+1. **"The connection dropped" -- a full-frame blur of the camera output,
+   by hand and automatically.** By hand: a button in the window and a
+   global hotkey (the meeting app is in front during a call). Automatic,
+   on the failures that today put *his own face* on the virtual camera:
+   the face lost (the engine's `_passthrough` returns the raw camera
+   frame, `is_placeholder=True`, and the controller publishes it as it
+   is), a pipeline exception (`PipelineRunner._run` logs and *returns* --
+   the loop stops, the camera keeps the last frame or goes black), the
+   face partly out of frame (the paste box clipped), the extreme-pose
+   hold (a frozen avatar). Shape: freeze the last good avatar frame for
+   ~1.5 s (a real stall freezes first), then the live frame pixelated
+   (downscale 1/8-1/16 and up, plus a heavy blur), recover over ~0.5 s
+   once the engine has been stable for a second -- hysteresis, never a
+   flicker. The preview shows the true output with a "BLUR" indicator so
+   he knows what the other side sees. His own caution, agreed: convincing
+   once or twice a call, not every minute -- the automatic mode fires on
+   real failures only.
+2. **An output quality selector -- Native / 720p soft / 480p / 360p.**
+   Downscale and upscale back to the camera's own size inside the
+   pipeline, so the virtual camera's format never changes and Zoom/Meet
+   see the same stream; at 480p the mask edge, the stubble mismatch and
+   small defects disappear into what looks like a cheap webcam. This is
+   the base the blur sits on: one new stage in
+   `PipelineController.process_once` between the renderer and the sink
+   (works for both engines, under 1 ms a frame), a setting for the
+   default quality, the UI control beside "Virtual camera".
+
+Order proposed: the quality stage first, the button and hotkey on it,
+the automatic triggers last. About a day for both, with tests.
+
+**Day 14 (2026-09-10, Fable 5.1 implementing directly on his "review what
+we did last, tell me the next step and start on it"): the crop's vertical
+framing swept -- this axis has no cliff, and the jaw gets its room.**
+
+*What was swept, and how.* `crop_vy_ratio` moves the crop's centre up the
+face by that fraction of the crop; it decides how the 512 rows are spent
+between hair and neck. Day 6 swept the crop's *size* and found two cliffs
+five percent apart; this was the same protocol on the *placement*, cheap
+first, whole-clip second. Cheap: one engine process (`vy_sweep.py`, in the
+session scratchpad -- the fore_sweep pattern: reload the avatar per
+value, anchor from the clip's first 45 frames as a full run would, then
+each hard frame after a 20-frame run-up so the crop's One-Euro, the size
+EMA, the gates and the tracker's own smoothing settle), the raw 512
+render and the composite read back by MediaPipe in image mode. Twelve
+frames of driving.mkv (rest 60, look up 500, eyes 700, closed smile 800,
+toothy smile 925, open mouth 1060, the day-6 wide-mouth-plus-pitch 1067,
+talk 1200, both turns 1420/1568, brows 1724, frown 1784) and seven of
+natural.mkv (rest, screen 300, the tilt 675/681, talk 1000, the open
+smile 1380, brows 1576), six values from -0.16 to 0.0. Then
+`measure_follow.py` over both clips at -0.09 / -0.06 / -0.03 / 0.0
+against a fresh -0.125 baseline of the same build, and `jaw_band.py` on
+the open-mouth segment at four values. Portraits 2 and 3 got the eight
+expression frames at three values.
+
+*The room.* His portrait in the crop, rows 0..511:
+
+| vy | face top | chin | rows under the chin | drop cap (day-13 margin) |
+|---|---|---|---|---|
+| -0.16 | 274 | 507 | 4 | 0 |
+| **-0.125 (was)** | 256 | 489 | 22 | 7 |
+| -0.09 | 238 | 471 | 40 | 25 |
+| **-0.06 (kept)** | 223 | 455 | 56 | 40 (**52** with the margin below) |
+| -0.03 | 207 | 440 | 71 | 56 |
+| 0.0 | 192 | 425 | 86 | 71 |
+
+*The hard frames: nothing breaks anywhere.* Every one of the nineteen
+frames renders at every value; the raw render's own readings barely
+move. The day-6 cliff frame (1067, his mouth ratio 0.85, eyes 0.11):
+avatar mouth 0.79 / 0.92 / 0.90 / 0.94 / 0.89 / 0.83 from -0.16 to 0.0,
+eyes 0.22-0.25 throughout. The frown (1784, his eyes 0.298): 0.29-0.31
+everywhere -- no grimace. Brows (1724): 0.166-0.171 raw at every value.
+Rest eyes 0.306-0.321. Position of the pasted face against his: eye
+dx/dy within a pixel of each other across the whole sweep. The one frame
+that moved: natural's open smile (1380, his mouth ratio 0.32) read 0.33 /
+0.39 / 0.47 / 0.49 at -0.125 / -0.06 / -0.03 / 0.0 -- the mouth opens
+more as the face rises in the crop, and the whole-clip numbers say the
+same thing smoothly. Portraits 2 and 3 (one grins at rest, one rests with
+parted lips): the same picture at -0.125 / -0.06 / 0.0, the wide mouth
+rendered at all three, chin rows 490 / 457 / 426 -- the geometry is the
+crop rule's, not this portrait's. Turn 1568 is held (yaw past 35) at
+every value, so it says nothing.
+
+*Whole clips.* driving.mkv, the day-13 bars plus what the day-6 sweep
+watched:
+
+| driving.mkv | -0.125 | -0.09 | **-0.06** | -0.03 | 0.0 | bar |
+|---|---|---|---|---|---|---|
+| blink gain | 0.92 | 0.89 | **0.90** | 0.87 | 0.85 | >= 0.85 |
+| talk + open-mouth mar gain | 1.14 | 1.22 | **1.21** | 1.22 | 1.22 | >= 0.85 |
+| talk-only mar gain | 1.07 | 1.07 | **1.10** | 1.21 | 1.25 | |
+| smile width gain | 0.45 | 0.52 | **0.51** | 0.65 | 0.73 | |
+| brow gain | 0.71 | 0.70 | **0.72** | 0.73 | 0.73 | |
+| wide-open: avatar inter-ocular / rest | 0.984 | 0.983 | **0.981** | 0.980 | 0.981 | within 2% |
+| turns: \|dx_nose\| p90, not held | 21.9 | 21.8 | **21.7** | 21.3 | 22.0 | not worse |
+| frown 1760-1808: avatar EAR p50 (his 0.289) | 0.290 | 0.288 | **0.291** | 0.293 | 0.295 | ~ his |
+| still: avatar EAR spread p90-p10 | 0.006 | 0.008 | **0.005** | 0.008 | 0.007 | |
+| chin drop, open segment p50 / max | 7 / 7 | 24 / 25 | **24 / 40** | 24 / 51 | 24 / 51 | |
+| jaw band, open segment: abs p90 / max | 14.1 / 16.5 | -- | **12.2 / 14.1** | 12.4 / 13.5 | 12.3 / 12.7 | not worse |
+| jaw band: step max | 12.4 | -- | **10.4** | 9.6 | 8.6 | |
+
+natural.mkv:
+
+| natural.mkv | -0.125 | **-0.06** | -0.03 | 0.0 |
+|---|---|---|---|---|
+| talk mar gain | 0.93 | **1.03** | 1.15 | 1.19 |
+| smile width gain | 0.88 | **1.04** | 1.15 | 1.20 |
+| brow gain | 0.83 | **0.80** | 0.84 | 0.85 |
+| tilt, deepest tenth: dy_eye / dy_chin | -8.7 / -15.7 | **-8.5 / -12.0** | -9.0 / -14.1 | -8.9 / -12.1 |
+| talk: avatar EAR p50 (his 0.308) | 0.312 | **0.312** | 0.310 | 0.315 |
+| still: avatar EAR spread | 0.009 | **0.010** | 0.008 | 0.008 |
+
+Slopes, not cliffs: as the face rises in the crop the mouth and the smile
+respond more (driving talk 1.07 -> 1.25, smile width 0.45 -> 0.73;
+natural talk 0.93 -> 1.19) and the blink a little less (0.92 -> 0.85);
+brows, turns, the frown, the still face and the pasted position do not
+move. A reading of why, not a proof: LivePortrait's own crop centres on
+its landmark box (eyebrows to chin) and our rigid box (forehead top to
+nose) has its centre about a fifth of a face height higher, so at the
+same -0.125 our face sits ~50 px *lower* in the crop than a face in
+their training crop; -0.03 is roughly where theirs sits. The extractor
+reads a face nearer its trained placement as more expressive in the
+mouth -- consistent with day 6's finding that it reads its own framing.
+
+*The stills say what the band cannot.* `recordings/day14-vy/zoom-jaw-
+f1060.png` and `-f1067.png` (his face, the open mouth at six values, the
+jaw zoomed): at -0.16 and -0.125 the avatar's chin ends and his own
+darker beard-chin shows under it -- the day-13 complaint; from -0.09 on
+the avatar's chin runs down to his jaw line with the join under it. The
+band metric's "abs" barely moves because the band moves with the mask
+onto his neck; its tail (max 16.5 -> 12.7-14.1) and the step max (12.4
+-> 8.6-10.4) are what improve.
+
+**Kept: `crop_vy_ratio` -0.06, in his metadata.json and as the code's
+`CROP_VY_RATIO`** (three portraits share the geometry, and the axis is
+benign on both clips; the default is what the five other users' avatars
+will be cut with). Why not 0.0, which has the most room: the mouth at
+1.25 / 1.19 and the smile at 0.73 are a change he would see -- and the
+day-13 question of whether the mouth is already over-driven at 1.11 is
+open, so more of it is his call, not a side effect of a crop. -0.06
+keeps the mouth at today's gain (1.10 / 1.03), the blink at 0.90, gains
+0.06 of smile, and leaves 56 rows under the chin: with the margin below,
+a 52-px drop cap against the day-13 open-jaw maximum of 51.
+
+*The edge margin, measured (the first of Opus 5's four day-13
+judgements).* The day-13 margin -- `_OVAL_SHRINK + _OVAL_FEATHER / 2` of
+the face width plus one, ~15 px -- was an argument about kernels. Built
+the portrait's own oval with the hull's chin placed row by row toward
+the bottom (`edge_margin.py`, scratchpad; CPU only):
+
+| hull's chin row | 0.5 contour | 0.02 tail | last-row alpha |
+|---|---|---|---|
+| 505 | 502 | 507 | 0.000 |
+| 507 | 504 | 509 | 0.000 |
+| 508 | 505 | 510 | 0.008 |
+| 509 | 506 | 511 | 0.043 |
+| 510 | 507 | 511 | 0.118 |
+| 511 | 511 | 511 | 0.57 (the hard line) |
+| 513+ | 511 | 511 | 1.000 |
+
+The erosion pulls the contour in by the kernel's *radius* (3 px here,
+not the 9 of its diameter) and the feather's tail ends 1-2 px past the
+hull; only a hull on the last row itself defeats the erosion. So the
+margin is the mask's own measured tail plus two rows (`load_avatar`,
+`_MASK_EDGE_CLEARANCE`): 4 px, four times less than argued -- at
+-0.125 the drop cap would have been 18 px, not 7. The other three
+judgements, reviewed: (2) reverting the signed drop -- agreed, the
+render's chin does not rise with a brow raise and the day-14 stills show
+the portrait's oval as the right guess for a rise; (3) `mask_chin_reach`
+inert at default 0 -- agreed to keep, and it is no longer inert: at
+-0.06 it has room, so it can be measured live if the join still shows;
+(4) the clip A/B distrusted -- agreed, and the same thing happened
+today: a band ten pixels inside a contour that moves onto the neck
+describes the neck, not the join; the zoomed stills are the evidence.
+
+*Costs and what did not change.* One frame of the day-13 build's timings
+is unchanged by a crop shift (the same crop, the same box). The forehead
+at -0.06: the crop has 223 rows above the face top instead of 256, all
+hair; the forehead band on the open segment reads 4.4-4.8 abs at every
+value. The driver's live framing: his face is 425-475 px tall, the 2.2
+crop overflows the 720 frame, and at -0.06 about 60 of those overflow
+rows move from the top of the crop to its bottom (black, below his
+neck) -- the clips have the same framing and did not mind; his live look
+is the test. The kept build re-measured once whole: `load_avatar` logs
+the drop cap at 52 px, the open-mouth frames 1040-1067 use 38-42 of it
+with the mask's alpha never on the last row, jaw band on 986-1103 abs
+11.1 / 12.2 / 14.0 (p50 / p90 / max), step max 10.4, forehead abs 4.7.
+239 engine tests (two new: the measured tail, the ratio's geometry), 892
+unit tests with the gui ones deselected, ruff and mypy clean on the
+engine file.
+
+*Files for him, all under `recordings/` (his face; delete after he
+looks):* `day14-vy/driving-sheet-out-f{60,500,700,800,925,1060,1067,
+1200,1420,1568,1724,1784}-*.png` and `natural-sheet-out-*.png` (six /
+four values side by side), `zoom-jaw-f1060.png` / `f1067.png` (the jaw,
+zoomed), `jaw-kept-*.png` (the kept build's open-mouth stills). The
+`*-sheet-raw-*` sheets are the portrait alone, safe. CSVs:
+`driving-follow-day14-vy*.csv`, `natural-follow-day14-vy*.csv`.
+
+*What he should look at live:* an "o" and a wide-open mouth -- the join
+under the chin, no line on the neck; talking and a smile -- the mouth
+should feel as it did; the forehead, unchanged. If he wants more mouth,
+the pair (`crop_vy_ratio` toward 0, `expression_gain` down) is the next
+two-axis sweep, not a guess.
+
+**Day 15 opens with:** his look at this (day 13 and day 14 are still
+uncommitted; his word commits them). Then the capture carrying its live
+anchor (exp_d0 / R_d0 / t_d0 / scale_d0 / pose_d0 / the rest_* values /
+face_height_rest / z_rest / centre_offset into `tracking.npz`), so a
+replay is the session itself -- day 13's 021214 capture could not be
+replayed for that. Then the yaw lag (the pivot for yaw, open since day
+10; turns p90 21-22 px on every day-14 run), the mouth gain as a
+measurement (now with the crop's placement as a second axis), the
+toothy smile's forehead, then Phase 3 as agreed.
+
+**Day 15 opens with his look at the day-14 build (2026-09-11, 08:10, one
+capture `moment-20260911-081054`): "on a cheerful, slightly overdone
+smile with teeth, the teeth grow a little in height. Everything else I
+like very much."** The jaw, the forehead, the mouth while talking: no
+complaint. Nothing changed yet; the analysis:
+
+*The capture.* The button was pressed after the moment, as always: the
+last frame has him talking with his lips just parted (his mouth ratio
+0.099, opening over jaw 0.041) and the avatar's lips parted 0.174 /
+0.072 -- **1.76x his** -- with the avatar's lips read 20% thinner than his
+(upper 0.049 vs 0.062, lower 0.112 vs 0.135 of inter-ocular; the
+portrait's own lips, day 6's "lip thickness 0.75-0.78"). The smile
+itself sits at t = 11.6-12.5 s of the capture (his width 0.52-0.53 of
+jaw, mouth ratio 0.23-0.26) and cannot be replayed with the live anchor
+-- every one of the 300 frames is at pitch -5..-10 deg, `_anchor_frame_ok`
+rejects them all, so a replay would run against the portrait's own rest
+(the day-13 replay limit, again). That is the first thing to build.
+
+*The clips, from the day-14 CSVs (avatar mouth ratio / his, frames with
+his ratio >= 0.05; p50 / p90):*
+
+| | -0.125 | **-0.06 (kept)** | -0.03 | 0.0 |
+|---|---|---|---|---|
+| driving, toothy smile 868-985 | 0.96 / 1.04 | **1.02 / 1.08** | 1.11 / 1.15 | 1.11 / 1.16 |
+| driving, talk 1104-1341 | 0.90 / 1.09 | **0.97 / 1.15** | 1.10 / 1.32 | 1.14 / 1.34 |
+| driving, wide open 986-1103 | 1.04 / 1.32 | **1.10 / 1.35** | 1.10 / 1.47 | 1.12 / 1.50 |
+| natural, smile 1307-1455 | 0.92 / 1.04 | **1.05 / 1.23** | 1.23 / 1.53 | 1.30 / 1.51 |
+| natural, talk 713-1306 | 0.80 / 1.07 | **0.96 / 1.26** | 1.12 / 1.47 | 1.18 / 1.51 |
+
+The day-14 crop added 6-13% to the opening on the smiles (the "mouth
+responds more" slope, seen from the other side) -- real, small, and not
+the 1.76x of the capture's frame. The p90s above the p50s say where the
+rest is: the opening over-shoots most at *small* openings (a parted-lip
+smile, a syllable), where `expression_gain` 1.8 multiplies a small
+relative reading and the network has not saturated; at a wide-open mouth
+the ratio is 1.1. And the lips themselves: a thinner-lipped portrait
+shows more tooth for the same gap -- identity, not code, and the
+clean-shaven / parted-lips portrait lever is still open.
+
+*The plan, in order (nothing built until his go):*
+
+1. **The capture carries its live anchor** (`exp_d0`, `R_d0`, `t_d0`,
+   `scale_d0`, `pose_d0`, `rest_ear` / `rest_mar` / `rest_mouth_width` /
+   `rest_brow` / `rest_chin` / `rest_gaze`, `face_height_rest`, `z_rest`,
+   `centre_offset`, `eye_rest` / `lip_rest`) into `tracking.npz`, and
+   `jaw_band.py --render` / a new `capture_replay.py` seeds the engine
+   from it instead of learning one -- so this capture's smile at t = 12 s
+   can be rendered as he saw it and measured. Half a day with tests.
+2. **`mouth_opening_gain`**: the same knob `mouth_smile_gain` is, on the
+   opening components (`_MOUTH_OPENING`, the y of keypoints 17 / 19 / 20)
+   -- default 1.0, bit-exact. Swept on driving talk (bar: talk mar gain
+   >= 0.85, today 1.10) and the toothy smile, then replayed on his
+   capture: the value where the smile's opening matches his without the
+   talk going under the bar. If no single value does both, the opening
+   gain becomes a curve of the opening itself (less gain for small
+   openings) -- measured, not assumed.
+3. His look.
+
+**His two Phase-3 features, restated by him today, to be built after
+the teeth (his order: quality switches, then the battery screen):**
+
+1. **Output quality switch -- 360p / 480p / 720p / 1080p.** One stage in
+   `PipelineController.process_once` between `renderer.render` and
+   `virtual_camera.send`: downscale to the chosen height (INTER_AREA) and
+   back up to the camera's own size (INTER_LINEAR), so the virtual
+   camera's format never changes and Zoom / Meet see one stream. "Native"
+   is the camera's own size -- 720p with the ZV-E10 today, so the 1080p
+   entry is only meaningful with a 1080p source and reads "Native" until
+   then. A setting for the default, a combo box beside "Virtual camera",
+   under 1 ms a frame, works for both engines.
+2. **"Camera battery died" -- a black frame with that text on the
+   virtual camera, by hand and automatically.** By hand: a button in the
+   window and a global hotkey (the meeting app is in front); pressing it
+   again brings the camera back. Automatic: on the face lost (the engine's
+   `_passthrough`, `is_placeholder=True` -- today his own face goes out),
+   on a pipeline exception (`PipelineRunner._run` logs and returns, the
+   camera freezes or blanks), on the extreme-pose hold past a few seconds.
+   Shape: the black frame appears at once (a dead battery does not fade),
+   stays at least ~3 s, and the avatar returns only after the engine has
+   been stable for a second -- hysteresis, never a flicker. The preview
+   shows the true output with a "BATTERY" indicator so he knows what the
+   other side sees. The text: "Camera battery died" is fine English; a
+   webcam-like alternative is "Camera disconnected" -- his choice. Sits on
+   the same stage as the quality switch. About a day for both, with
+   tests.
+
 ### Phase 2 — live, days 6-9
 
 - Engine in the app, live camera, the owner testing daily.
@@ -2936,6 +3675,10 @@ single lever and is his to take.
 - `.exe` with the CUDA runtime; first install on a second machine that never
   saw the repository; a plain message when the GPU is missing.
 - Enrolment: a portrait in, an avatar out, no scripts.
+- Output conditioning (his two ideas of 2026-09-09, see "Parked on his
+  ask" under day 13): the quality selector (Native / 720p soft / 480p /
+  360p) and the "connection dropped" blur -- button, hotkey, automatic on
+  a lost face, a pipeline error, a clipped mask, a hold.
 - Exit: a user installs it from a file and is on a call in ten minutes.
 
 ### Phase 4 — protection and rollout, days 12-18
