@@ -1,6 +1,8 @@
 """The jaw band ("white line"), measured: mean |output - scene| in the 10 px
 inside the paste mask's edge, jaw half, per frame -- the metric day 11's
-night asked for before the jaw shrink was kept.
+night asked for before the jaw shrink was kept. Day 13 adds the forehead:
+the same band over the mask's top fifth of rows (the forehead line, his
+one complaint on the fp32 build) -- ``fore abs`` and ``fore step``.
 
 Two inputs. A **clip**: every frame is tracked and rendered as the app would
 (the same tracker settings and engine options; ``--option`` overrides one for
@@ -11,6 +13,15 @@ measured is the one the engine actually pasted with (``loaded.last``). A
 built from the capture's last tracked frame -- the portrait's half of the
 mask is not stored, but at the jaw it is the larger of the two, so the
 driver's oval is the edge that was drawn there; ``--jaw-shrink`` says which.
+With ``--render`` (day 13) the capture is instead re-rendered by the engine
+(the last frame's tracking fed 300 times over camera.png -- see the loop's
+own comment for why not the 300 frames' own, and what that cannot carry)
+of *this* build -- its 300 frames of tracking fed with ``camera.png`` as the
+picture, so the anchor is learned as the app learned it, minus the head
+pose's distance (not stored; the crop is sized per frame) -- and the last
+frame's output is measured against ``camera.png`` under the mask the engine
+actually pasted with, ``--option`` overrides and all. That is how a mask or
+colour change is judged on the frames he complained about.
 
 The band: pixels where the pasted alpha is over 0.5, within ``--band`` px of
 the 0.5 contour (distance transform). "jaw half" is the band's rows below the
@@ -27,6 +38,8 @@ Usage::
     uv run python scripts/probes/jaw_band.py --clip recordings/natural.mkv \\
         --option mask_jaw_shrink=0 --stills 925,968
     uv run python scripts/probes/jaw_band.py --capture captures/moment-20260907-010203
+    uv run python scripts/probes/jaw_band.py --capture captures/moment-20260907-010203 \\
+        --render --option edge_match=0
 """
 
 from __future__ import annotations
@@ -35,6 +48,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -52,7 +66,14 @@ from sha256.avatar.repository import FilesystemAvatarRepository  # noqa: E402
 from sha256.config.loader import load_settings  # noqa: E402
 from sha256.config.paths import AppPaths  # noqa: E402
 from sha256.core.enums import PixelFormat  # noqa: E402
-from sha256.core.types import FrameMetadata, VideoFrame  # noqa: E402
+from sha256.core.types import (  # noqa: E402
+    BlendshapeSet,
+    FaceTrackingResult,
+    FrameMetadata,
+    HeadPose,
+    LandmarkSet,
+    VideoFrame,
+)
 from sha256.tracking.mediapipe_tracker import (  # noqa: E402
     DEFAULT_MODEL_RELATIVE_PATH,
     MediaPipeFaceTracker,
@@ -77,6 +98,10 @@ def band_numbers(
     jaw[:middle, :] = False
     if not jaw.any():
         return None
+    # Day 13: the forehead -- the band's rows in the mask's top fifth, the
+    # ten pixels inside its top edge and the temples beside them.
+    forehead = band.copy()
+    forehead[int(rows.min()) + (int(rows.max()) - int(rows.min())) // 5 :, :] = False
     grey_out = cv2.cvtColor(output, cv2.COLOR_BGR2GRAY).astype(np.float32)
     grey_scene = cv2.cvtColor(scene, cv2.COLOR_BGR2GRAY).astype(np.float32)
     difference = grey_out - grey_scene
@@ -84,6 +109,8 @@ def band_numbers(
         "abs": float(np.abs(difference[jaw]).mean()),
         "step": float(difference[jaw].mean()),
         "whole_abs": float(np.abs(difference[band]).mean()),
+        "forehead_abs": float(np.abs(difference[forehead]).mean()) if forehead.any() else 0.0,
+        "forehead_step": float(difference[forehead].mean()) if forehead.any() else 0.0,
         "n": float(jaw.sum()),
     }
 
@@ -115,11 +142,9 @@ def report(name: str, values: list[float]) -> str:
     )
 
 
-def run_clip(args: argparse.Namespace) -> int:
-    import cv2
-
+def parse_options(items: list[str]) -> dict[str, object]:
     overrides: dict[str, object] = {}
-    for item in args.option:
+    for item in items:
         key, sep, raw = item.partition("=")
         if not sep or not key:
             raise SystemExit(f"--option expects KEY=VALUE, got {item!r}")
@@ -127,6 +152,49 @@ def run_clip(args: argparse.Namespace) -> int:
             overrides[key] = json.loads(raw)
         except json.JSONDecodeError:
             overrides[key] = raw
+    return overrides
+
+
+def start_engine(avatar_id: str, overrides: dict[str, object]) -> LivePortraitEngine:
+    paths = AppPaths.resolve()
+    settings = load_settings(paths)
+    models = paths.resolve_relative(settings.models.root_path)
+    repository = FilesystemAvatarRepository(paths.resolve_relative(settings.avatars.library_path))
+    engine = LivePortraitEngine(
+        model_path=models / DEFAULT_MODEL_RELATIVE_PATH,
+        weights=models / DEFAULT_WEIGHTS_RELATIVE_PATH,
+    )
+    engine.start()
+    avatar = repository.get(avatar_id)
+    avatar.manifest.engine_options.update(overrides)
+    engine.load_avatar(avatar)
+    return engine
+
+
+def tracking_at(data: Any, index: int) -> FaceTrackingResult:
+    """One captured frame's readings as the engine's own type -- the same
+    rebuild scripts/replay_capture.py does (no head-pose distance: the
+    capture does not store it)."""
+    names = tuple(str(n) for n in data["names"])
+    yaw, pitch, roll = (float(v) for v in data["pose"][index])
+    return FaceTrackingResult(
+        metadata=FrameMetadata(frame_id=index, capture_timestamp=float(data["timestamps"][index])),
+        face_detected=bool(data["detected"][index]),
+        landmarks=LandmarkSet(
+            points=data["landmarks"][index].astype(np.float32), scheme="mediapipe_478"
+        ),
+        head_pose=HeadPose(yaw=yaw, pitch=pitch, roll=roll),
+        blendshapes=BlendshapeSet(
+            names=names, weights=data["weights"][index].astype(np.float32), scheme="mediapipe_52"
+        ),
+        confidence=1.0,
+    )
+
+
+def run_clip(args: argparse.Namespace) -> int:
+    import cv2
+
+    overrides = parse_options(args.option)
 
     paths = AppPaths.resolve()
     settings = load_settings(paths)
@@ -160,7 +228,13 @@ def run_clip(args: argparse.Namespace) -> int:
     fps = float(capture.get(cv2.CAP_PROP_FPS)) or 30.0
     total = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
     last = total - 1 if args.last is None else min(args.last, total - 1)
-    numbers: dict[str, list[float]] = {"abs": [], "step": [], "whole_abs": []}
+    numbers: dict[str, list[float]] = {
+        "abs": [],
+        "step": [],
+        "whole_abs": [],
+        "forehead_abs": [],
+        "forehead_step": [],
+    }
     index = 0
     try:
         while index <= last:
@@ -205,6 +279,8 @@ def run_clip(args: argparse.Namespace) -> int:
     print(report("abs", numbers["abs"]))
     print(report("step", numbers["step"]))
     print(report("whole abs", numbers["whole_abs"]))
+    print(report("fore abs", numbers["forehead_abs"]))
+    print(report("fore step", numbers["forehead_step"]))
     print("\nStills are the owner's face. Delete them when they have been looked at.")
     return 0
 
@@ -222,24 +298,58 @@ def run_capture(args: argparse.Namespace) -> int:
         raise SystemExit(f"{args.capture}: no face in the capture")
     last = int(np.where(detected)[0].max())
     height, width = camera.shape[:2]
-    points = data["landmarks"][last][:FACE_POINTS, :2] * (width, height)
-    to_crop, to_frame = crop_matrix(points.astype(np.float32))
-    crop_points = (points @ to_crop[:, :2].T + to_crop[:, 2]).astype(np.float32)
-    mask = _oval_mask(crop_points, jaw_shrink=args.jaw_shrink)
+    if args.render:
+        overrides = parse_options(args.option)
+        engine = start_engine(args.avatar, overrides)
+        try:
+            for index in range(last + 1):
+                frame = VideoFrame(
+                    data=camera,
+                    pixel_format=PixelFormat.BGR24,
+                    metadata=FrameMetadata(
+                        frame_id=index, capture_timestamp=float(data["timestamps"][index])
+                    ),
+                )
+                # The last frame's own tracking every time: camera.png is that
+                # frame, and an anchor learned from the other 299 frames'
+                # landmarks would be cut from a picture they do not match --
+                # a smeared face (2026-09-09, capture 032824). Until the
+                # capture carries the live anchor, a replay renders the
+                # moment's own geometry at rest expression, not his live one.
+                out = engine.animate(args.avatar, tracking_at(data, last), frame)
+            state = engine._loaded[args.avatar].last
+        finally:
+            engine.stop()
+        if state is None:
+            raise SystemExit(f"{args.capture}: nothing rendered")
+        _, to_frame, mask = state
+        seen = np.ascontiguousarray(out.data)
+        what = f"re-rendered by this build, overrides {overrides}, the pasted mask"
+    else:
+        points = data["landmarks"][last][:FACE_POINTS, :2] * (width, height)
+        to_crop, to_frame = crop_matrix(points.astype(np.float32))
+        crop_points = (points @ to_crop[:, :2].T + to_crop[:, 2]).astype(np.float32)
+        mask = _oval_mask(crop_points, jaw_shrink=args.jaw_shrink)
+        what = f"seen.png, driver oval with jaw shrink {args.jaw_shrink}"
     alpha = cv2.warpAffine(mask[:, :, 0], to_frame, (width, height), flags=cv2.INTER_LINEAR)
     values = band_numbers(seen, camera, alpha, args.band)
     if values is None:
         raise SystemExit(f"{args.capture}: the oval covers nothing")
     print(
-        f"{args.capture.name}: frame {last} of {len(detected)}, driver oval with jaw shrink "
-        f"{args.jaw_shrink}, {args.band} px inside the edge (grey levels):"
+        f"{args.capture.name}: frame {last} of {len(detected)}, {what}, "
+        f"{args.band} px inside the edge (grey levels):"
     )
     print(
         f"  abs {values['abs']:7.2f}   step {values['step']:+7.2f}   "
         f"whole abs {values['whole_abs']:7.2f}   n={int(values['n'])}"
     )
+    print(
+        f"  forehead abs {values['forehead_abs']:7.2f}   "
+        f"forehead step {values['forehead_step']:+7.2f}"
+    )
     if args.stills:
-        still = args.out_prefix.parent / f"{args.out_prefix.name}-{args.capture.name}.png"
+        tag = "-render" if args.render else ""
+        still = args.out_prefix.parent / f"{args.out_prefix.name}-{args.capture.name}{tag}.png"
         still.parent.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(str(still), face_zoom(camera, seen, alpha))
         print(f"  still written: {still}  (the owner's face; delete after)")
@@ -269,7 +379,15 @@ def main() -> int:
         action="append",
         default=[],
         metavar="KEY=VALUE",
-        help="Clip mode: override one engine option for this run (JSON value); repeatable.",
+        help="Clip mode and --render: override one engine option for this run (JSON "
+        "value); repeatable.",
+    )
+    parser.add_argument(
+        "--render",
+        action="store_true",
+        help="Capture mode: re-render the capture with this build's engine (its tracking "
+        "over camera.png) and measure that output under the mask actually pasted, "
+        "instead of the seen.png it was captured with.",
     )
     parser.add_argument(
         "--stills",

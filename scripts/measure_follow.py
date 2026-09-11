@@ -318,6 +318,14 @@ def main() -> int:
                 # whether it was reached on the way in or the way out, so a
                 # "not held" filter needs this, not just a pitch cutoff.
                 row["held"] = int(portrait.holding)
+                # Day 13: the extractor's own relative scale as _drive uses
+                # it (the size-smoothed reading over the anchor's), before
+                # scale_gain -- what an open mouth is mistaken for.
+                if portrait.scale_prev is not None and portrait.scale_d0 is not None:
+                    row["rel_scale"] = float(portrait.scale_prev / portrait.scale_d0)
+                # Day 13: how far the portrait's oval was let down at the
+                # chin this frame, crop px (see the engine's _chin_drop).
+                row["chin_drop"] = portrait.chin_drop
                 # Day 10 (4): the crop's own size in frame pixels this frame --
                 # `to_frame`'s linear part is a rotation scaled by size/CROP_SIZE
                 # (see _similarity), so its first column's norm times CROP_SIZE
