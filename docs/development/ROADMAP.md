@@ -3659,6 +3659,541 @@ the teeth (his order: quality switches, then the battery screen):**
    the same stage as the quality switch. About a day for both, with
    tests.
 
+**Day 15 (2026-09-11, Fable 5.1 implementing on his "start the teeth
+plan, commit both days"): days 13 and 14 committed (062c2f0, ffb97d9,
+a4e63eb); the capture carries the session's own anchor; the lips'
+parting has its own gain.**
+
+*Step 1 -- a replay is the session itself.* `LivePortraitEngine.
+anchor_state(avatar_id)` returns the frozen anchor as plain arrays --
+`exp_d0`, `t_d0`, `scale_d0`, `R_d0`, `pose_d0`, and the rest values the
+gates, the crop and the eye / brow / chin drives measure against
+(`rest_ear` .. `rest_pitch`, `rest_gaze`; an unknown one is NaN) -- and
+`seed_anchor(avatar_id, state)` makes them a fresh load's own, frozen:
+the graph's tensors overwritten in place, the smoothing state primed to
+the anchor as the freeze primes it, the per-frame state cleared as
+`reset_anchor` clears it. `PipelineRunner.capture` asks the active
+engine for it (duck-typed: the photograph engine has none and writes
+nothing extra) and stores it beside the tracking as `anchor_*` arrays
+with the avatar's id; `jaw_band.py --render` and the new
+`scripts/probes/capture_replay.py` seed from it when it is there. The
+window's dialog says the anchor is in the file.
+
+Proof, on driving.mkv (a session run to frame N, then a fresh load fed
+frame N's own reading and picture sixty times):
+
+| frame N | replay | mouth / eyes / width / brow read on the composite | vs the session's composite |
+|---|---|---|---|
+| 1200 (talk) | the session | 0.131 / 0.356 / 0.592 / 0.144 | -- |
+| | **seeded with its anchor** | 0.133 / 0.346 / 0.594 / 0.147 | 12% of pixels differ, mean 3.1 grey levels, max 56 |
+| | learning its own | 0.128 / 0.341 / 0.559 / 0.185 | mean 13.9, max 160 -- and no anchor at all (60 of 60 rejected) |
+| 925 (toothy smile) | the session | 0.190 / 0.266 / 0.655 / 0.158 | -- |
+| | **seeded** | 0.189 / 0.264 / 0.658 / 0.159 | mean 1.5, max 15 |
+| | learning its own | 0.187 / 0.315 / 0.611 / 0.164 | mean 13.0, max 160, no anchor |
+| the file (npz) round trip | | | bit-identical to the seeded replay |
+
+What remains between a seeded replay and the session is the smoothing
+history (the session's EMA and One-Euro state at frame N against a
+replay's, converged on a still picture) -- a grey level or three. What a
+capture still cannot carry is the *picture* of any frame but the press's
+own: the extractor reads pixels, and the ten seconds of tracking hold
+none. So the smile of his 08:10 capture (t = 11.6-12.5 s) stays
+unmeasurable in that file, and the file itself predates the anchor -- a
+replay of it renders the portrait at rest (mouth 0.003 against the 0.174
+he saw). **His next press is the first that can be replayed.** If the
+moment before the press matters often, the next lever is a short ring
+of camera frames in the capture (his face, gitignored like camera.png;
+~4 s at full size is ~250 MB of RAM, a half-size ring a quarter of it) --
+proposed, not built. Tests: five for the snapshot (nothing before the
+freeze, plain copies with NaN for unknowns, a seeded engine equal to the
+one that wrote it and reporting the same state back, the npz round
+trip, refusals), two for the capture (the keys ride along; an engine
+without an anchor, the photograph engine, no avatar: nothing extra).
+
+*Step 2 -- `mouth_opening_gain`.* The y of keypoints 17 / 19 / 20
+(`_MOUTH_OPENING`) weighted like `mouth_smile_gain` weights the smile's
+component: default 1.0, bit-exact; the gate, the smile and the lateral
+components untouched; multiplies with `expression_gain`. Swept on both
+clips at 0.8 and 0.6 against the day-14 build (`crop_vy_ratio` -0.06),
+avatar mouth ratio over his on frames where his is >= 0.05 (p50 / p90),
+and the bars:
+
+| | **1.0 (the build)** | 0.8 | 0.6 | bar |
+|---|---|---|---|---|
+| driving, toothy smile 868-985 | 1.02 / 1.08 | 0.89 / 0.94 | 0.74 / 0.79 | |
+| driving, talk 1104-1341 | 0.97 / 1.15 | 0.81 / 0.94 | 0.65 / 0.78 | |
+| driving, talk-only mar gain | 1.10 | 0.90 | 0.71 | >= 0.85 |
+| driving, talk + open mar gain | 1.21 | 1.10 | 0.88 | >= 0.85 |
+| driving, small openings on talk (his 0.05-0.15), p50 | 0.94 | 0.82 | 0.68 | |
+| natural, smile 1307-1455 | 1.05 / 1.23 | 0.82 / 0.96 | 0.63 / 0.74 | |
+| natural, talk 713-1306 | 0.96 / 1.26 | 0.78 / 0.98 | 0.56 / 0.71 | |
+| natural, talk mar gain | 1.03 | **0.83** | 0.60 | >= 0.85 |
+| blink / brow / turns / frown / still | unchanged at every value | | | |
+
+The knob does exactly what it says and nothing else -- and it says the
+same thing to a smile and to a word: 0.8 takes the smiles from 1.02-1.05
+to 0.82-0.89 and the talk from 0.96-0.97 to 0.78-0.81, under the bar on
+natural.mkv. There is no value that trims the smile and leaves the talk,
+because **on the clips there is nothing smile-specific to trim**: the
+toothy smile's opening is 1.02 of his at the median, the small openings
+on talk 0.94-0.95 -- the "small openings over-shoot" reading of the
+morning was the p90 tail (1.15-1.26, tracking noise on a 0.05 opening
+as much as anything), not the median. The 1.76 of his capture is not in
+either clip. So a curve of the opening is not justified by the clips
+either, and `mouth_opening_gain` stays 1.0: **the option exists, the
+measurement on his face does not yet.** What differs live from the clips
+is what the anchor now carries -- his rest at that session, his crop at
+that distance, the tracker at 22 fps -- and the seeded replay is the
+instrument for it. Kept: nothing in his metadata.json; `mouth_opening_
+gain` in the code at 1.0.
+
+*What he should do:* smile with teeth as he did this morning and press
+"That looked wrong" **during** the smile (the capture now carries the
+anchor; only the press's own frame can be replayed). Then
+`capture_replay.py --capture <it> --sweep mouth_opening_gain=1.0,0.8,0.6
+--stills` renders that very frame at each value in one process, and the
+value where his teeth are his is read off, not guessed.
+
+*Tests:* 245 in the engine file (the anchor snapshot's five, the opening
+gain's one), 26 in the runner's (two new); ruff and mypy clean on both.
+Files: nothing of his face kept from today's replay checks (the
+anchorless replay of the 08:10 capture was deleted); the CSVs are
+`recordings/*-follow-day15-og*.csv`.
+
+**Day 15, later (his "wonderful, I liked it -- now the next plans: the
+video qualities, and the black screen with text when the machine
+presumably is not working"): both built, Phase 3's first two.**
+
+*Where they live.* One stage, `sha256/pipeline/conditioning.py`
+(`OutputConditioner`), between `renderer.render` and the sink in
+`PipelineController.process_once`; the frame it returns is what the sink
+gets *and* what the preview shows, so what he sees is what the other side
+sees. Wired in `PipelineComponents` (defaulted, so every earlier wiring
+and test stands) from a new `[output]` settings section
+(`OutputSettings`, `configs/default.toml`).
+
+*The quality switch.* Native / 1080p / 720p / 480p / 360p in a combo
+beside "Virtual camera". The picture is scaled down to that height
+(INTER_AREA) and straight back up to the camera's own size (INTER_LINEAR):
+the virtual camera's format never changes, Zoom and Meet see one stream,
+and the picture looks like a cheaper webcam's. Native leaves it alone;
+a height at or above the frame's own is native too, so 1080p and 720p
+read as native on the 720p ZV-E10 until there is a 1080p source. Cost
+on a 1280x720 frame: 480p 1.0 ms, 360p 0.7 ms, native nothing.
+
+*The black screen.* A black frame with "Camera battery died" centred
+in a quiet grey (`failure_text`, his to change; built once per size and
+cached) in place of the avatar:
+
+- **By hand:** the red "Camera battery died" button in the bar (checkable
+  -- pressed, the screen is black; pressed again, the avatar is back at
+  once), and a hotkey that works with the meeting app in front,
+  `ctrl+alt+b` by default (`blackout_hotkey`): `sha256/ui/hotkey.py`
+  binds it with Windows' own `RegisterHotKey` and hears `WM_HOTKEY`
+  through Qt's native event filter, so a Qt shortcut's "only while
+  focused" does not apply. The hotkey *is* the button (it toggles it),
+  so the two never disagree.
+- **On its own** (`auto_blackout`, default on): the frame that would
+  have gone out is the camera's own picture -- the engine's passthrough,
+  before a face is first found or after it is lost with nothing rendered
+  yet -- and it blacks at once (that is the day-13 "2.5 s of his real
+  face on the virtual camera" case, closed); or the face has been lost
+  for `lost_face_seconds` (1.5) while a frozen avatar sat over a moving
+  room. A dead battery cuts at once and does not come back in a second:
+  an automatic black screen stays `min_blackout_seconds` (3) at least
+  and lifts only after the face has been tracked for `recovery_seconds`
+  (1) without a break -- hysteresis, never a flicker. The manual switch
+  outranks all of it and survives a pipeline restart; the automatic
+  state is forgotten on every start.
+- **When the loop dies** (`PipelineRunner._run`'s exception path, which
+  stops the loop): the controller's new `publish_failure` puts the black
+  frame on the virtual camera once before the error is reported, so the
+  other side sees a dead camera rather than the last avatar frame frozen
+  for the rest of the call.
+- The status line says `BLACK SCREEN -- the other side sees "Camera
+  battery died" (by the button / face lost / ...)` while it is on, and
+  the preview shows the black frame itself.
+
+To tell the engine's passthrough from a placeholder an engine *drew*
+(the null engine marks every frame `is_placeholder`), `RenderedFrame`
+gained `is_passthrough`: set by both real engines' `_passthrough`, read
+by the controller, false everywhere else. Without it the null-backend
+app would have blacked every frame.
+
+*A bug the tests caught before he could.* The first `RegisterHotKey`
+call passed the window handle as a bare Python int, which ctypes hands
+to C as a 32-bit int: the 64-bit handle was truncated and Windows
+answered "invalid window handle" (1400). Declared argument types
+(`HWND`) fixed it; checked on a real window (`hotkey_live.py`,
+scratchpad: platform windows, bound, a posted `WM_HOTKEY` fired the
+callback, unbound). The suite's own copy of that check skips itself on
+the offscreen platform the tests run on, where a window has no Win32
+handle.
+
+*Tests:* `test_conditioning.py` (quality sizes and softness, the black
+frame, the hysteresis on a hand-moved clock, the manual switch, reset,
+auto off), `test_pipeline_controller.py` (new: one frame through fakes
+-- the sink and the preview get the conditioned frame, the camera's own
+picture never reaches the sink, the manual switch, a start forgets an
+automatic black screen, `publish_failure`), the runner's failure path,
+the `[output]` section, the hotkey parser and registration, the
+window's combo and button and status line. 938 unit tests with the gui
+ones deselected, 18 gui tests in the two ui files; ruff, format and
+mypy clean on everything new (the warp engine's 11 pre-existing mypy
+errors as before).
+
+*What he should try live:* set 480p in the combo during a call and
+look at the other side; press the button and the hotkey with Zoom in
+front; walk out of the frame for two seconds and come back (black,
+then the avatar after about three). Not committed; his word.
+
+**Day 15, his look at both (2026-09-11, 09:50): "the teeth are still
+wrong; and the qualities change imperceptibly -- I set 360p and honestly
+nothing changed. I pressed That-looked-wrong again, look at the teeth."**
+
+*The teeth: found, and it was never a gain.* His new capture carries
+the session's anchor (the first that does), and the replay reproduces
+what he saw -- `seen.png` read 1.68x his lip opening, the replay 1.60x
+(mouth ratio 0.289 against his 0.181; the mouth zoom
+`recordings/day15-replay-moment-20260911-095003-mouth_opening_gain1.0
+-mouth.png`, two full rows of teeth against his one). The sweep on that
+very frame: `mouth_opening_gain` 0.8 -> 1.36x, **0.6 -> 1.03x**, 0.4 ->
+0.71x. So 0.6 fits his frame -- and the clips said 0.6 takes the talk
+to 0.71 / 0.60. Same expression, same portrait, two answers: the
+difference had to be in what the session carries and the clips do not.
+Rendered his frame with four anchors:
+
+| anchor | lip opening / his |
+|---|---|
+| the session's own (live) | **1.54-1.60** |
+| one learned on driving.mkv frames 0-45 | 1.06 |
+| the live one with only `exp_d0` from the clip | 1.03-1.06 |
+| the clip one with the live rest_* values | 1.06 |
+
+The anchor's `exp_d0` alone. The two differ by almost nothing (mean
+0.002 over 63 components) except the lips' opening rows (`_MOUTH_OPENING`,
+the y of 17 / 19 / 20): his live rest read (0.003, -0.007, 0.017), the
+clip's (-0.001, 0.002, 0.008), and the portrait's own closed mouth,
+`exp_s`, (-0.000, -0.004, 0.003). His lips were **pressed** at that
+session's start -- what a person does looking at a screen -- and the
+extractor reads a pressed mouth as closed beyond closed, so every
+opening measured from there carries a constant extra: **+0.1 of mouth
+ratio on both of his captures**, the 08:10 talk frame included (0.099 ->
+0.174), which is why a multiplicative gain fitted one frame by accident
+and could never fit the clips. With the anchor's opening rows taken from
+the portrait's own closed mouth -- relaxed, read in the same units by
+the same network -- his frame came out **0.98-1.02x his**; all five
+mouth rows from the portrait, 1.02-1.07x.
+
+**Built: `mouth_rest`** in engine_options, `"portrait"` (the default:
+the anchor's lip-opening components are the portrait's, written in
+place at every accepted anchor frame and when a captured anchor is
+seeded, so an older capture replays under the new rule too) or
+`"anchor"` (his own rest reading, the behaviour before). The opening
+gate (his measured mouth ratio, day 9) keeps the mouth shut at rest
+either way; the reference only matters once the mouth moves.
+`mouth_opening_gain` stays 1.0 -- the wrong lever, kept as a knob.
+Tests: four (`TestMouthRest`); the snapshot and smoothing-state tests
+pin themselves to `"anchor"`, since their subject is the round trip.
+Measured on his capture through the real option path and on both clips
+whole:
+
+| | `mouth_rest` anchor (before) | **portrait (kept)** |
+|---|---|---|
+| his 09:50 frame: lip opening / his | 1.54-1.60 | **0.98-1.02** |
+| driving: talk-only mar gain | 1.10 | 1.11 |
+| driving: toothy smile, opening / his p50 | 1.02 | 1.01 |
+| driving: closed smile, width gain | 0.51 | **0.37** |
+| driving: blink / brow / turns p90 / frown EAR | 0.90 / 0.72 / 21.7 / 0.291 | 0.90 / 0.72 / 21.9 / 0.291 |
+| natural: talk mar gain | 1.03 | 1.07 |
+| natural: smile, opening / his p50 / width gain | 1.05 / 1.04 | 1.02 / 0.95 |
+
+The clips do not change where they were right (their anchors were
+relaxed to begin with) and the live fault is gone. One cost, stated:
+the closed smile's width is a little narrower (driving 0.51 -> 0.37,
+natural 1.04 -> 0.95; the toothy smile's width 3% narrower too) -- his
+relaxed rest reads as slightly *more* closed than the portrait's, and
+the sliver of that the partly open gate lets through on a closed smile
+pulls the lips together. `mouth_smile_gain` (bound 3) is the knob for
+the closed smile if he misses it; his eye decides. Stills for him:
+`recordings/day15-replay-moment-20260911-095003-mouth_opening_gain1.0
+-mouth.png` (what he saw) and `-mouth_restportrait-mouth.png` (now),
+his face; delete after.
+
+*The qualities: right mechanism, invisible effect.* A plain down-and-up
+scale of a softly lit face is nearly nothing to the eye: on his frame
+the Laplacian sharpness fell 38 -> 6 at 360p but the mean difference
+was under one grey level (`recordings/day15-quality-sheet.png`: native
+and "360p linear" side by side, and he was right). What everyone
+recognises as a poor camera is the block artefacts of a compressed
+small picture, so each level now passes through a JPEG at its own size:
+1080p / 90, 720p / 65, 480p / 50, 360p / 40 (`QUALITY_LEVELS`). On the
+sheet 480p reads as an ordinary webcam and 360p as a bad connection;
+1080p and 720p on a 720p camera do not resize, so the JPEG alone is
+their step. Cost on a 1280x720 frame: 1080p 3.8 ms, 720p 3.5 ms, 480p
+2.6 ms, 360p 1.6 ms (the full-size JPEG is the expensive one). The
+sharpness test in `test_conditioning.py` now walks the ladder on a
+face-like picture and demands each step be softer than the one above.
+
+**Day 15, his third look (2026-09-11, 10:14): "put the teeth change back
+as it was -- when I open my mouth slightly the AI's mouth does not open,
+it just droops; when I close, it hides the lips, purses them; talking no
+longer follows. The qualities are fine now. Part of the jaw shows again.
+Fix these, and break nothing that was good."**
+
+*Reverted at once:* `mouth_rest` is `"anchor"` again (the code default
+and his metadata); `"portrait"` stays an option with the reason in its
+comment. His description is the mechanism seen from the other side: with
+the portrait's relaxed lips as the reference, his own rest reads as
+"closing", so a slight opening only drooped the lower lip and a closing
+pursed. The reference has to be his mouth.
+
+*The fault, isolated on the clip.* What differs between his live
+sessions and the clips is the anchor, so the clip was run three ways,
+the avatar read on the composite as `measure_follow` reads it:
+
+| driving.mkv, avatar lip opening / his (p50) | toothy smile | wide open | talk |
+|---|---|---|---|
+| the clip's own anchor (today's rule) | 1.03 | 1.10 | 0.97 |
+| **his 09:50 live anchor seeded** (lips pressed at that session's start) | **1.58** | **1.59** | **2.20** (p90 3.6) |
+| the same pressed anchor + lip rest tracking, EMA 0.03 | 1.07 | 1.11 | 1.10 |
+| the same, EMA 0.01 with a 15-frame settle | 1.08 | 1.12 | 1.12 |
+| the clip's own anchor + tracking (0.01, settle 15) | 1.09 | 1.11 | 1.10 |
+
+So a pressed anchor over-opens *everything* on the clip too, talking
+most -- exactly his live experience (the 08:10 talk frame 1.76x, the
+09:50 smile 1.60x). The anchor's lip-opening rows are learned once, from
+fifteen frames at the session's start, and his mouth then is not his
+mouth minutes later: pressed while he sets up, relaxed once he talks.
+And the reference matters at the thousandth -- 0.001 on these rows is
+about 10% of a talking mouth (the last two lines: the tracked rest lands
+a hair more closed than the first fifteen frames, and talk reads 1.10
+instead of 0.97) -- so no one-time reading can be right for a session.
+
+**Built: `lip_rest_tracking`** (frames, default 100, in his metadata; 0
+is day 14's behaviour, exact). Once the anchor is frozen, on every frame
+the day-9 gates call a resting mouth -- the opening and width gates both
+shut, the face not held -- for more than 15 frames in a row, the anchor's
+lip-opening rows move toward the extractor's reading of that frame by
+1/100 (a time constant of ~4-5 s live), as one masked in-place op on the
+static tensor the graph reads; nothing else of the anchor moves, and the
+tracked rows ride along in a capture's anchor so a replay is still the
+session (`_track_lip_rest`, `_LIP_REST_SETTLE`, `_LIP_REST_GATE_SHUT`;
+six tests). What it does not do: help in the first seconds after a
+pressed anchor, before enough resting frames have passed -- the anchor
+is still the start.
+
+*The jaw.* On his 10:14 capture (shaved, mouth shut) the avatar's
+rendered chin sits 8.8 px above his, and below it his own bare chin
+shows under the avatar's stubbled one (the day-12 lesson: a beard hid
+this). `mask_chin_reach` now has room (day 14) and day 13's sweep said
+0.04 is the value: on this capture the join moves from above his chin
+line onto it (`recordings/day15-jaw-chin-zoom.png`, three reaches
+zoomed; 0.08 runs onto the neck). Set to 0.04 in his metadata; the band
+metric reads worse (12.7 -> 20.5 abs) because the band moves onto his
+neck, as day 13 found -- the zoom decides, and his eye after it. The
+deeper cause is the portrait's stubble over his shaved chin: a
+clean-shaven portrait stays on the list.
+
+*Measured, the build he will run (tracking 100, reach 0.04) against day
+14's (`*-follow-day15-liprest.csv` vs `*-follow-day14-vy-0.06.csv`):*
+
+| | day 14 | **this build** |
+|---|---|---|
+| driving: blink / talk mar / smile width / brow gain | 0.90 / 1.10 / 0.51 / 0.72 | 0.89 / 1.15 / 0.58 / 0.69 |
+| driving: turns p90 / frown EAR / still spread | 21.7 / 0.291 / 0.005 | 21.8 / 0.290 / 0.005 |
+| driving: lip opening / his, toothy / talk (p50) | 1.02 / 0.97 | 1.09 / 1.10 |
+| natural: talk mar / smile width / brow gain | 1.03 / 1.04 / 0.80 | 1.01 / 1.04 / 0.81 |
+| natural: lip opening / his, talk / smile (p50) | 0.96 / 1.05 | 0.92 / 1.03 |
+| **the pressed anchor seeded on driving: toothy / open / talk** | **1.58 / 1.59 / 2.20** | **1.10 / 1.14 / 1.16** |
+
+Everything that was right stays within a few percent (the thousandth
+again: driving's talk a little more open, natural's a little less); the
+fault -- a session started with pressed lips -- is gone on the clip. 255
+engine tests. His live look is the last word, and the first seconds of a
+session are still the anchor's.
+
+**Day 15, his fourth look (2026-09-11, 10:57, two captures): "when I tilt
+my head down a line appears under the jaw, noticeably; and on a long,
+strong smile with the brows raised, something happens to the teeth --
+the second press should show it. Fix these two and we have a really
+strong application."**
+
+*What the captures hold.* Neither has the moment: both were pressed
+after it, with the mouth shut and the brows at rest for all 300 frames
+(`capture_stats` on 105732 and 105750: mouth ratio <= 0.008, brow
+0.20-0.23 throughout; 105750 holds a tilt to -22 degrees at t = 4-7 s,
+the press at -6). So the smile-with-brows moment was analysed from the
+clips and reproduced synthetically; the jaw line is in the press frames
+themselves (pitch -12 and -6, shaved).
+
+*The jaw line under a tilt: the portrait's own shadow.* Rendered at
+chin reach 0 / 0.02 / 0.04 on both captures (`recordings/day15-jaw2-
+reach-sweep-*.png`): the dark line under the avatar's chin is there at
+every reach -- it is the portrait's jaw shadow, drawn by the network as
+part of the face, pasted onto his lit under-chin; at rest it lands on
+his own jaw shadow and hides, tilted down it does not. The band metric
+agrees (105732 at reach 0: step +1.1; the reach moves the band onto the
+neck). The edge colour match exists for exactly this and could not see
+it: at an eighth-scale grid (8-px cells, a 24-px blur) a line ~8 px tall
+is below its resolution. **Built: the correction's grid is quarter-scale
+now** (`_CORRECTION_DOWNSCALE` 4; the brow-hair dilation, the zone's
+softening and the fill's reach doubled in cells to keep their pixel
+size; the edge blur stays 3 cells = 12 px, the finer match being the
+point):
+
+| capture (pitch) | jaw band abs / step, grid 8 (today) | **grid 4** | grid 4, blur 5 (the old 24 px) |
+|---|---|---|---|
+| 105732 (-12) | 18.8 / +9.8 | **11.0 / +3.7** | 13.5 / +5.6 |
+| 105750 (-6) | 18.9 / +4.7 | **12.2 / +1.4** | 14.6 / +2.6 |
+| 101434 (-3) | 20.4 / +6.0 | **13.2 / +1.9** | 15.9 / +3.6 |
+| forehead abs, the three | 3.7 / 4.7 / 3.0 | **2.8 / 3.8 / 2.3** | 3.1 / 4.1 / 2.4 |
+
+The zooms (`recordings/day15-jaw-fine-*.png`) show the line visibly
+softer, the stubble and his skin unchanged. The day-13 forehead captures
+(his brows raised, the toothy smile with hair over the forehead) are
+re-measured below, since a finer residual is exactly what day 13 had to
+guard against there.
+
+*The teeth on a strong smile with the brows up: the brow raise leaks
+into the mouth.* The extractor's mouth rows, per frame against his brow
+ratio over driving.mkv's raise (mouth shut, 1642-1760): r = 0.83-0.98,
+the lower lip's y (keypoint 20) +0.10 per unit of brow ratio, 17's y
++0.04, 7's y +0.015, the z of 17/20 -0.02 (natural.mkv's raise: +0.19,
++0.06, +0.03, -0.01/-0.03 -- the same signs, up to 1.8x the size; 19's y
+and the smile row 14 disagreed between the clips and are left alone).
+With the mouth shut the day-9 gate discards it; during a smile the mouth
+gate is open and the leak rides in -- pointing the other way from an
+opening. Reproduced: the toothy-smile frame 925 re-rendered with the
+leak a +0.06 raise carries (injected through the anchor) **closed by a
+third** (mouth ratio 0.190 -> 0.135; natural.mkv's smile 0.392 ->
+0.266), and the brow drive itself (kp 2's y, the day-9 lift) narrowed
+the smile 7% on top (`recordings/day15-leak-smile-*.png`, portrait
+only). That is "something happens to the teeth". **Built:
+`brow_mouth_leak`** (gain, default 1.0, in his metadata; 0 off): every
+frame `_render` writes the leak his measured brow deviation predicts
+into a static tensor (`mouth_leak`, the slopes in `_BROW_MOUTH_LEAK`),
+and `_drive` subtracts it from the relative expression before the masks
+and gates; three tests. The slopes are two clips' average of his own
+face; a capture pressed *during* the smile-with-brows is what tunes the
+gain -- the option is the knob.
+
+*Measured, the build he will run* (`*-follow-day15-final.csv`: tracking
+100, reach 0.04, the leak at 1.0, the quarter-scale match) against day
+14's:
+
+| | day 14 | **this build** |
+|---|---|---|
+| driving: blink / talk mar / smile width / brow gain | 0.90 / 1.10 / 0.51 / 0.72 | 0.90 / 1.14 / 0.58 / 0.72 |
+| driving: turns p90 / frown EAR / still spread / still dy chin | 21.7 / 0.291 / 0.005 / -4.5 | 21.4 / 0.292 / 0.006 / -3.9 |
+| driving: lip opening / his, toothy / talk (p50) | 1.02 / 0.97 | 1.06 / 1.15 |
+| natural: talk mar / smile width / brow gain / ear r | 1.03 / 1.04 / 0.80 / 0.77 | 1.05 / 1.02 / 0.81 / 0.78 |
+| natural: lip opening / his, talk / smile (p50) | 0.96 / 1.05 | 0.99 / 1.08 |
+| day-13 forehead captures, forehead step: 021214 (brows raised) / 025329 (hair, the worst) / 025254 | -0.4 / +13.8 / -- | **-0.5 / +0.9 / +2.2**; jaw abs 6.3 / 5.6 / 6.0 (was 8.4) |
+| paste, driving 950-1100, p50 / p90 | 8.4 / 9.7 ms (day 13) | 7.3 / 7.9 ms |
+
+Nothing that was right moved beyond a few percent; driving's talk
+opens 15% more than his where day 14 read 3% less (the tracked rest, the
+thousandth again -- natural.mkv reads 0.99), and the finer match took the
+worst forehead capture from +13.8 to +0.9 with the brow smear still
+absent (`recordings/day15-fore-brows-zoom.png`). 258 engine tests; the
+whole suite and the gui files pass; ruff, format and mypy clean.
+
+*Files for him (his face; delete after):* `recordings/day15-jaw2-reach-
+sweep-105732.png` (the tilt, three reaches -- the line at every one),
+`day15-jaw-fine-105732.png` (the same frame, grid 8 vs 4: the line
+softened), `day15-fore-brows-zoom.png` (his raised brows: no smear at
+the finer grid), `day15-leak-smile-driving-925.png` (portrait only: the
+smile, then with the brow raise's leak -- the teeth going), plus the
+earlier `day15-jaw-chin-zoom.png` and the 09:50 mouth zooms.
+
+*What he should try:* tilt down and look at the jaw (a fainter line,
+not none -- the portrait's own shadow is still the portrait's); a long
+toothy smile, then raise the brows while holding it (the teeth should
+stay); talking with the brows moving. And **press "That looked wrong"
+during the moment**: both captures today were pressed after it, and the
+smile-with-brows leak's gain can only be tuned on a frame that has it.
+
+**Day 15, his fifth message (2026-09-11, ~11:30): "good, wonderful --
+two more things and I think we finish the project with this; maybe
+refine details later." Two functions, two questions, one note.**
+
+*Function 1 -- adding faces from the app, by him alone.* Built:
+- `sha256/app/owner.py` (`OwnerAccess`): a passphrase, set on the first
+  "Login" (typed twice, at least four characters), salted and stretched
+  (PBKDF2-HMAC-SHA256, 200k rounds) into `configs/local.owner.json` --
+  gitignored with the rest of `configs/local.*`. A gate in the window,
+  not a vault: anyone with the machine's files can still copy a directory
+  into the library by hand; it keeps his friends out of the button, which
+  is what was asked.
+- `sha256/avatar/importer.py`: a photograph in, an avatar out. The
+  picture is inspected the way the engine will read it (MediaPipe, image
+  mode) and refused for what the fifteen days say cannot work -- no
+  face, turned or tilted more than 12 degrees (the anchor and the crop
+  are frontal), a face under 200 px, shut eyes -- and noted for what
+  works worse: off straight by more than 5 degrees, a face under 350 px,
+  an open mouth (a grin grins at rest -- day 6's portrait 2), less than
+  0.35 of a face height below the chin (day 14's wall). Then the
+  directory: `portrait.png` (re-encoded) and `metadata.json` copied from
+  the active neural avatar's manifest -- engine block, rendering, every
+  engine option measured on this machine -- with a slug id unique in
+  the library. Nothing half-made: a failure after the directory exists
+  removes it.
+- The window: "Login" (then "Owner", disabled) and, only once unlocked,
+  "Add avatar": a file dialog, a name, the checks, the library re-read,
+  the new avatar selected in the combo, a report of what the picture
+  measured. Tests: the passphrase (six), the importer (eleven; one runs
+  the real inspector on his portrait when the model and the portrait
+  are on the machine), the window's wiring (five).
+
+*Function 2 -- the black screen's words mirrored.* The preview mirrors
+what it shows (a webcam feels wrong otherwise); the black screen carries
+words, and mirrored words read backwards. The frame that goes out is the
+right way round for the other side; only the window flipped it. Now that
+one frame is shown unmirrored whatever the mirror is set to
+(`PreviewWidget.show_frame(mirror=...)`, the window passing `False`
+while the conditioner reports a black screen). Two preview tests, one
+window test.
+
+*Question 1 -- "on someone else's face: the same result, right?"* The
+honest answer is: probably close, not certainly the same, and nobody has
+measured it. What is his: the brow-to-mouth leak's slopes (his face, two
+clips), the gates' thresholds (calibrated on his live jitter), the
+crop's placement and the expression gain (chosen on his clips), the
+anchor's habits (his pressed lips). What is general: the crop is sized
+from the driver's own face, the mask follows the driver's oval, the
+colour match is per frame, the lip rest tracking and the black screen
+know nothing of who is driving. A friend with an ordinary frontal face
+should get a day-13-to-15 avatar; the first session with one will show
+two or three things to tune, and the tools -- a capture with its anchor,
+the replay, the clip sweep -- make that a day's work, not fifteen. The
+brow leak is the one to watch: `brow_mouth_leak` 0 turns it off if a
+new face's brows do not leak the way his do.
+
+*Question 2 -- "adding a new avatar: can problems come up?"* Yes, and
+the import names them before writing anything. The ones it cannot
+catch: a portrait whose lower face is proportioned unlike the driver's
+(day 6: his jaw showed under a shorter portrait), stubble or a beard
+the driver does not have (day 12), hair across the forehead (day 13's
+reach), a photograph lit hard from one side (the plane corrects tone,
+not a shadow's shape), glasses. A parted-lips portrait gives real teeth
+(day 6); a closed-lip one hallucinates them. The engine options copied
+from his avatar are the driver's as much as the portrait's -- right for
+him driving any portrait, a starting point for anyone else.
+
+*The note -- the whole forehead.* `mask_forehead_reach` is 0.85: the top
+seventh of brow-to-hairline stays his. 1.0 puts the join at the hairline
+itself, where the two heads' hair meets -- the reason the warp engine
+kept it below 1 in August, and why day 13's 0.65 went the other way. His
+ask is the whole face, later the avatar's hair too; that is a separate
+piece of work (hair is what the mask has never been asked to carry),
+parked at his own "later".
+
+**Day 15, still open, in his order:** his look at the teeth (the
+tracking, the leak), the jaw (the reach, the finer match), the
+qualities, the login and the add-avatar flow; commit on his word; then
+the forehead and the hair, the yaw pivot and the rest of the day-14 list.
+
 ### Phase 2 — live, days 6-9
 
 - Engine in the app, live camera, the owner testing daily.
