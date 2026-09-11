@@ -22,6 +22,7 @@ __all__ = [
     "CameraSettings",
     "EngineSettings",
     "GpuSettings",
+    "OutputSettings",
     "PerformanceSettings",
     "RenderingSettings",
     "Settings",
@@ -151,6 +152,54 @@ class VirtualCameraSettings(_Section):
     )
 
 
+class OutputSettings(_Section):
+    """What leaves the pipeline for the virtual camera, after the avatar is
+    rendered -- see ``sha256.pipeline.conditioning``."""
+
+    quality: Literal["native", "1080p", "720p", "480p", "360p"] = Field(
+        default="native",
+        description=(
+            "The published picture is scaled down to this height and back up to "
+            "the camera's own size, so the stream's format never changes and the "
+            "picture looks like a cheaper webcam's. 'native' leaves it alone; a "
+            "height at or above the camera's own is native too."
+        ),
+    )
+    failure_text: str = Field(
+        default="Camera battery died",
+        max_length=64,
+        description="The line on the black screen that replaces the avatar.",
+    )
+    auto_blackout: bool = Field(
+        default=True,
+        description=(
+            "Black the screen on the pipeline's own failures: the camera's own "
+            "picture about to go out, or the face lost for lost_face_seconds. "
+            "Off keeps the black screen for the button and the hotkey alone."
+        ),
+    )
+    lost_face_seconds: float = Field(default=1.5, ge=0.0, le=30.0)
+    min_blackout_seconds: float = Field(
+        default=3.0,
+        ge=0.0,
+        le=60.0,
+        description="An automatic black screen stays at least this long.",
+    )
+    recovery_seconds: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=30.0,
+        description="...and lifts only after the face has been tracked this long.",
+    )
+    blackout_hotkey: str = Field(
+        default="ctrl+alt+b",
+        description=(
+            "Toggles the black screen from any application (Windows). Modifiers "
+            "ctrl / alt / shift / win plus a letter, a digit or F1-F24."
+        ),
+    )
+
+
 class GpuSettings(_Section):
     vram_budget_mb: int = Field(
         default=6144,
@@ -273,6 +322,7 @@ class Settings(BaseSettings):
     engine: EngineSettings = Field(default_factory=EngineSettings)
     rendering: RenderingSettings = Field(default_factory=RenderingSettings)
     virtual_camera: VirtualCameraSettings = Field(default_factory=VirtualCameraSettings)
+    output: OutputSettings = Field(default_factory=OutputSettings)
     gpu: GpuSettings = Field(default_factory=GpuSettings)
     avatars: AvatarSettings = Field(default_factory=AvatarSettings)
     performance: PerformanceSettings = Field(default_factory=PerformanceSettings)

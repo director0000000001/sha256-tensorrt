@@ -358,3 +358,99 @@ class TestCapture:
         data = np.load(target / "tracking.npz", allow_pickle=False)
         assert data["landmarks"].shape == (10, 0, 3)
         assert not data["detected"].any()
+
+    def test_a_capture_carries_the_engines_anchor_when_it_has_one(self, runner_factory, tmp_path):
+        """Day 15: the neural engine's frozen anchor rides along as
+        ``anchor_*`` arrays, with the avatar's id, so a replay is the session
+        that pressed the button and not one that learned its own rest."""
+        from types import SimpleNamespace
+
+        class Engine:
+            def anchor_state(self, avatar_id):
+                assert avatar_id == "me"
+                return {
+                    "exp_d0": np.full((1, 21, 3), 0.25, dtype=np.float32),
+                    "rest_ear": np.array(0.31),
+                }
+
+        controller = FakeController()
+        controller.components = SimpleNamespace(
+            avatars=SimpleNamespace(engine=Engine(), active_id="me")
+        )
+        runner = runner_factory(controller)
+        self._publish(runner, controller, [True] * 3)
+
+        target = runner.capture(tmp_path)
+
+        data = np.load(target / "tracking.npz", allow_pickle=False)
+        assert data["anchor_exp_d0"].shape == (1, 21, 3)
+        assert float(data["anchor_exp_d0"].mean()) == pytest.approx(0.25)
+        assert float(data["anchor_rest_ear"]) == pytest.approx(0.31)
+        assert str(data["anchor_avatar"]) == "me"
+        assert data["landmarks"].shape == (3, 478, 3)  # the rest as before
+
+    def test_an_engine_without_an_anchor_writes_no_anchor_keys(self, runner_factory, tmp_path):
+        """Still learning, the photograph engine (no such method), or no
+        avatar selected: the capture is what it was, nothing extra."""
+        from types import SimpleNamespace
+
+        class Learning:
+            def anchor_state(self, avatar_id):
+                return None
+
+        cases = (
+            SimpleNamespace(engine=Learning(), active_id="me"),
+            SimpleNamespace(engine=object(), active_id="me"),
+            SimpleNamespace(engine=Learning(), active_id=None),
+        )
+        for index, avatars in enumerate(cases):
+            controller = FakeController()
+            controller.components = SimpleNamespace(avatars=avatars)
+            runner = runner_factory(controller)
+            self._publish(runner, controller, [True] * 2)
+
+            target = runner.capture(tmp_path / str(index))
+
+            data = np.load(target / "tracking.npz", allow_pickle=False)
+            assert not [k for k in data.files if k.startswith("anchor_")]
+            assert data["landmarks"].shape == (2, 478, 3)
+
+
+class TestFailureScreen:
+    """Day 15: when the loop dies, the controller is asked to put the black
+    screen on the virtual camera before the error is reported -- the other
+    side sees a dead camera, not the last avatar frame for the rest of the
+    call. A controller without the method (this file's own fake) is simply
+    not asked."""
+
+    def test_the_controller_is_asked_to_publish_the_failure_before_the_error(self, runner_factory):
+        class Controller(FakeController):
+            def __init__(self) -> None:
+                super().__init__(fail_after=1)
+                self.published: list[str] = []
+
+            def publish_failure(self, reason: str) -> bool:
+                self.published.append(reason)
+                return True
+
+        order: list[str] = []
+        controller = Controller()
+        controller.published = order  # the same list, so the order is visible
+        runner = runner_factory(controller, on_error=lambda m: order.append(f"error:{m}"))
+        runner.start()
+        wait_until(lambda: runner.last_error is not None)
+
+        assert order == ["camera exploded", "error:camera exploded"]
+
+    def test_a_failing_black_screen_does_not_hide_the_error(self, runner_factory):
+        class Controller(FakeController):
+            def publish_failure(self, reason: str) -> bool:
+                raise RuntimeError("sink gone too")
+
+        seen: list[str] = []
+        runner = runner_factory(Controller(fail_after=1), on_error=seen.append)
+        runner.start()
+        wait_until(lambda: runner.last_error is not None)
+
+        assert seen == ["camera exploded"]
+        assert runner.last_error == "camera exploded"

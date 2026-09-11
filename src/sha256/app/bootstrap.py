@@ -35,6 +35,7 @@ from sha256.core.interfaces import (
     VirtualCameraSink,
 )
 from sha256.performance.monitor import InProcessPerformanceMonitor, NullPerformanceMonitor
+from sha256.pipeline.conditioning import OutputConditioner
 from sha256.pipeline.controller import PipelineComponents, PipelineController
 from sha256.rendering.null import NullRenderer
 from sha256.tracking.mediapipe_tracker import (
@@ -202,6 +203,16 @@ def build_application(
 
     avatars = _build_avatar_manager(settings, paths, engine)
 
+    output = settings.output
+    conditioner = OutputConditioner(
+        quality=output.quality,
+        failure_text=output.failure_text,
+        auto_blackout=output.auto_blackout,
+        lost_face_seconds=output.lost_face_seconds,
+        min_blackout_seconds=output.min_blackout_seconds,
+        recovery_seconds=output.recovery_seconds,
+    )
+
     controller = PipelineController(
         PipelineComponents(
             camera=camera,
@@ -210,6 +221,7 @@ def build_application(
             virtual_camera=virtual_camera,
             avatars=avatars,
             monitor=monitor,
+            conditioner=conditioner,
         ),
         publish_output=settings.virtual_camera.auto_start,
     )

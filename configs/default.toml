@@ -167,3 +167,30 @@ background_color = "#101014"
 root_path = "models"
 # sha256 performs no network access unless this is explicitly enabled.
 allow_downloads = false
+
+[output]
+# What leaves the pipeline for the virtual camera (day 15, his two asks):
+#
+# quality — the published picture is scaled down to this height, passed
+# through a JPEG at a quality to match (1080p/90, 720p/65, 480p/50, 360p/40)
+# and scaled straight back up to the camera's own size, so the stream's format
+# never changes and Zoom or Meet see one stream; at 480p the mask's edge, a
+# stubble mismatch and the small defects of a generated face are below what
+# the picture can carry — an ordinary webcam's look, 360p a poor connection's.
+# "native" leaves it alone. On the 720p camera 1080p and 720p do not resize;
+# the JPEG alone is their step.
+quality = "native"
+# The black screen: this line, centred, in place of the avatar — by the button
+# in the window and the hotkey below, and on its own when the engine cannot
+# work (the camera's own picture about to go out, or the face lost for
+# lost_face_seconds). It appears at once, stays min_blackout_seconds at least,
+# and lifts only after the face has been tracked for recovery_seconds.
+failure_text = "Camera battery died"
+auto_blackout = true
+lost_face_seconds = 1.5
+min_blackout_seconds = 3.0
+recovery_seconds = 1.0
+# Toggles the black screen from any application (Windows; the meeting app is
+# in front during a call). Modifiers ctrl / alt / shift / win plus a letter, a
+# digit or F1-F24.
+blackout_hotkey = "ctrl+alt+b"

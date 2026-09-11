@@ -136,3 +136,31 @@ class TestPaths:
         assert paths.avatars.is_dir()
         assert paths.logs.is_dir()
         assert not paths.configs.exists(), "a missing config dir is a valid state"
+
+
+class TestOutputSection:
+    """Day 15: what leaves the pipeline for the virtual camera."""
+
+    def test_defaults(self):
+        output = Settings(_env_file=None).output
+        assert output.quality == "native"
+        assert output.failure_text == "Camera battery died"
+        assert output.auto_blackout is True
+        assert (output.lost_face_seconds, output.min_blackout_seconds, output.recovery_seconds) == (
+            1.5,
+            3.0,
+            1.0,
+        )
+        assert output.blackout_hotkey == "ctrl+alt+b"
+
+    def test_the_quality_is_one_of_the_conditioners_names(self):
+        from sha256.pipeline.conditioning import QUALITY_NAMES
+
+        for name in QUALITY_NAMES:
+            assert Settings(_env_file=None, output={"quality": name}).output.quality == name
+        with pytest.raises(Exception, match="quality"):
+            Settings(_env_file=None, output={"quality": "4k"})
+
+    def test_the_committed_default_config_carries_the_section(self, app_paths: AppPaths):
+        settings = load_settings(app_paths)
+        assert settings.output.failure_text == "Camera battery died"

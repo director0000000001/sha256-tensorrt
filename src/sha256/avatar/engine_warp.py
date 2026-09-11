@@ -2840,6 +2840,7 @@ class WarpAvatarEngine:
             avatar_id=avatar_id,
             render_timestamp=now(),
             is_placeholder=True,
+            is_passthrough=True,
         )
 
     # --- loading helpers ---------------------------------------------------

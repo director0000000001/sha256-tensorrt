@@ -216,12 +216,22 @@ class PipelineRunner:
         same instant. Day 11's four complaints had to be guessed at from old
         clips because this file did not exist. The window says which file is
         which when the button is pressed.
+
+        **The anchor too (day 15).** The neural engine drives the portrait
+        relative to a resting face it learned from the first frames of the
+        session, and a replay that has to learn its own from the capture's
+        frames is a different session -- or none, when the ten seconds were
+        all head-down (his capture of 2026-09-11 08:10). So the engine's
+        frozen anchor goes in beside the tracking, as ``anchor_*`` arrays
+        (see ``LivePortraitEngine.anchor_state``); an engine without one
+        (the photograph engine) writes nothing extra.
         """
         import numpy as np
 
         with self._lock:
             history = list(self._history)
             snapshot = self._latest
+        anchor = self._anchor_state()
 
         if not history:
             msg = "nothing has been tracked yet"
@@ -282,6 +292,7 @@ class PipelineRunner:
             timestamps=np.array([r.metadata.capture_timestamp for r in history], dtype=np.float64),
             detected=np.array([r.face_detected for r in history], dtype=bool),
             names=np.array(names),
+            **{f"anchor_{key}": value for key, value in (anchor or {}).items()},
         )
 
         if snapshot is not None:
@@ -298,8 +309,38 @@ class PipelineRunner:
                     continue
                 cv2.imwrite(str(target / name), bgr)
 
-        _LOG.info("Captured %d frame(s) of tracking to %s", len(history), target)
+        _LOG.info(
+            "Captured %d frame(s) of tracking to %s (%s)",
+            len(history),
+            target,
+            "with the avatar's anchor" if anchor else "no anchor to carry",
+        )
         return target
+
+    def _anchor_state(self) -> dict[str, Any] | None:
+        """The active avatar's frozen anchor, from an engine that has one --
+        ``anchor_state`` is the neural engine's, not part of the engine
+        protocol, so this asks and takes ``None`` for an answer from any
+        engine, controller or test double without it. The avatar's id rides
+        along so a replay loads the same one."""
+        import numpy as np
+
+        avatars = getattr(getattr(self._controller, "components", None), "avatars", None)
+        engine = getattr(avatars, "engine", None)
+        avatar_id = getattr(avatars, "active_id", None)
+        snapshot = getattr(engine, "anchor_state", None)
+        if engine is None or avatar_id is None or snapshot is None:
+            return None
+        try:
+            state = snapshot(avatar_id)
+        except Exception as exc:
+            _LOG.warning("The avatar's anchor could not be read for the capture: %s", exc)
+            return None
+        if not state:
+            return None
+        state = dict(state)
+        state["avatar"] = np.array(str(avatar_id))
+        return state
 
     @property
     def fps(self) -> float:
@@ -327,6 +368,16 @@ class PipelineRunner:
                 # not spin on the same failure either.
                 message = str(exc)
                 _LOG.exception("Pipeline loop failed")
+                # Day 15: the other side sees a dead camera, not the last
+                # avatar frame frozen for the rest of the call. Asked for,
+                # not assumed -- a controller without it (a test double)
+                # simply has nothing to publish.
+                publish_failure = getattr(self._controller, "publish_failure", None)
+                if publish_failure is not None:
+                    try:
+                        publish_failure(message)
+                    except Exception:
+                        _LOG.exception("The black screen could not be published either")
                 with self._lock:
                     self._last_error = message
                 if self._on_error is not None:

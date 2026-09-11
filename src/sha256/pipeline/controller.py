@@ -12,7 +12,7 @@ one class rather than rewiring the application.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 
 from sha256.avatar.manager import AvatarManager
 from sha256.core.enums import PipelineStage, PipelineState
@@ -25,6 +25,7 @@ from sha256.core.interfaces import (
     VirtualCameraSink,
 )
 from sha256.core.types import FaceTrackingResult, RenderedFrame, VideoFrame
+from sha256.pipeline.conditioning import OutputConditioner
 from sha256.utils.logging import get_logger
 
 __all__ = ["PipelineComponents", "PipelineController"]
@@ -46,6 +47,10 @@ class PipelineComponents:
     virtual_camera: VirtualCameraSink
     avatars: AvatarManager
     monitor: PerformanceMonitor
+    # Day 15: the last stage before the sink -- the output quality and the
+    # black screen (see sha256.pipeline.conditioning). Defaulted so the
+    # wiring that predates it, tests included, is unchanged.
+    conditioner: OutputConditioner = field(default_factory=OutputConditioner)
 
 
 class PipelineController:
@@ -155,6 +160,7 @@ class PipelineController:
 
         self._state = PipelineState.STARTING
         self._last_error = None
+        self._components.conditioner.reset()
         started: list[object] = []
 
         try:
@@ -238,6 +244,7 @@ class PipelineController:
         engine = self._components.avatars.engine
         active = self._components.avatars.active
 
+        passthrough = False
         if engine is None or active is None:
             # No avatar selected is a normal idle state, not an error: the sink
             # keeps emitting a valid signal so downstream consumers stay happy.
@@ -247,9 +254,17 @@ class PipelineController:
         else:
             with monitor.measure(PipelineStage.ANIMATION):
                 animated = engine.animate(active.id, tracking, frame)
+            # The engine's passthrough is the camera's own picture (no face to
+            # draw yet) -- the one frame that must never reach the sink.
+            passthrough = animated.is_passthrough
             with monitor.measure(PipelineStage.RENDERING):
                 rendered = self._components.renderer.render(animated)
 
+        # Day 15: the quality, and the black screen -- what goes out is also
+        # what the preview shows, so what he sees is what the other side sees.
+        rendered = self._components.conditioner.condition(
+            rendered, face_detected=tracking.face_detected, passthrough=passthrough
+        )
         monitor.record_frame(PipelineStage.RENDERING)
 
         if self._publish_output and self._components.virtual_camera.is_running:
@@ -260,3 +275,25 @@ class PipelineController:
         monitor.record_duration(PipelineStage.END_TO_END, rendered.pipeline_latency)
         self._last_frame = rendered
         return rendered
+
+    def publish_failure(self, reason: str) -> bool:
+        """Put the black screen on the virtual camera, once, because the loop
+        is stopping on an error (see ``PipelineRunner._run``): a camera whose
+        battery died is what the other side should see, not the last avatar
+        frame frozen for the rest of the call. Nothing to do -- and ``False``
+        -- while nothing is being published, or before a first frame has
+        told the sink's size."""
+        sink = self._components.virtual_camera
+        last = self._last_frame
+        if not self._publish_output or not sink.is_running or last is None:
+            return False
+        black = replace(
+            last,
+            data=self._components.conditioner.failure_frame_for(last.width, last.height),
+            avatar_id=None,
+            is_placeholder=True,
+        )
+        sink.send(black)
+        self._last_frame = black
+        _LOG.warning("Black screen published on a pipeline failure: %s", reason)
+        return True
