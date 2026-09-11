@@ -133,10 +133,28 @@ DEFAULT_WEIGHTS_RELATIVE_PATH = Path("liveportrait") / "liveportrait"
 # stopped moving. Why the network is this sensitive to a 5% framing change
 # is not understood; three frames, one portrait -- see
 # docs/development/ROADMAP.md, day 6, for the whole-clip numbers behind it.
+#
+# CROP_VY_RATIO is -0.06, not LivePortrait's -0.125, and this axis has NO
+# cliff (measured 2026-09-10, day 14). The ratio moves the crop's centre up
+# the face by that fraction of the crop, i.e. it decides how the 512 rows
+# are spent between hair and neck: at -0.125 the portrait's chin sat at row
+# 489 with 22 px under it, and a jaw that opens 24-51 px (his, driving.mkv
+# 986-1103) had nowhere to be followed -- the mask clipped at the array's
+# edge into a hard line (see _CHIN_DROP_MAX). Swept -0.16..0.0 on the
+# day-6 hard frames of both clips (wide mouth + pitch, frown, brows, toothy
+# smile, turn, blink) and then whole-clip at -0.09/-0.06/-0.03/0.0, three
+# portraits: every frame renders at every value, no grimace, no collapse,
+# turn lag and brow gain unchanged; what moves is smooth -- the mouth and
+# smile respond more as the face rises in the crop (driving talk mar gain
+# 1.07 -> 1.25, smile width 0.45 -> 0.73 from -0.125 to 0.0; natural talk
+# 0.93 -> 1.19) and blinks a little less (0.92 -> 0.85). -0.06 keeps the
+# mouth at today's gain (talk 1.10 / natural 1.03, smile 0.51 / 1.04, blink
+# 0.90) and leaves 56 px under the chin, enough for the whole open-jaw
+# range once the mask's own edge margin (measured, load_avatar) is taken.
 CROP_SIZE = 512
 MODEL_SIZE = 256
 CROP_SCALE = 2.2
-CROP_VY_RATIO = -0.125
+CROP_VY_RATIO = -0.06
 
 # How many tracked frames the anchor — the driver's resting expression and
 # pose — is averaged over before it is frozen. LivePortrait uses its first
@@ -943,6 +961,154 @@ _MASK_BOX_MARGIN = 4
 _CORRECTION_DOWNSCALE = 8
 _CORRECTION_INERTIA = 0.8
 
+# Day 13: the forehead line -- his one complaint on the fp32 build. Measured
+# on his five 02:52-02:55 captures (scripts/probes/jaw_band.py, capture
+# mode): the avatar's forehead sits +25..+28 grey levels brighter than his
+# in the ten pixels inside the mask's top edge, while the jaw band reads
+# -6. A plane cannot fix that: it is one brightness and one gradient per
+# channel, and a face that is too pale at the top edge and slightly dark at
+# the bottom while right in the middle is *curvature* at the edges -- what
+# the warp engine's own measurement kept the plane from ever representing,
+# since the same curvature inside the face is a brow shadow or a beard, the
+# user's own, which must not be printed onto the avatar. So the plane stays
+# the whole-face correction, and what it leaves is added back **at the
+# mask's edge alone**: the residual (difference minus plane), blurred at the
+# eighth-scale it is measured at and faded from all of it at the mask's
+# contour to nothing ``_EDGE_REACH`` of the box's height inside. The join is
+# where the two pictures have to agree; the middle of the face keeps the
+# avatar's own features. ``edge_match`` in ``engine_options`` sets how much
+# of the residual is added, 0 (today's plane alone) to 1.
+_EDGE_REACH = 0.2
+_EDGE_BLUR = 3
+
+# Day 13, his look of 2026-09-09 02:30 ("my eyebrows show, a dark colour
+# above the AI face's brows, worse when I raise them"): the residual is
+# meant to be skin against skin at the join, but the fade reaches a fifth
+# of the box inside the contour, and his own brows sit 30-40 px inside it
+# at rest and 15-20 on a raise -- so their darkness went into the residual
+# and came out on the avatar's forehead as a smear. The features that are
+# HIS and not the join -- brows, eyes, mouth -- are cut out of the residual
+# before the blur (their cells count as unknown, and the blur fills them
+# from the skin around); this many eighth-scale cells of dilation around
+# their points covers the brow hair above MediaPipe's brow line. What the
+# zone gets instead is the skin's own residual, interpolated across it: a
+# second, wide blur (_EDGE_FILL_BLUR cells) of the same skin-only residual
+# reaches across the zone from the forehead above and the cheek below,
+# and the two are blended by the zone softened over _EDGE_EXCLUDE_SOFTEN
+# cells. Two things were tried first and are recorded in his screenshots
+# of 02:52 and 03:00: a hard zone came out as eighth-scale blocks once the
+# field was resized up by eight, and a zone faded to the plane alone came
+# out as a dark patch above the avatar's brows -- his forehead that night
+# was brighter than the avatar's, the residual around the zone was
+# brightening it, and the zone stayed dark.
+_EDGE_EXCLUDE_DILATE = 2
+_EDGE_EXCLUDE_SOFTEN = 5
+_EDGE_FILL_BLUR = 15
+_EDGE_FEATURES = (
+    _BROWS[:6] + _LEFT_EYE_CORNERS + (159, 145),
+    _BROWS[6:] + _RIGHT_EYE_CORNERS + (386, 374),
+    (61, 291, 0, 17, 13, 14),
+)
+
+
+def _feature_exclusion(
+    features: np.ndarray, shape: tuple[int, int], dilate: int = _EDGE_EXCLUDE_DILATE
+) -> np.ndarray:
+    """The cells of an eighth-scale box that are his brows, eyes or mouth
+    (1.0) rather than skin (0.0): ``features`` are those points already in
+    the box's own cell coordinates, in the groups of :data:`_EDGE_FEATURES`
+    -- each group's convex hull filled, then all of them dilated by
+    ``dilate`` cells. Hard-edged: 1.0 or 0.0 per cell (see
+    :func:`_edge_residual` for how it is used and softened)."""
+    import cv2
+
+    zone: np.ndarray = np.zeros(shape, dtype=np.uint8)
+    start = 0
+    for group in _EDGE_FEATURES:
+        pts = features[start : start + len(group)]
+        start += len(group)
+        cv2.fillConvexPoly(zone, cv2.convexHull(np.round(pts).astype(np.int32)), 255)
+    if dilate > 0:
+        size = 2 * dilate + 1
+        zone = cv2.dilate(zone, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size)))
+    return zone.astype(np.float32) / 255.0
+
+
+def _edge_match(options: dict[str, Any]) -> float:
+    """``edge_match`` in ``[0, 1]``, default 1.0: how much of the lighting
+    plane's residual is matched at the mask's edge (see :data:`_EDGE_REACH`).
+    0 is the plane alone, the correction before day 13."""
+    value = float(options.get("edge_match", 1.0))
+    if not 0.0 <= value <= 1.0:
+        raise ValueError(f"edge_match must be in [0, 1], got {value}")
+    return value
+
+
+def _edge_residual(
+    difference: np.ndarray,
+    coverage: np.ndarray,
+    plane: np.ndarray,
+    *,
+    exclude: np.ndarray | None = None,
+) -> np.ndarray:
+    """What the plane leaves, at the mask's edge: the alpha-weighted
+    difference less the plane, blurred over :data:`_EDGE_BLUR` cells with
+    the blur weighted by the mask (so the room past the contour never
+    contributes), then faded from all of it at the contour to nothing
+    :data:`_EDGE_REACH` of the box's height inside. Same eighth-scale box
+    as the plane, so the whole thing is a few thousand multiplies.
+
+    ``exclude`` (:func:`_feature_exclusion`, 1.0 where his brows, eyes or
+    mouth are) takes those cells out of the residual *and* out of the
+    blur's weight, so nothing of his features enters the field; what the
+    zone gets is the skin's residual interpolated across it -- the same
+    skin-only residual blurred wide (:data:`_EDGE_FILL_BLUR` cells),
+    blended in by the zone softened over :data:`_EDGE_EXCLUDE_SOFTEN`
+    cells, so there is no step at the zone's edge and no patch inside it.
+    """
+    import cv2
+
+    height = coverage.shape[0]
+    residual = difference - plane * coverage[:, :, None]
+    weight_in = coverage
+    if exclude is not None:
+        keep = 1.0 - exclude
+        residual = residual * keep[:, :, None]
+        weight_in = coverage * keep
+    kernel = (_EDGE_BLUR | 1, _EDGE_BLUR | 1)
+    smooth = (
+        cv2.GaussianBlur(residual, kernel, 0)
+        / np.maximum(cv2.GaussianBlur(weight_in, kernel, 0), 1e-3)[:, :, None]
+    )
+    if exclude is not None:
+        wide = (_EDGE_FILL_BLUR | 1, _EDGE_FILL_BLUR | 1)
+        filled = (
+            cv2.GaussianBlur(residual, wide, 0)
+            / np.maximum(cv2.GaussianBlur(weight_in, wide, 0), 1e-3)[:, :, None]
+        )
+        soften = (_EDGE_EXCLUDE_SOFTEN | 1, _EDGE_EXCLUDE_SOFTEN | 1)
+        blend = cv2.GaussianBlur(exclude, soften, 0)[:, :, None]
+        smooth = smooth * (1.0 - blend) + filled * blend
+    inside = (coverage > 0.5).astype(np.uint8)
+    distance = cv2.distanceTransform(inside, cv2.DIST_L2, 3)
+    reach = max(float(height) * _EDGE_REACH, 1.0)
+    weight = np.clip(1.0 - distance / reach, 0.0, 1.0).astype(np.float32)
+    faded: np.ndarray = (smooth * weight[:, :, None]).astype(np.float32)
+    return faded
+
+
+def _forehead_reach(options: dict[str, Any]) -> float:
+    """``mask_forehead_reach`` in ``[0.3, 1.0]``, default
+    ``_OVAL_FOREHEAD_REACH`` (0.85): how far up the forehead the ovals go,
+    as a fraction of the brow-to-hairline distance -- 1.0 is the hairline
+    itself, lower stops the join further down on bare skin. Day 13's
+    forehead-line lever, swept with scripts/probes/jaw_band.py; both the
+    portrait's oval and the driver's read it."""
+    value = float(options.get("mask_forehead_reach", _OVAL_FOREHEAD_REACH))
+    if not 0.3 <= value <= 1.0:
+        raise ValueError(f"mask_forehead_reach must be in [0.3, 1.0], got {value}")
+    return value
+
 
 def _mask_jaw_shrink(options: dict[str, Any]) -> float:
     """``mask_jaw_shrink`` in ``[0, 0.3]``, default ``_OVAL_JAW_SHRINK`` (0):
@@ -955,8 +1121,124 @@ def _mask_jaw_shrink(options: dict[str, Any]) -> float:
     return value
 
 
+# Day 13: the jaw under an open mouth (his "o" and wide-open captures of
+# 2026-09-07 03:24 -- his own jaw showing below the avatar's). The paste
+# mask is the portrait's oval intersected with his (see _frame_mask); his
+# oval follows his dropped jaw, but the portrait's was built once at load
+# from the portrait's own closed-mouth chin, and the intersection stops
+# there while the avatar's rendered chin has dropped with his. So the
+# portrait's oval is rebuilt per frame with its points below the mouth line
+# let down by his chin's drop from rest, in crop pixels -- nothing at the
+# mouth line, all of it at the chin (see _oval_mask's ``chin_drop``). The
+# drop is the nose-tip-to-chin reach against the anchor's (see _chin_drop),
+# never more than this fraction of the portrait's own face height in the
+# crop, which is also how far the mask's box is extended below at load
+# (see _mask_bbox's ``reach_below``): the paste warps only into that box.
+_CHIN = 152
+_MOUTH_CORNERS = (61, 291)
+_CHIN_DROP_MAX = 0.35
+# Rows the oval's hull keeps clear of the crop's last row beyond its own
+# measured feather tail -- see load_avatar's ``edge_margin`` (day 14).
+_MASK_EDGE_CLEARANCE = 2.0
+
+# ...but never past the crop's own bottom row, and that is the real limit
+# (measured 2026-09-09, after his "the jaw shows" captures). His portrait
+# in this crop (scale 2.2, vy_ratio -0.125): face height 233 px, the chin
+# at row 489 of 512 -- **22 px of crop below the chin**, because the vy
+# ratio spends the crop's room above the face (256 px of hair) and leaves
+# almost none under it. An oval let down past 511 is not let down at all:
+# fillConvexPoly clips it at the array's edge, so the mask ends in a
+# HARD row instead of a feather, and the paste draws a straight dark line
+# across his neck (driving.mkv 1060, the day-13 drop: the mask's alpha
+# reached the last row on 118 of 118 open-mouth frames). The same wall
+# limits the render itself -- on those frames the avatar's own rendered
+# chin reaches row 510. So the drop and the reach share whatever room the
+# crop actually has (:meth:`LivePortraitEngine.load_avatar`), and the
+# whole question of following a wide-open jaw is a CROP question first:
+# more room below the chin means the vy ratio, which moves the framing
+# the extractor was tuned on (the day-6 cliff) and needs its own sweep.
+# Day 14 swept it (see CROP_VY_RATIO): no cliff on that axis, and at the
+# kept -0.06 the chin sits at row 455 with 56 px under it -- the drop's
+# cap on his portrait is ~52 px, the day-13 open-jaw maximum was 51.
+
+# Day 13, his captures of 2026-09-09 03:28 ("my jaw shows", brows raised
+# and looking down): on both, the avatar's rendered chin sits within 4 px
+# of his own, and the mask's 0.5 contour 5 px ABOVE both -- the erosion
+# (_OVAL_SHRINK) pulls both ovals inside their chin point and the feather
+# fades the avatar out across his chin line, so the underside of his chin
+# shows through it. ``mask_chin_reach`` lets BOTH ovals down at the chin
+# by this fraction of the portrait's crop face height (ramped from the
+# mouth line, like the drop), so the join lands under his chin on his
+# neck, where the portrait's own under-chin skin is pasted and the edge
+# match carries the tone. Default 0: the join at the contour, as before.
+# The warp engine had the same lever (_JAW_REACH) and he turned it off in
+# August -- a stretched photograph's chin; this engine renders the chin
+# where his is, so it is measured again.
+_CHIN_REACH_MAX = 0.2
+
+
+def _mask_chin_reach(options: dict[str, Any]) -> float:
+    """``mask_chin_reach`` in ``[0, 0.2]``, default 0: how far both ovals
+    reach below the chin, as a fraction of the portrait's crop face
+    height (see the comment above)."""
+    value = float(options.get("mask_chin_reach", 0.0))
+    if not 0.0 <= value <= _CHIN_REACH_MAX:
+        raise ValueError(f"mask_chin_reach must be in [0, {_CHIN_REACH_MAX}], got {value}")
+    return value
+
+
+def _chin_follow(options: dict[str, Any]) -> float:
+    """``chin_follow`` in ``[0, 1]``, default 1.0: how much of his chin's
+    drop the portrait's oval is let down by (see :func:`_chin_drop`). 0 is
+    the mask as before day 13 -- the join at the portrait's closed-mouth
+    chin -- and what the day-13 jaw band was measured against."""
+    value = float(options.get("chin_follow", 1.0))
+    if not 0.0 <= value <= 1.0:
+        raise ValueError(f"chin_follow must be in [0, 1], got {value}")
+    return value
+
+
+def _nose_chin(crop_points: np.ndarray) -> float:
+    """The nose tip to the chin, down the crop, in crop pixels -- the reach
+    an open mouth lengthens. The crop is rolled with the face and sized
+    from his resting face height, so at rest this is one number whatever
+    his roll or distance; it is not the chin's own y, which the crop's
+    centring (smoothed, and offset toward the eye line under pitch) moves
+    for reasons that are not his jaw."""
+    return float(crop_points[_CHIN, 1] - crop_points[_NOSE_TIP, 1])
+
+
+def _chin_drop(nose_chin: float, rest: float | None, limit: float) -> float:
+    """How far his chin has dropped from rest, in crop pixels: this frame's
+    :func:`_nose_chin` less the anchor's, never negative, never over
+    ``limit`` (``chin_drop_max``, the reach the mask box was extended by
+    at load). 0 until the anchor knows his rest.
+
+    Never negative, and that was measured, not assumed: a signed drop was
+    tried on 2026-09-09 (03:00) for "my jaw shows when I look down / raise
+    my brows", and his capture of 03:28 (brows raised, his reach 9 px
+    short of rest) showed the avatar's rendered chin had NOT risen with
+    his reach -- it sat 4 px above his chin, where the portrait's own
+    oval already ends -- so a mask following the reach cut the avatar's
+    chin 12 px short and showed 16 px of his own. The rendered chin
+    follows his reach when the mouth opens (the lip gain is ~1) and does
+    not under a pitch or a brow raise (the extractor carries a fraction
+    of the pitch and none of the raise into the chin); the portrait's own
+    oval is the better guess for those, and the 4-7 px of his chin that
+    show under it are the avatar's shorter lower face -- a proportion,
+    not a mask, question."""
+    if rest is None:
+        return 0.0
+    return float(min(max(nose_chin - rest, 0.0), limit))
+
+
 def _oval_mask(
-    crop_points: np.ndarray, size: int = CROP_SIZE, *, jaw_shrink: float = 0.0
+    crop_points: np.ndarray,
+    size: int = CROP_SIZE,
+    *,
+    jaw_shrink: float = 0.0,
+    chin_drop: float = 0.0,
+    forehead_reach: float = _OVAL_FOREHEAD_REACH,
 ) -> np.ndarray:
     """The face oval, feathered, as it sits in a crop of ``size``.
 
@@ -973,6 +1255,17 @@ def _oval_mask(
     that fraction of face width -- nothing at the eye line, the full amount
     from the nose tip down (see ``_OVAL_JAW_SHRINK``). The portrait's mask is
     built without it; the driver's with it.
+
+    ``chin_drop`` lets the oval's points below the mouth line down by that
+    many crop pixels -- nothing at the mouth line, all of it at the chin,
+    ramped between (see ``_CHIN_DROP_MAX``); a negative value would raise
+    them the same way, though :func:`_chin_drop` never produces one. The
+    portrait's per-frame mask is built with it under an open mouth; the
+    driver's never is, his own oval already follows his jaw.
+
+    ``forehead_reach`` is how far up from the brows toward the hairline the
+    oval's top is let go (see :func:`_forehead_reach`); both ovals use the
+    same value.
     """
     import cv2
 
@@ -982,8 +1275,14 @@ def _oval_mask(
     trimmed = oval.copy()
     brow_top = float(brow[:, 1].min())
     oval_top = float(trimmed[:, 1].min())
-    ceiling = brow_top - (brow_top - oval_top) * _OVAL_FOREHEAD_REACH
+    ceiling = brow_top - (brow_top - oval_top) * forehead_reach
     np.maximum(trimmed[:, 1], ceiling, out=trimmed[:, 1])
+
+    if chin_drop != 0.0:
+        mouth_y = float(crop_points[list(_MOUTH_CORNERS), 1].mean())
+        chin_y = float(crop_points[_CHIN, 1])
+        weight = np.clip((trimmed[:, 1] - mouth_y) / max(chin_y - mouth_y, 1.0), 0.0, 1.0)
+        trimmed[:, 1] += weight * chin_drop
 
     face_width = max(float(crop_points[:, 0].max() - crop_points[:, 0].min()), 1.0)
     if jaw_shrink > 0.0:
@@ -1007,8 +1306,15 @@ def _oval_mask(
     return (softened.astype(np.float32) / 255.0)[:, :, None]
 
 
-def _mask_bbox(mask: np.ndarray, margin: int = _MASK_BOX_MARGIN) -> tuple[int, int, int, int]:
+def _mask_bbox(
+    mask: np.ndarray, margin: int = _MASK_BOX_MARGIN, *, reach_below: int = 0
+) -> tuple[int, int, int, int]:
     """Where ``mask`` is non-zero, with a small margin, as integer crop pixels.
+
+    ``reach_below`` extends the box's bottom edge by that many more pixels
+    (day 13): the per-frame mask under an open mouth reaches below the
+    portrait's own oval by up to the chin drop's limit, and the paste
+    warps only into this box.
 
     This is the whole reason the mask is precomputed once at load: its box is
     a fixed rectangle inside the crop, far smaller than the crop's own 512
@@ -1020,14 +1326,21 @@ def _mask_bbox(mask: np.ndarray, margin: int = _MASK_BOX_MARGIN) -> tuple[int, i
     if nonzero.size == 0:
         return 0, 0, size, size
     y0 = max(int(nonzero[:, 0].min()) - margin, 0)
-    y1 = min(int(nonzero[:, 0].max()) + 1 + margin, size)
+    y1 = min(int(nonzero[:, 0].max()) + 1 + margin + reach_below, size)
     x0 = max(int(nonzero[:, 1].min()) - margin, 0)
     x1 = min(int(nonzero[:, 1].max()) + 1 + margin, size)
     return x0, y0, x1, y1
 
 
 def _frame_mask(
-    portrait_mask: np.ndarray, driver_crop_points: np.ndarray, *, jaw_shrink: float = 0.0
+    portrait_mask: np.ndarray,
+    driver_crop_points: np.ndarray,
+    *,
+    jaw_shrink: float = 0.0,
+    portrait_crop_points: np.ndarray | None = None,
+    chin_drop: float = 0.0,
+    forehead_reach: float = _OVAL_FOREHEAD_REACH,
+    chin_reach: float = 0.0,
 ) -> np.ndarray:
     """The paste mask for one frame: the portrait's oval **and** the driver's.
 
@@ -1035,6 +1348,19 @@ def _frame_mask(
     the intersection then follows the driver's pulled-in jaw, and the
     portrait's own mask, built once at load, is unchanged -- its box still
     bounds every frame's paste.
+
+    ``chin_drop`` goes to the portrait's oval alone (day 13): over half a
+    pixel, and given ``portrait_crop_points``, the portrait's half is
+    rebuilt with its jaw let down by that much (see :func:`_oval_mask`),
+    so the intersection can follow the avatar's opened jaw as far as the
+    driver's own oval goes; ``portrait_mask`` itself is untouched, and its
+    box, extended below at load by the drop's limit, still bounds the
+    paste (see :func:`_mask_bbox`).
+
+    ``chin_reach`` (crop pixels, see :func:`_mask_chin_reach`) lets *both*
+    ovals down at the chin, so the join sits under his chin rather than
+    across it; the portrait's half is rebuilt whenever either it or the
+    drop is over half a pixel.
 
     ``portrait_mask`` is the static mask computed once at load from the
     portrait's own landmarks (:func:`_oval_mask`) -- it keeps the portrait's
@@ -1061,8 +1387,22 @@ def _frame_mask(
     same reason (``engine_warp._destination_mask``, "the join happens over
     skin on both sides").
     """
+    portrait = portrait_mask
+    if abs(chin_drop + chin_reach) > 0.5 and portrait_crop_points is not None:
+        portrait = _oval_mask(
+            portrait_crop_points,
+            size=portrait_mask.shape[0],
+            chin_drop=chin_drop + chin_reach,
+            forehead_reach=forehead_reach,
+        )
     combined: np.ndarray = np.minimum(
-        portrait_mask, _oval_mask(driver_crop_points, jaw_shrink=jaw_shrink)
+        portrait,
+        _oval_mask(
+            driver_crop_points,
+            jaw_shrink=jaw_shrink,
+            chin_drop=chin_reach,
+            forehead_reach=forehead_reach,
+        ),
     )
     return combined
 
@@ -1169,6 +1509,34 @@ def _translation_gain(options: dict[str, Any]) -> tuple[float, float]:
         if not (0.0 <= value <= 1.0):
             raise ValueError(f"{name} must be in [0, 1], got {value}")
     return gx, gy
+
+
+def _scale_gain(options: dict[str, Any]) -> float:
+    """How much of the extractor's *relative scale* (``scale_now /
+    scale_d0``) reaches the portrait -- ``scale_gain`` in ``[0, 1]``,
+    default 0.0: the portrait's own scale, always. At 1.0 the old line
+    (``scale_s * scale_now / scale_d0``) is what runs, bit-exact.
+
+    Why this exists (day 13, 2026-09-07, his "o" and wide-open captures of
+    03:24, and the fp32 extractor of day 12): with the extractor running
+    the function it was trained as, its scale head *responds* -- and on
+    driving.mkv's wide-open frames it read 1.081 of the anchor while the
+    avatar's inter-ocular distance grew to 1.087 of its rest, his own
+    1.007, correlation 0.98 with his mouth ratio. In fp16 the head sat at
+    1.010, which is why nobody saw this before. The crop is already sized
+    from his resting face height by head-pose distance
+    (:meth:`LivePortraitEngine._driver_face_height`), so a real change in
+    his distance never reaches the extractor as a bigger face; what its
+    relative scale carries is what it *mistakes* for one -- an open mouth
+    is a taller face, read as a nearer one. The day-11 argument for
+    ``translation_gain_y``, applied to ``scale_new``: the gained ratio is
+    ``1 + (scale_now / scale_d0 - 1) * scale_gain``, folded into the same
+    multiply, baked at capture like every other option here.
+    """
+    g = float(options.get("scale_gain", 0.0))
+    if not (0.0 <= g <= 1.0):
+        raise ValueError(f"scale_gain must be in [0, 1], got {g}")
+    return g
 
 
 def _size_smoothing(options: dict[str, Any]) -> float:
@@ -1941,6 +2309,7 @@ def _face_colour_correction(
     region: np.ndarray,
     alpha: np.ndarray,
     alpha3: np.ndarray,
+    features: np.ndarray | None = None,
 ) -> np.ndarray | None:
     """The smooth field that relights the generated face to the room --
     what is *added* to the face, full-box, float32; ``None`` when the mask
@@ -1960,6 +2329,13 @@ def _face_colour_correction(
     field)``); returning the field lets :meth:`LivePortraitEngine._paste`
     fold the relighting into its one blend pass and saturate once at the
     end -- the same arithmetic, fewer passes over the box (see there).
+
+    Since day 13 the plane is not the whole field: what it leaves at the
+    mask's edge is matched there too (:func:`_edge_residual`, the forehead
+    line), by ``edge_match`` of it -- 0 is the plane alone. ``features``
+    are his brow, eye and mouth points in this box's own pixels
+    (:data:`_EDGE_FEATURES`, in that order), cut out of that residual;
+    ``None`` cuts nothing.
     """
     import cv2
 
@@ -1975,6 +2351,15 @@ def _face_colour_correction(
     )
     coverage = cv2.resize(weight, small, interpolation=cv2.INTER_AREA)
     field = _fit_lighting_plane(difference, coverage)
+    # Day 13: the plane's residual matched at the mask's edge -- see
+    # _edge_residual and the forehead-line comment above it.
+    edge = _edge_match(loaded.options)
+    if edge > 0.0:
+        exclude = None
+        if features is not None:
+            cells = features / (width / small[0], height / small[1])
+            exclude = _feature_exclusion(cells.astype(np.float32), coverage.shape)
+        field = field + _edge_residual(difference, coverage, field, exclude=exclude) * edge
 
     previous = loaded.correction
     if previous is not None:
@@ -2007,8 +2392,12 @@ class _Portrait:
         "c_s_lip",
         "centre_offset",
         "centre_samples",
+        "chin_drop",
+        "chin_drop_max",
+        "chin_reach",
         "correction",
         "crop_filters",
+        "crop_points",
         "descriptor",
         "ear_recent",
         "exp_d0",
@@ -2018,6 +2407,7 @@ class _Portrait:
         "eye_rest",
         "f_s",
         "face_height_rest",
+        "features",
         "gate",
         "gate_brow_prev",
         "gate_mouth_prev",
@@ -2041,12 +2431,14 @@ class _Portrait:
         "ratios",
         "rel_mask",
         "rest_brow",
+        "rest_chin",
         "rest_ear",
         "rest_gaze",
         "rest_mar",
         "rest_mouth_width",
         "rest_pitch",
         "scale_d0",
+        "scale_gain",
         "scale_prev",
         "scale_s",
         "size_samples",
@@ -2093,6 +2485,25 @@ class _Portrait:
         # and until then both gates are 1.0.
         self.rest_mouth_width: float | None = None
         self.rest_brow: float | None = None
+        # Day 13: his resting nose-tip-to-chin reach in crop pixels
+        # (_nose_chin), learned with the anchor like rest_brow; the
+        # portrait's own points in its crop, kept so its oval can be
+        # rebuilt per frame with the jaw let down (_frame_mask); the
+        # drop's limit in crop pixels (_CHIN_DROP_MAX of the portrait's
+        # face height, set at load, the mask box's own reach below); and
+        # the last frame's drop, for the record (measure_follow reads it).
+        self.rest_chin: float | None = None
+        self.crop_points: np.ndarray | None = None
+        # Day 13, his 2026-09-09 look: his brow, eye and mouth points in
+        # frame pixels (_EDGE_FEATURES order), from the last tracked frame
+        # -- what the edge residual must never print (see _feature_
+        # exclusion). Kept through a lost face like `last` is.
+        self.features: np.ndarray | None = None
+        self.chin_drop_max: float = 0.0
+        self.chin_drop: float = 0.0
+        # Day 13, his 03:28 captures: how far both ovals reach below the
+        # chin, crop px (mask_chin_reach of the crop face height, at load).
+        self.chin_reach: float = 0.0
         # Day 11: his resting iris offset (x, y) in units of eye width,
         # learned with the anchor like rest_brow; and the gaze drive's own
         # EMA state -- see the GAZE section and _gaze_drive.
@@ -2178,6 +2589,10 @@ class _Portrait:
         # Day 11: (1, 3) static gains on the extractor's relative
         # translation, [x, y, 0] -- see _translation_gain; 1.0 is exact.
         self.t_gain: Any = None
+        # Day 13: a (1, 1) static gain on the extractor's relative scale --
+        # see _scale_gain; 1.0 is the old line exactly, 0.0 (the default)
+        # the portrait's own scale whatever the extractor reads.
+        self.scale_gain: Any = None
         self.R_d0: Any = None
         # The anchor's own pose in degrees (3, 1), the same stack
         # _learn_anchor's own "pose" sum and pose_prev are -- R_d0 stores
@@ -2362,6 +2777,9 @@ class LivePortraitEngine:
         # docstring) -- validated here, applied in animate.
         _crop_centre(loaded.options)
         _mask_jaw_shrink(loaded.options)
+        _chin_follow(loaded.options)
+        _edge_match(loaded.options)
+        forehead_reach = _forehead_reach(loaded.options)
         to_crop, _ = crop_matrix(points, scale=scale, vy_ratio=vy)
         crop = cv2.warpAffine(portrait, to_crop, (CROP_SIZE, CROP_SIZE), flags=cv2.INTER_LINEAR)
         image = self._to_tensor(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB))
@@ -2369,9 +2787,48 @@ class LivePortraitEngine:
         # The paste mask, from the portrait's own landmarks placed in this
         # same crop -- see _oval_mask's docstring for why this is done once
         # here rather than every frame from the driver's landmarks.
-        crop_points = points @ to_crop[:, :2].T + to_crop[:, 2]
-        loaded.mask = _oval_mask(crop_points.astype(np.float32))
-        loaded.mask_bbox = _mask_bbox(loaded.mask)
+        crop_points = (points @ to_crop[:, :2].T + to_crop[:, 2]).astype(np.float32)
+        loaded.crop_points = crop_points
+        loaded.mask = _oval_mask(crop_points, forehead_reach=forehead_reach)
+        # Day 13: the box reaches below the portrait's own chin by the
+        # most the per-frame mask may let the jaw down (see _chin_drop).
+        # The room the crop actually has below the portrait's chin -- see
+        # _CHIN_DROP_MAX's own comment for why this, and not the fraction,
+        # is the limit. The reach is taken first (it is a fixed choice about
+        # where the join sits); the drop gets what is left.
+        crop_face_height = _face_height(crop_points)
+        # The oval's own edge needs a little room below its hull, and how
+        # much is MEASURED on this portrait's own mask rather than argued
+        # from the kernels (day 14, 2026-09-10; day 13 had argued shrink +
+        # feather / 2 of the face width, ~15 px, from how erode and
+        # GaussianBlur behave at an array's border -- four times too much).
+        # What the mask actually does: the erosion pulls the 0.5 contour in
+        # by the kernel's RADIUS (3 px at his face width, not its 9-px
+        # diameter) and the feather's tail (alpha 0.02) ends 1-2 px past the
+        # hull. Only a hull ON the last row defeats the erosion (nothing
+        # below it to erode from) and pastes the hard line; with the hull
+        # 4 rows above the last one the last row reads 0.008, at 3 rows
+        # 0.04, at 2 rows 0.12, at 1 row 0.3-0.6. So the hull keeps the
+        # measured tail plus two rows clear of the bottom.
+        tail = float(np.where((loaded.mask[:, :, 0] > 0.02).any(axis=1))[0].max()) - float(
+            crop_points[_CHIN, 1]
+        )
+        edge_margin = max(tail, 0.0) + _MASK_EDGE_CLEARANCE
+        headroom = max(float(CROP_SIZE - 1) - float(crop_points[_CHIN, 1]) - edge_margin, 0.0)
+        loaded.chin_reach = min(_mask_chin_reach(loaded.options) * crop_face_height, headroom)
+        loaded.chin_drop_max = min(_CHIN_DROP_MAX * crop_face_height, headroom - loaded.chin_reach)
+        loaded.mask_bbox = _mask_bbox(
+            loaded.mask, reach_below=int(np.ceil(loaded.chin_drop_max + loaded.chin_reach))
+        )
+        if headroom < _CHIN_DROP_MAX * crop_face_height:
+            _LOG.info(
+                "Avatar %s: the crop leaves %.0f usable px below the portrait's chin -- "
+                "chin reach %.0f px, chin drop capped at %.0f px (see _CHIN_DROP_MAX)",
+                descriptor.id,
+                headroom,
+                loaded.chin_reach,
+                loaded.chin_drop_max,
+            )
 
         # The portrait's own eye/lip close ratios, for the retargeting
         # networks -- see :func:`_eye_ratios`/:func:`_lip_ratio` and the
@@ -2420,6 +2877,9 @@ class LivePortraitEngine:
             gain_x, gain_y = _translation_gain(loaded.options)
             loaded.t_gain = torch.tensor(
                 [[gain_x, gain_y, 0.0]], device=self._device, dtype=torch.float32
+            )
+            loaded.scale_gain = torch.tensor(
+                [[_scale_gain(loaded.options)]], device=self._device, dtype=torch.float32
             )
             loaded.R_d0 = loaded.R_s.clone()
 
@@ -2546,6 +3006,7 @@ class LivePortraitEngine:
             loaded.rest_mar = None
             loaded.rest_mouth_width = None
             loaded.rest_brow = None
+            loaded.rest_chin = None
             loaded.rest_gaze = None
             loaded.gaze_prev = 0.0
             loaded.ear_recent.clear()
@@ -2663,6 +3124,15 @@ class LivePortraitEngine:
             # still computed fresh every frame, so the held face still
             # follows him and is pasted at his actual, current position.
             # If there is no rendered face yet, render normally instead.
+            # His points in the crop -- the same affine that cut the crop
+            # places them inside it. Read before the render since day 13:
+            # the anchor learns his resting nose-to-chin reach from them
+            # (see _chin_drop); they shape the paste mask below as before.
+            crop_points = (target @ to_crop[:, :2].T + to_crop[:, 2]).astype(np.float32)
+            loaded.features = target[[k for group in _EDGE_FEATURES for k in group]].astype(
+                np.float32
+            )
+            chin_drop = 0.0
             if _should_hold(loaded, tracking.head_pose) and loaded.last is not None:
                 face, _, _ = loaded.last
                 # Whatever his mouth does while held is not seen; the first
@@ -2677,6 +3147,7 @@ class LivePortraitEngine:
                 c_d_open = _mouth_open_ratio(target)
                 c_d_width = _mouth_width_ratio(target)
                 c_d_brow = _brow_ratio(target)
+                c_d_chin = _nose_chin(crop_points)
                 anchor_ok = _anchor_frame_ok(tracking.head_pose, c_d_eye, c_d_lip)
                 # Day 12: with gaze_down_relief on, a slow glance down keeps
                 # the avatar's eyes at rest (his call, see _relieved_ear);
@@ -2724,18 +3195,33 @@ class LivePortraitEngine:
                     brow_lift=brow_lift,
                     gaze=gaze,
                     centre_sample=centre_sample,
+                    chin_sample=c_d_chin,
                 )
                 face = cv2.cvtColor(face_rgb, cv2.COLOR_RGB2BGR) if bgr else face_rgb
                 rendered = now()
+                # Day 13: how far his chin has dropped from rest, in crop
+                # pixels -- what the portrait's oval is let down by below
+                # the mouth, so the join follows the avatar's opened jaw
+                # rather than the closed-mouth chin the mask was built on.
+                # Read only off a rendered frame: a held face's chin has not
+                # moved, so its mask must not reach past it.
+                chin_drop = _chin_follow(loaded.options) * _chin_drop(
+                    c_d_chin, loaded.rest_chin, loaded.chin_drop_max
+                )
+            loaded.chin_drop = chin_drop
 
             # The driver's own oval, in the same crop the portrait's was built
-            # in -- see _frame_mask. `target` is already the full 468-point
-            # set in frame pixels; the same affine that cut the crop places
-            # them inside it.
+            # in -- and, under an open mouth, the portrait's own let down to
+            # meet it; see _frame_mask.
             assert loaded.mask is not None
-            crop_points = (target @ to_crop[:, :2].T + to_crop[:, 2]).astype(np.float32)
             mask = _frame_mask(
-                loaded.mask, crop_points, jaw_shrink=_mask_jaw_shrink(loaded.options)
+                loaded.mask,
+                crop_points,
+                jaw_shrink=_mask_jaw_shrink(loaded.options),
+                portrait_crop_points=loaded.crop_points,
+                chin_drop=chin_drop,
+                forehead_reach=_forehead_reach(loaded.options),
+                chin_reach=loaded.chin_reach,
             )
             masked = now()
 
@@ -2880,6 +3366,7 @@ class LivePortraitEngine:
         brow_lift: float = 0.0,
         gaze: tuple[float, float] | None = None,
         centre_sample: tuple[float, float] | None = None,
+        chin_sample: float | None = None,
     ) -> np.ndarray:
         """The portrait's face with this driver's expression, 512x512 RGB.
 
@@ -2902,6 +3389,10 @@ class LivePortraitEngine:
         ``brow_lift`` his brows' signed relative deviation from rest
         (:func:`_brow_lift`, already scaled by ``brow_follow``), written
         into ``loaded.brow_delta`` through :data:`_BROW_LIFT_Y` the same way.
+        ``chin_sample`` is his nose-tip-to-chin reach this frame in crop
+        pixels (:func:`_nose_chin`, day 13), averaged into ``rest_chin`` on
+        accepted anchor frames like ``rest_sample`` is; ``None`` records
+        nothing.
         """
         torch = self._torch
         image = self._to_tensor(driver_rgb)
@@ -2917,6 +3408,7 @@ class LivePortraitEngine:
                         rest_sample,
                         gaze_sample=gaze,
                         centre_sample=centre_sample,
+                        chin_sample=chin_sample,
                     )
                 else:
                     loaded.anchor_rejected += 1
@@ -2990,6 +3482,7 @@ class LivePortraitEngine:
         rest_sample: tuple[float, float] | None = None,
         gaze_sample: tuple[float, float] | None = None,
         centre_sample: tuple[float, float] | None = None,
+        chin_sample: float | None = None,
     ) -> None:
         """Average the driver's first *accepted* frames into the anchor, then
         freeze it -- see :func:`_anchor_frame_ok` for what "accepted" means.
@@ -3036,6 +3529,8 @@ class LivePortraitEngine:
             gx, gy = gaze_sample
             sums["gaze_x"] = gx if "gaze_x" not in sums else sums["gaze_x"] + gx
             sums["gaze_y"] = gy if "gaze_y" not in sums else sums["gaze_y"] + gy
+        if chin_sample is not None:
+            sums["chin"] = chin_sample if "chin" not in sums else sums["chin"] + chin_sample
         if size_sample is not None:
             loaded.size_samples.append(size_sample)
         if centre_sample is not None:
@@ -3061,6 +3556,9 @@ class LivePortraitEngine:
             loaded.rest_brow = sums["brow"] / n
         if "gaze_x" in sums:
             loaded.rest_gaze = (sums["gaze_x"] / n, sums["gaze_y"] / n)
+        # Day 13: his resting nose-to-chin reach, the jaw drop's zero.
+        if "chin" in sums:
+            loaded.rest_chin = sums["chin"] / n
         loaded.exp_prev.copy_(sums["exp"] / n)
         loaded.t_prev.copy_(sums["t"] / n)
         loaded.scale_prev.copy_(sums["scale"] / n)
@@ -3082,7 +3580,8 @@ class LivePortraitEngine:
             _LOG.info(
                 "Avatar %s: anchor frozen over %d frames (%d rejected) -- "
                 "pose %.1f/%.1f/%.1f (pitch/yaw/roll), rest EAR %.3f, rest MAR %.3f, "
-                "rest mouth width %s, rest brow %s, face height %s px at distance %s",
+                "rest mouth width %s, rest brow %s, nose-chin %s px, "
+                "face height %s px at distance %s",
                 loaded.descriptor.id,
                 loaded.anchor_seen,
                 loaded.anchor_rejected,
@@ -3093,6 +3592,7 @@ class LivePortraitEngine:
                 loaded.rest_mar,
                 "?" if loaded.rest_mouth_width is None else f"{loaded.rest_mouth_width:.3f}",
                 "?" if loaded.rest_brow is None else f"{loaded.rest_brow:.3f}",
+                "?" if loaded.rest_chin is None else f"{loaded.rest_chin:.1f}",
                 "?" if loaded.face_height_rest is None else f"{loaded.face_height_rest:.0f}",
                 "?" if loaded.z_rest is None else f"{loaded.z_rest:.2f}",
             )
@@ -3152,7 +3652,11 @@ class LivePortraitEngine:
         # whatever the extractor made of his lifted head. See the GATES
         # section above for the live complaint and the numbers.
         delta = loaded.exp_s + (exp_now - loaded.exp_d0) * loaded.rel_mask * loaded.gate
-        scale_new = loaded.scale_s * (scale_now / loaded.scale_d0)
+        # Day 13: scale_gain is (1, 1) -- at 1.0 the ratio is exact and this
+        # is the old scale_s * (scale_now / scale_d0); at the default 0.0 the
+        # portrait keeps its own scale whatever the extractor reads into an
+        # open mouth (see _scale_gain for the measurement behind it).
+        scale_new = loaded.scale_s * (1.0 + (scale_now / loaded.scale_d0 - 1.0) * loaded.scale_gain)
         # Day 11: t_gain is [gx, gy, 0] -- at the default 1.0 the product is
         # exact, so this line is bit-for-bit what it was (see
         # _translation_gain for the brow-raise measurement behind it).
@@ -3363,7 +3867,8 @@ class LivePortraitEngine:
 
         region = output[y0:y1, x0:x1].astype(np.float32)
         alpha3 = cv2.merge((mask[:, :, 0], mask[:, :, 0], mask[:, :, 0]))
-        correction = _face_colour_correction(loaded, placed, region, mask, alpha3)
+        features = None if loaded.features is None else loaded.features - (x0, y0)
+        correction = _face_colour_correction(loaded, placed, region, mask, alpha3, features)
 
         # Day 11 (fps): one fused blend. region + alpha * (face + correction
         # - region) is the same arithmetic as before -- (1 - alpha) * region

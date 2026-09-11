@@ -28,7 +28,7 @@
   "engine_options": {
     "anchor_frames": 15,
     "crop_scale": 2.2,
-    "crop_vy_ratio": -0.125,
+    "crop_vy_ratio": -0.06,
     "stitching": false,
     "eye_gain": 1.0,
     "eye_headroom": 1.1,
@@ -56,6 +56,10 @@
     "crop_centre": "eyeline",
     "gaze_gain": 1.0,
     "mask_jaw_shrink": 0.0,
-    "expression_gain": 1.8
+    "expression_gain": 1.8,
+    "scale_gain": 0.0,
+    "chin_follow": 1.0,
+    "mask_forehead_reach": 0.85,
+    "edge_match": 1.0
   }
 }

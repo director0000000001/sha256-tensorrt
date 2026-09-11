@@ -27,8 +27,10 @@ from sha256.avatar.engine_liveportrait import (
     _CROP_CENTRES,
     _DEFAULT_CROP_SMOOTHING_HZ,
     _DEFAULT_FRAME_DT,
+    _EDGE_FEATURES,
     _GATE_ATTACK,
     _GATE_RELEASE,
+    _MASK_EDGE_CLEARANCE,
     _MOUTH_ACTIVITY_GATE,
     _MOUTH_ACTIVITY_MAR,
     _MOUTH_ACTIVITY_WIDTH,
@@ -60,10 +62,14 @@ from sha256.avatar.engine_liveportrait import (
     _brow_lift,
     _brow_ratio,
     _centre_offset,
+    _chin_drop,
+    _chin_follow,
     _crop_border_mode,
     _crop_centre,
     _crop_filters,
     _crop_geometry,
+    _edge_match,
+    _edge_residual,
     _ema_,
     _expression_gates,
     _eye_expression_gain,
@@ -74,6 +80,9 @@ from sha256.avatar.engine_liveportrait import (
     _eye_target,
     _face_height,
     _fade,
+    _feature_exclusion,
+    _fit_lighting_plane,
+    _forehead_reach,
     _frame_dt,
     _frame_mask,
     _gaze_down_relief,
@@ -83,6 +92,7 @@ from sha256.avatar.engine_liveportrait import (
     _lip_ratio,
     _lip_target,
     _mask_bbox,
+    _mask_chin_reach,
     _mask_jaw_shrink,
     _motion_smoothing,
     _mouth_activity,
@@ -91,6 +101,7 @@ from sha256.avatar.engine_liveportrait import (
     _mouth_open_ratio,
     _mouth_tilt_trim,
     _mouth_width_ratio,
+    _nose_chin,
     _OneEuro,
     _oval_mask,
     _pivot_z,
@@ -99,6 +110,7 @@ from sha256.avatar.engine_liveportrait import (
     _release,
     _relieved_ear,
     _rotation_pivot,
+    _scale_gain,
     _should_hold,
     _similarity,
     _size_smoothing,
@@ -106,6 +118,9 @@ from sha256.avatar.engine_liveportrait import (
     _transformed_box,
     _translation_gain,
     crop_matrix,
+)
+from sha256.avatar.engine_liveportrait import (
+    _CHIN as _CHIN_INDEX,
 )
 from sha256.core.avatar import AvatarDescriptor, AvatarManifest
 from sha256.core.enums import PixelFormat
@@ -494,6 +509,325 @@ class TestFrameMask:
 
         assert first_row_over_half(combined) > first_row_over_half(portrait_mask)
 
+    @staticmethod
+    def _rows_over_half(mask: np.ndarray) -> tuple[int, int]:
+        rows = np.where((mask[:, :, 0] > 0.5).any(axis=1))[0]
+        return int(rows.min()), int(rows.max())
+
+    def test_a_chin_drop_lets_the_oval_down_at_the_chin_and_leaves_the_top_alone(self):
+        """Day 13: the portrait's oval with its jaw let down 30 px reaches
+        30 px lower at the bottom and no higher at the top; at the eye
+        line, well above where the ramp starts, it is the same mask."""
+        portrait_mask, portrait_points = self._portrait_mask_and_points()
+
+        dropped = _oval_mask(portrait_points, chin_drop=30.0)
+
+        top0, bottom0 = self._rows_over_half(portrait_mask)
+        top1, bottom1 = self._rows_over_half(dropped)
+        assert top1 == top0
+        assert bottom1 == pytest.approx(bottom0 + 30, abs=2)
+        eye_y = int(portrait_points[[33, 133, 362, 263], 1].mean())
+        assert np.array_equal(portrait_mask[eye_y], dropped[eye_y])
+
+    def test_the_chin_drop_goes_to_the_portrait_half_alone(self):
+        """Day 13, the complaint itself: the same driver as the portrait
+        with his mouth open (every point below the mouth line 30 px lower).
+        Without the drop the combined mask stops at the portrait's own
+        closed-mouth chin, his jaw showing under it; with it, the mask
+        follows his jaw down -- and still never past his own oval."""
+        portrait_mask, portrait_points = self._portrait_mask_and_points()
+        driver_points = portrait_points.copy()
+        mouth_y = float(portrait_points[[61, 291], 1].mean())
+        driver_points[driver_points[:, 1] > mouth_y, 1] += 30.0
+
+        closed = _frame_mask(portrait_mask, driver_points)
+        opened = _frame_mask(
+            portrait_mask, driver_points, portrait_crop_points=portrait_points, chin_drop=30.0
+        )
+
+        assert self._rows_over_half(closed)[1] == pytest.approx(
+            self._rows_over_half(portrait_mask)[1], abs=1
+        )
+        assert self._rows_over_half(opened)[1] >= self._rows_over_half(closed)[1] + 25
+        assert self._rows_over_half(opened)[0] == self._rows_over_half(closed)[0]
+        assert np.all(opened <= _oval_mask(driver_points) + 1e-6)
+
+    def test_a_drop_under_half_a_pixel_or_without_the_portrait_points_is_the_static_mask(self):
+        portrait_mask, portrait_points = self._portrait_mask_and_points()
+
+        tiny = _frame_mask(
+            portrait_mask, portrait_points, portrait_crop_points=portrait_points, chin_drop=0.4
+        )
+        no_points = _frame_mask(portrait_mask, portrait_points, chin_drop=30.0)
+
+        assert np.array_equal(tiny, portrait_mask)
+        assert np.array_equal(no_points, portrait_mask)
+
+
+class TestForeheadLine:
+    """Day 13, the forehead line: the ovals' reach up the forehead
+    (``mask_forehead_reach``) and the plane's residual matched at the
+    mask's edge (``edge_match`` / ``_edge_residual``)."""
+
+    def test_forehead_reach_default_and_validation(self):
+        assert _forehead_reach({}) == 0.85
+        assert _forehead_reach({"mask_forehead_reach": 0.6}) == 0.6
+        with pytest.raises(ValueError, match="mask_forehead_reach"):
+            _forehead_reach({"mask_forehead_reach": 1.2})
+        with pytest.raises(ValueError, match="mask_forehead_reach"):
+            _forehead_reach({"mask_forehead_reach": 0.1})
+
+    def test_a_lower_reach_stops_the_oval_lower_on_the_forehead_and_nowhere_else(self):
+        pts = face_points()
+        to_crop, _ = crop_matrix(pts)
+        crop_points = (pts @ to_crop[:, :2].T + to_crop[:, 2]).astype(np.float32)
+
+        high = _oval_mask(crop_points, forehead_reach=0.85)
+        low = _oval_mask(crop_points, forehead_reach=0.55)
+
+        def rows(mask):
+            r = np.where((mask[:, :, 0] > 0.5).any(axis=1))[0]
+            return int(r.min()), int(r.max())
+
+        assert rows(low)[0] > rows(high)[0]
+        assert rows(low)[1] == rows(high)[1]
+        assert np.all(low <= high + 1e-6)
+
+    def test_edge_match_default_and_validation(self):
+        assert _edge_match({}) == 1.0
+        assert _edge_match({"edge_match": 0.0}) == 0.0
+        with pytest.raises(ValueError, match="edge_match"):
+            _edge_match({"edge_match": 2.0})
+
+    def test_a_difference_the_plane_fits_leaves_no_residual(self):
+        """A uniform difference under a full mask is exactly a plane, so what
+        is matched at the edge is nothing -- the plane alone, as before."""
+        coverage = np.ones((40, 32), dtype=np.float32)
+        difference = np.full((40, 32, 3), 12.0, dtype=np.float32)
+        plane = _fit_lighting_plane(difference, coverage)
+
+        residual = _edge_residual(difference, coverage, plane)
+
+        assert np.abs(residual).max() < 1e-3
+
+    def test_a_pale_top_edge_is_darkened_at_the_top_edge_and_left_alone_in_the_middle(self):
+        """The forehead line itself: the scene darker than the face along
+        the mask's top rows only. The plane spreads that over the whole
+        face; the residual puts the rest back at the top edge and fades to
+        nothing by the middle -- and the bottom edge, which the plane
+        over-corrected the other way, gets its own sign back."""
+        # The mask sits inside its box with a margin, as the paste box does
+        # (the contour is where the distance transform finds its zeros).
+        coverage = np.zeros((40, 32), dtype=np.float32)
+        coverage[2:38, 2:30] = 1.0
+        difference = np.zeros((40, 32, 3), dtype=np.float32)
+        difference[2:5, 2:30] = -30.0  # the scene 30 levels darker than the face at the top
+        plane = _fit_lighting_plane(difference, coverage)
+
+        residual = _edge_residual(difference, coverage, plane)
+        total = plane + residual
+        top, middle, bottom = 2, 20, 37
+
+        assert total[top, 2:30].mean() < plane[top, 2:30].mean() - 5.0  # darker still at the top
+        assert abs(residual[middle - 2 : middle + 2, 2:30].mean()) < 1.0  # nothing in the middle
+        assert total[top, 2:30].mean() < total[middle, 2:30].mean()
+        # The bottom edge, which the plane pulled the wrong way, is put back
+        # closer to its own (zero) difference.
+        assert abs(total[bottom, 2:30].mean()) < abs(plane[bottom, 2:30].mean())
+
+    @staticmethod
+    def _features(left=(10.0, 12.0), right=(30.0, 12.0), mouth=(20.0, 30.0)) -> np.ndarray:
+        """His brow/eye and mouth points in cell coordinates, each group a
+        small cluster around its centre, in the ``_EDGE_FEATURES`` order."""
+        rng = np.random.default_rng(3)
+        groups = []
+        for centre, group in zip((left, right, mouth), _EDGE_FEATURES, strict=True):
+            groups.append(np.asarray(centre) + rng.uniform(-1.5, 1.5, (len(group), 2)))
+        return np.concatenate(groups).astype(np.float32)
+
+    def test_feature_exclusion_marks_his_brows_eyes_and_mouth_not_the_forehead(self):
+        zone = _feature_exclusion(self._features(), (40, 40))
+
+        assert zone[12, 10] == 1.0 and zone[12, 30] == 1.0 and zone[30, 20] == 1.0
+        assert zone[9, 10] == 1.0  # dilated above the brow points, where the hair is
+        assert zone[3, 20] == 0.0 and zone[20, 20] == 0.0  # the forehead, the nose
+
+    def test_an_excluded_dark_feature_is_not_printed_into_the_residual(self):
+        """His 2026-09-09 looks: a dark blob (his raised brow) just inside
+        the top edge went into the residual and came out on the avatar's
+        forehead; cut to the plane alone it came out as a dark patch. Cut
+        out, the blob's cells read as the skin beside them at the same
+        rows; the forehead line beside it is matched as before."""
+        coverage = np.zeros((40, 40), dtype=np.float32)
+        coverage[2:38, 2:38] = 1.0
+        difference = np.zeros((40, 40, 3), dtype=np.float32)
+        difference[2:5, 2:38] = -30.0  # the forehead line along the top edge
+        difference[5:8, 9:15] = -80.0  # his brow, darker still, under it
+        plane = _fit_lighting_plane(difference, coverage)
+        exclude = np.zeros((40, 40), dtype=np.float32)
+        exclude[5:8, 9:15] = 1.0
+
+        plain = _edge_residual(difference, coverage, plane)
+        cut = _edge_residual(difference, coverage, plane, exclude=exclude)
+
+        assert plain[6, 12].mean() < cut[6, 12].mean() - 10.0  # the blob no longer prints
+        assert abs(cut[6, 12].mean() - cut[6, 25].mean()) < 8.0  # it reads as the skin beside
+        assert abs(cut[3, 30].mean() - plain[3, 30].mean()) < 1.0  # the line beside it as before
+
+
+class TestChinDrop:
+    """Day 13: his chin's drop from rest, in crop pixels (``_nose_chin`` /
+    ``_chin_drop``), the mask box's reach below it, and the ``chin_follow``
+    option -- see the module's "jaw under an open mouth" comment."""
+
+    def test_nose_chin_is_the_reach_down_the_crop(self):
+        pts = np.zeros((FACE_POINTS, 2), dtype=np.float32)
+        pts[1] = (100.0, 200.0)
+        pts[152] = (130.0, 260.0)
+        assert _nose_chin(pts) == pytest.approx(60.0)
+
+    def test_chin_drop_is_zero_without_a_rest_never_negative_and_capped(self):
+        """Never negative -- see ``_chin_drop`` for the 2026-09-09 capture
+        that measured a signed drop cutting the avatar's chin short."""
+        assert _chin_drop(70.0, None, 50.0) == 0.0
+        assert _chin_drop(55.0, 60.0, 50.0) == 0.0
+        assert _chin_drop(75.0, 60.0, 50.0) == pytest.approx(15.0)
+        assert _chin_drop(200.0, 60.0, 50.0) == pytest.approx(50.0)
+
+    def test_the_drop_and_the_reach_share_the_crops_room_below_the_chin(self):
+        """The cap that matters is the crop's own bottom row, not the
+        fraction: a mask let down past it is clipped hard by the array's
+        edge and pastes a straight line (see ``_CHIN_DROP_MAX``). The
+        reach is taken first, the drop gets the rest, and neither can put
+        the mask outside the crop."""
+        pts = face_points()
+        to_crop, _ = crop_matrix(pts)
+        crop_points = (pts @ to_crop[:, :2].T + to_crop[:, 2]).astype(np.float32)
+        chin_row = float(crop_points[_CHIN_INDEX, 1])
+        headroom = max(float(CROP_SIZE - 1) - chin_row, 0.0)
+        face_height = _face_height(crop_points)
+
+        reach = min(0.08 * face_height, headroom)
+        drop_max = min(0.35 * face_height, headroom - reach)
+
+        assert reach + drop_max <= headroom + 1e-6
+        assert chin_row + reach + drop_max <= CROP_SIZE - 1 + 1e-6
+        # And the mask built at the full budget still ends inside the crop.
+        mask = _oval_mask(crop_points, chin_drop=reach + drop_max)
+        assert int(np.where((mask[:, :, 0] > 0.0).any(axis=1))[0].max()) < CROP_SIZE - 1
+
+    def test_the_hull_keeps_its_measured_tail_clear_of_the_last_row(self):
+        """Day 14: the margin the hull keeps above the crop's last row is
+        the mask's own feather tail (alpha 0.02 past the hull's chin) plus
+        two rows, measured at load -- not the day-13 argument from kernel
+        sizes, which came to four times as much. At that margin the last
+        row stays clear; a hull on the last row is the hard line."""
+        pts = face_points()
+        to_crop, _ = crop_matrix(pts)
+        crop_points = (pts @ to_crop[:, :2].T + to_crop[:, 2]).astype(np.float32)
+        chin_row = float(crop_points[_CHIN_INDEX, 1])
+        rest = _oval_mask(crop_points)
+        tail = float(np.where((rest[:, :, 0] > 0.02).any(axis=1))[0].max()) - chin_row
+        assert -1.0 <= tail <= 6.0  # a few pixels, not the 15 the kernels suggested
+        margin = max(tail, 0.0) + _MASK_EDGE_CLEARANCE
+
+        clear = _oval_mask(crop_points, chin_drop=(CROP_SIZE - 1) - margin - chin_row)
+        assert float(clear[CROP_SIZE - 1, :, 0].max()) < 0.01
+        # A hull past the edge is clipped into a band the erosion cannot
+        # reach from below: the hard line (12 rows past, so the band is
+        # wider than the erosion kernel even on this ellipse's pointed chin).
+        past_the_edge = _oval_mask(crop_points, chin_drop=(CROP_SIZE - 1) - chin_row + 12.0)
+        assert float(past_the_edge[CROP_SIZE - 1, :, 0].max()) > 0.3
+
+    def test_the_vy_ratio_moves_the_face_up_the_crop_by_its_share_of_the_crop(self):
+        """Day 14: ``crop_vy_ratio`` decides how the crop's rows are spent
+        between hair and neck -- the chin rises by the ratio's difference
+        times the crop size, which is the room the open jaw gets. The
+        default is -0.06 (see ``CROP_VY_RATIO``), 33 rows more under the
+        chin than LivePortrait's own -0.125."""
+        pts = face_points()
+
+        def chin_row(vy: float) -> float:
+            to_crop, _ = crop_matrix(pts, vy_ratio=vy)
+            return float((pts @ to_crop[:, :2].T + to_crop[:, 2])[_CHIN_INDEX, 1])
+
+        assert CROP_VY_RATIO == -0.06
+        rise = chin_row(-0.125) - chin_row(CROP_VY_RATIO)
+        assert rise == pytest.approx(0.065 * CROP_SIZE, abs=1.0)
+        assert chin_row(0.0) - chin_row(CROP_VY_RATIO) == pytest.approx(-0.06 * CROP_SIZE, abs=1.0)
+
+    def test_mask_chin_reach_default_and_validation(self):
+        assert _mask_chin_reach({}) == 0.0
+        assert _mask_chin_reach({"mask_chin_reach": 0.08}) == 0.08
+        with pytest.raises(ValueError, match="mask_chin_reach"):
+            _mask_chin_reach({"mask_chin_reach": 0.5})
+
+    def test_a_chin_reach_lets_both_ovals_down_so_the_join_is_under_the_chin(self):
+        """His 03:28 captures: the mask's contour sat above his chin and the
+        feather faded the avatar out across it. With a reach, the combined
+        mask (the portrait's half AND the driver's) ends that much lower;
+        without one it is exactly the mask it was."""
+        pts = face_points()
+        to_crop, _ = crop_matrix(pts)
+        crop_points = (pts @ to_crop[:, :2].T + to_crop[:, 2]).astype(np.float32)
+        portrait = _oval_mask(crop_points)
+
+        plain = _frame_mask(portrait, crop_points, portrait_crop_points=crop_points)
+        reached = _frame_mask(
+            portrait, crop_points, portrait_crop_points=crop_points, chin_reach=24.0
+        )
+
+        def bottom(mask):
+            return int(np.where((mask[:, :, 0] > 0.5).any(axis=1))[0].max())
+
+        assert np.array_equal(plain, portrait)
+        assert bottom(reached) == pytest.approx(bottom(plain) + 24, abs=2)
+
+    def test_the_oval_itself_would_rise_for_a_negative_drop(self):
+        pts = face_points()
+        to_crop, _ = crop_matrix(pts)
+        crop_points = (pts @ to_crop[:, :2].T + to_crop[:, 2]).astype(np.float32)
+        rest = _oval_mask(crop_points)
+        risen = _oval_mask(crop_points, chin_drop=-30.0)
+
+        def rows(mask):
+            r = np.where((mask[:, :, 0] > 0.5).any(axis=1))[0]
+            return int(r.min()), int(r.max())
+
+        assert rows(risen)[0] == rows(rest)[0]
+        assert rows(risen)[1] == pytest.approx(rows(rest)[1] - 30, abs=2)
+        combined = _frame_mask(rest, crop_points, portrait_crop_points=crop_points, chin_drop=-30.0)
+        assert rows(combined)[1] == rows(risen)[1]
+
+    def test_the_mask_box_reaches_below_by_what_it_is_told(self):
+        mask = np.zeros((512, 512, 1), dtype=np.float32)
+        mask[100:200, 100:200] = 1.0
+        assert _mask_bbox(mask) == (96, 96, 204, 204)
+        assert _mask_bbox(mask, reach_below=40) == (96, 96, 204, 244)
+        assert _mask_bbox(mask, reach_below=1000) == (96, 96, 204, 512)
+
+    def test_chin_follow_default_and_validation(self):
+        assert _chin_follow({}) == 1.0
+        assert _chin_follow({"chin_follow": 0.0}) == 0.0
+        with pytest.raises(ValueError, match="chin_follow"):
+            _chin_follow({"chin_follow": 1.5})
+
+    def test_the_anchor_learns_the_resting_reach(self, tmp_path):
+        torch = pytest.importorskip("torch")
+        engine, loaded = TestGatesInTheFramePath()._fixture(tmp_path, torch, anchor_wanted=2)
+        driver_rgb = np.zeros((MODEL_SIZE, MODEL_SIZE, 3), dtype=np.uint8)
+        assert loaded.rest_chin is None
+
+        for reach in (118.0, 122.0):
+            engine._render(
+                loaded, driver_rgb, 0.3, 0.0, 0.3, 0.0, anchor_ok=True, chin_sample=reach
+            )
+
+        assert loaded.anchor_seen == 2
+        assert loaded.rest_chin == pytest.approx(120.0)
+        engine.reset_anchor(loaded.descriptor.id)
+        assert loaded.rest_chin is None
+
 
 class TestEyeLipRatios:
     """``_eye_ratios``/``_lip_ratio``: LivePortrait's own close-ratio measure,
@@ -691,6 +1025,7 @@ class TestDriveNetworkOptions:
         loaded.t_s = torch.zeros(1, 3)
         loaded.t_d0 = torch.zeros(1, 3)
         loaded.t_gain = torch.tensor([[1.0, 1.0, 0.0]])
+        loaded.scale_gain = torch.zeros(1, 1)
         loaded.R_s = eye
         loaded.R_d0 = eye
         loaded.f_s = torch.zeros(1, 1, 1, 1, 1)
@@ -881,6 +1216,7 @@ class TestRotationPivot:
         loaded.t_s = torch.zeros(1, 3)
         loaded.t_d0 = torch.zeros(1, 3)
         loaded.t_gain = torch.tensor([[1.0, 1.0, 0.0]])
+        loaded.scale_gain = torch.zeros(1, 1)
         loaded.R_s = eye
         loaded.R_d0 = eye
         loaded.f_s = torch.zeros(1, 1, 1, 1, 1)
@@ -1238,6 +1574,10 @@ class TestMotionSmoothing:
         loaded.t_s = torch.zeros(1, 3)
         loaded.t_d0 = torch.zeros(1, 3)
         loaded.t_gain = torch.tensor([[1.0, 1.0, 0.0]])
+        # Day 13: scale_gain 1.0 here, the old line exactly -- these tests
+        # are about the smoothing state, with the extractor's scale passing
+        # through to x_d as it did before the gain existed.
+        loaded.scale_gain = torch.ones(1, 1)
         loaded.R_s = eye
         loaded.R_d0 = eye
         loaded.f_s = torch.zeros(1, 1, 1, 1, 1)
@@ -1478,6 +1818,7 @@ class TestRegionMasks:
         loaded.t_s = torch.zeros(1, 3)
         loaded.t_d0 = torch.zeros(1, 3)
         loaded.t_gain = torch.tensor([[1.0, 1.0, 0.0]])
+        loaded.scale_gain = torch.zeros(1, 1)
         loaded.t_prev = torch.zeros(1, 3)
         loaded.pose_prev = torch.zeros(3, 1)
         loaded.pose_d0 = torch.zeros(3, 1)
@@ -1660,6 +2001,7 @@ class TestAnchorGatingInRender:
         loaded.t_s = torch.zeros(1, 3)
         loaded.t_d0 = torch.zeros(1, 3)
         loaded.t_gain = torch.tensor([[1.0, 1.0, 0.0]])
+        loaded.scale_gain = torch.zeros(1, 1)
         loaded.R_s = torch.eye(3)[None]
         loaded.R_d0 = torch.eye(3)[None]
         loaded.ratios = torch.zeros(1, 5)
@@ -2025,6 +2367,7 @@ class TestExtremePoseHold:
         loaded.t_s = torch.zeros(1, 3)
         loaded.t_d0 = torch.zeros(1, 3)
         loaded.t_gain = torch.tensor([[1.0, 1.0, 0.0]])
+        loaded.scale_gain = torch.zeros(1, 1)
         loaded.t_prev = torch.zeros(1, 3)
         loaded.pose_prev = torch.zeros(3, 1)
         loaded.pose_d0 = torch.zeros(3, 1)
@@ -2928,6 +3271,61 @@ class TestTranslationGain:
 
         assert torch.allclose(kp_driving[0, :, 0], torch.full((NUM_KP,), expected_x), atol=1e-3)
         assert torch.allclose(kp_driving[0, :, 1], torch.full((NUM_KP,), expected_y), atol=1e-3)
+
+
+class TestScaleGain:
+    """``scale_gain`` (day 13): how much of the extractor's relative scale
+    reaches the portrait -- see ``_scale_gain`` for the open-mouth
+    measurement behind it. Default 0: the portrait's own scale, always."""
+
+    def test_default_and_validation(self):
+        assert _scale_gain({}) == 0.0
+        assert _scale_gain({"scale_gain": 1.0}) == 1.0
+        assert _scale_gain({"scale_gain": 0.25}) == 0.25
+        with pytest.raises(ValueError, match="scale_gain"):
+            _scale_gain({"scale_gain": 1.5})
+        with pytest.raises(ValueError, match="scale_gain"):
+            _scale_gain({"scale_gain": -0.1})
+
+    @pytest.mark.parametrize(
+        ("gain", "expected"),
+        [(1.0, 1.5), (0.0, 1.0), (0.5, 1.25)],
+    )
+    def test_drive_gains_the_relative_scale(self, tmp_path, gain, expected):
+        """The extractor reads scale 1.5 against an anchor of 1.0 and a
+        portrait of 1.0; a unit canonical keypoint lands at ``1 + 0.5 *
+        gain`` -- at 1.0 exactly the old ``scale_s * scale_now / scale_d0``,
+        at 0 the portrait's own scale whatever the extractor read."""
+        torch = pytest.importorskip("torch")
+        calls: dict[str, list] = {}
+        engine, loaded = TestDriveNetworkOptions()._engine_and_loaded(
+            tmp_path, torch=torch, calls=calls
+        )
+        engine._nets["motion"] = lambda image: {
+            "exp": torch.zeros(1, NUM_KP * 3),
+            "scale": torch.full((1, 1), 1.5),
+            "t": torch.zeros(1, 3),
+            "pitch": torch.zeros(1, 66),
+            "yaw": torch.zeros(1, 66),
+            "roll": torch.zeros(1, 66),
+        }
+        loaded.options = {"size_smoothing": 0.0, "eye_retargeting": False}
+        loaded.x_c_s = torch.ones(1, NUM_KP, 3)
+        loaded.scale_gain = torch.tensor([[gain]])
+
+        engine._drive(loaded, torch.zeros(1, 3, 256, 256))
+        kp_driving = calls["warping"][0][1]["kp_driving"].float()
+
+        assert torch.allclose(kp_driving, torch.full((1, NUM_KP, 3), expected), atol=1e-5)
+
+    def test_load_avatar_bakes_the_gain_from_the_options(self):
+        """What load_avatar puts into the (1, 1) tensor is the validated
+        option, so a metadata.json value of 1.0 restores the old line."""
+        torch = pytest.importorskip("torch")
+        for options, expected in (({}, 0.0), ({"scale_gain": 1.0}, 1.0)):
+            tensor = torch.tensor([[_scale_gain(options)]], dtype=torch.float32)
+            assert tensor.shape == (1, 1)
+            assert float(tensor) == expected
 
 
 class TestGaze:
