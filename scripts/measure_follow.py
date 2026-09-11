@@ -477,15 +477,18 @@ def main() -> int:
         f"  {'measure':<9} {'r':>6} {'gain':>6}   {'his min':>8} {'his max':>8}   "
         f"{'avatar min':>10} {'avatar max':>10}   where"
     )
+    # Day 16: segments are found by a keyword in their instruction, so a
+    # "Calibrate me" session's clip (its own wording) reads like the
+    # recorder's clips do.
     checks = [
-        ("ear", "Blink normally, several tim|Close your eyes for two seco"),
-        ("mar", "Open your mouth wide, then c|TALK. Say anything, normally"),
-        ("mouth_w", "Smile with your mouth closed|Smile widely, showing your t"),
-        ("brow", "Raise your eyebrows, then fr"),
+        ("ear", "blink|close your eyes"),
+        ("mar", "mouth wide|talk"),
+        ("mouth_w", "smile"),
+        ("brow", "eyebrows"),
     ]
     for k, where in checks:
-        names = where.split("|")
-        rs = [r for r in good if r["segment"] in names]
+        keywords = where.split("|")
+        rs = [r for r in good if any(kw in str(r["segment"]).lower() for kw in keywords)]
         d, o = col(rs, f"d_{k}"), col(rs, f"o_{k}")
         if len(d) < 3:
             continue
@@ -504,12 +507,8 @@ def main() -> int:
         print(f"  mar whole clip: r {np.corrcoef(d, o)[0, 1]:.2f}")
 
     print("\nLIP THICKNESS  (avatar / his, median -- 1.0 is a match, low is thin)")
-    for name in (
-        "SIT STILL. Look straight at ",  # [:28] of the sidecar's own text
-        "SIT STILL again. Relax.",
-        "Smile with your mouth closed",
-    ):
-        rs = [r for r in good if r["segment"] == name]
+    for name in ("sit still. look", "still again", "mouth closed"):
+        rs = [r for r in good if name in str(r["segment"]).lower()]
         if not rs:
             continue
         for k in ("lip_upper", "lip_lower"):

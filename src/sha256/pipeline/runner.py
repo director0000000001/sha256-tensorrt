@@ -113,6 +113,9 @@ class PipelineRunner:
         # The last few seconds of tracking, kept so that "that looked wrong" can
         # become a file. See :meth:`capture`.
         self._history: deque[FaceTrackingResult] = deque(maxlen=_HISTORY_FRAMES)
+        # Day 16: who wants every published frame as it happens -- see
+        # :meth:`add_observer`.
+        self._observers: list[Callable[[PipelineSnapshot], None]] = []
 
         self._latest: PipelineSnapshot | None = None
         self._latest_collected = True
@@ -192,6 +195,29 @@ class PipelineRunner:
                 self._latest_collected = True
                 self._collected += 1
             return snapshot
+
+    def add_observer(self, observer: Callable[[PipelineSnapshot], None]) -> None:
+        """Call ``observer`` with every snapshot as it is published, **on the
+        pipeline thread**, after the frame is in :meth:`latest`.
+
+        For a consumer that must see every frame rather than the newest one
+        -- "Calibrate me" (day 16) records the whole session's frames and
+        tracking, and a poll of :meth:`latest` would miss the frames between
+        polls. The rules that follow from running on the pipeline thread:
+        be quick (a slow observer lowers the frame rate for everyone), copy
+        the source frame's buffer before keeping it (it is borrowed, see
+        :class:`VideoFrame`), and do not raise -- an exception is logged and
+        swallowed, the loop must not die for a listener."""
+        with self._lock:
+            if observer not in self._observers:
+                self._observers.append(observer)
+
+    def remove_observer(self, observer: Callable[[PipelineSnapshot], None]) -> None:
+        """Stop calling ``observer``. A call already in progress on the
+        pipeline thread finishes; none starts after this returns."""
+        with self._lock:
+            if observer in self._observers:
+                self._observers.remove(observer)
 
     def capture(self, directory: Path) -> Path:
         """Write the last few seconds of tracking, and the frame on screen now.
@@ -410,6 +436,15 @@ class PipelineRunner:
             self._latest_collected = False
             self._produced += 1
             self._update_fps_locked()
+            observers = list(self._observers)
+
+        # Outside the lock: an observer may take a while, and readers must
+        # not wait on it; the copy above is what makes add/remove safe.
+        for observer in observers:
+            try:
+                observer(snapshot)
+            except Exception:
+                _LOG.exception("A frame observer failed; the loop goes on")
 
     def _update_fps_locked(self) -> None:
         """Rolling throughput. Caller holds the lock."""
