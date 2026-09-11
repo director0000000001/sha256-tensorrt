@@ -4223,6 +4223,130 @@ the forehead and the hair, the yaw pivot and the rest of the day-14 list.
   guide with the camera settings (NTSC 30 fps, shutter, USB Streaming).
 - Exit: five users on calls; the owner can switch one off remotely.
 
+## The road to the finish (written 2026-09-11, the evening of day 15; work starts day 16)
+
+**Where we stand.** The neural engine runs live on his face and has been
+tuned against his eye through fifteen days: the crop, the anchor and its
+lip rest, the gates, the brow drive and its leak into the mouth, the
+paste mask and the colour match, the black screen and the quality
+ladder, a login and an avatar import. Days 13-15 are committed locally
+(seven commits ahead of origin). What is not done is what the delivery
+is *for*: five other people, each with their own GPU, camera, face and
+portrait, on calls their boss watches. Everything below serves that,
+in the order that finds the unknowns soonest. His own words set the
+constraint: quality over the date, packaging last.
+
+**Block A -- a second face (days 16-17).** Everything measured so far is
+his; the first thing to learn is what does not carry.
+
+- **A1. A friend's recording.** One friend, with their consent, sits
+  where he sits and runs `scripts/record_driving_clip.py` twice (the
+  scripted clip and `--script natural`), two minutes each. The files stay
+  under `recordings/` (gitignored) and are deleted when done. Then the
+  whole measurement on them: `measure_follow.py`, the day-15 bars, the
+  brow-to-mouth probe, the anchor testbed. *Done when* there is a table
+  of which bars a second face fails and by how much. Half a day; his
+  part is the recording.
+- **A2. "Calibrate me".** A guided half-minute in the window -- sit
+  still, blink, open the mouth, smile with teeth, raise the brows, turn
+  left and right -- measured live by the same instruments and written to
+  a *driver profile* (`configs/local.driver.json`, per person) that is
+  laid over the avatar's engine options: the gates' jitter thresholds,
+  the brow-to-mouth leak's slopes, the expression gain that brings the
+  talking mouth to 1.0, the lip rest, the resting ratios. This is the
+  fifteen days' hand work for the measurable parts, done by the app in
+  thirty seconds for anyone. *Done when* the friend's failing bars from
+  A1 come within the day-15 numbers with a profile, and his own do not
+  regress. One to two days.
+- **A3. The split, written down.** Which options belong to the portrait
+  (the mask reaches, the jaw shrink, the crop of the picture) and which
+  to the driver (gains, gates, leak, rest), so a new person and a new
+  portrait each get the right defaults without the other's. Half a day,
+  mostly documentation and the import/profile code reading it.
+
+**Block B -- new avatars without surprises (days 17-18).**
+
+- **B1. Portrait preparation at import.** The picture is padded below
+  the chin to at least 0.4 of a face height (the day-14 wall) and
+  brought to a standard size (a 1024 canvas, the face about 450 px
+  tall), the original kept beside it. *Done when* a photograph with the
+  chin at its bottom edge imports and the chin drop's cap reads 50 px or
+  more. Half a day.
+- **B2. A portrait profile.** Measured from the picture itself: stubble
+  or a beard (the chin's tone against the cheek's), hair over the
+  forehead (brow to hairline against the face height), the lips' state
+  -- written into the new avatar's options as `mask_jaw_shrink`,
+  `mask_forehead_reach` and a note on the teeth. *Done when* his
+  portraits 2, 3 and 4 import with sensible masks and no hand edit of
+  `metadata.json`. Half a day.
+- **B3. Portrait-to-driver proportions.** At the anchor, the driver's
+  lower face against the portrait's (nose to chin over face height, day
+  6's finding) sets the chin reach and the crop's vertical placement for
+  that pair, once per session. *Done when* the avatar's chin lands within
+  4 px of the driver's on his day-15 captures and on the friend's
+  recording. One day.
+
+**Block C -- what his eye still sees (days 18-20).**
+
+- **C1. The whole forehead.** `mask_forehead_reach` to the hairline, with
+  the join placed hairline-aware (the lower of the two hairlines, the
+  colour match carrying the rest); measured on the day-13 forehead
+  captures and his own look. Half a day. Then, separately and honestly
+  the biggest piece left: **the avatar's hair** -- the network draws the
+  whole 512 crop, hair included; what hides it is the face oval. A
+  whole-head mode needs a matte of the portrait's head (a segmentation
+  model, MediaPipe's selfie matte or similar), the portrait's hair pasted
+  over his own and moving with his head, and the crop's edges (shoulders,
+  background) kept out. Two to three days, odds fair, not certain: this
+  is the one item that can look worse than what it replaces and must be
+  a switch.
+- **C2. The turn lag.** The yaw pivot (day 10's step 4): turns still lag
+  21 px at the 90th percentile on every day-14 run. One day.
+- **C3. The moments he pressed after.** A capture during a strong smile
+  with the brows raised tunes `brow_mouth_leak`; the first seconds after
+  a pressed anchor (tracking starts only once the mouth rests) get a
+  faster start. Half a day, and needs his press *during* the moment.
+
+**Block D -- the package and the five (days 20-24).** Last by his own
+choice, and unchanged since the 2026-08-15 decision: no licence server,
+no payments, no accounts; a courtesy kill switch.
+
+- **D1. The kill switch.** A static file on a host he controls, read at
+  start and hourly, fails open, never on the frame path. Half a day.
+- **D2. The GPU check.** At start: an NVIDIA GPU with the VRAM the avatar
+  needs, else a plain sentence and the photograph engine as the fallback.
+  Half a day.
+- **D3. The virtual camera.** pyvirtualcam is GPL and stays for
+  development; the shipped app uses the OBS Virtual Camera device, which
+  means each user installs OBS Studio once (free; it need not run). A
+  native filter would cost days and is not worth them. Decision, not
+  code; the guide says it.
+- **D4. The `.exe`.** PyInstaller with the CUDA runtime and the model
+  files; the first install on a second machine that never saw the
+  repository; the one-page guide (camera settings: NTSC 30 fps, USB
+  streaming, the shutter; Discord closed; OBS installed; Login and Add
+  avatar for him only). Two to three days.
+- **D5. Five people.** Their portraits (frontal, neutral, lips barely
+  parted, even light, no glasses, hair off the forehead, room below the
+  chin -- the import says which of these a picture misses), five
+  installs, each runs "Calibrate me", each makes one call. *Done when*
+  five people have been on a call and none reported the mouth.
+- **D6. Push.** The seven commits and what follows go to origin when he
+  says, under the anonymity rules that stand (author `sha256`, no URLs
+  in committed files).
+
+**What only he can provide, and when:** a friend's two recordings (A1,
+first); his press *during* the smile-with-brows moment (C3, any time);
+the five portraits (D5, by day 20); a second machine and OBS on it
+(D4); the host for the kill-switch file (D1).
+
+**The count.** Blocks A-C are about six working days, D about four:
+ten from day 16, so the five are on calls around the 22nd to the 24th
+of September if the friend's recording comes first and nothing in it is
+a surprise. The two things that could stretch it: C1's hair (a switch
+that may stay off), and whatever A1 finds that fifteen days on one face
+never showed -- which is exactly why A1 comes first.
+
 ## Honest odds
 
 - **The picture:** high. LivePortrait is proven and it fits this GPU; what is not
