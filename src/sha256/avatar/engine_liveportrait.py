@@ -79,7 +79,8 @@ from __future__ import annotations
 import math
 import statistics
 from collections import deque
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -160,6 +161,80 @@ CROP_VY_RATIO = -0.06
 # pose — is averaged over before it is frozen. LivePortrait uses its first
 # frame; a call does not start with a neutral face on cue.
 DEFAULT_ANCHOR_FRAMES = 15
+
+# The split (day 16, 2026-09-12; the ROADMAP's A3). Every engine option is
+# either about the PICTURE -- how the portrait is cut, masked and pasted, and
+# what its own networks are allowed to do to it -- or about the PERSON in
+# front of the camera: how far their readings are trusted, how their
+# jitter is told from their speech, what their brow does to the
+# extractor's mouth. The first set lives in the avatar's metadata.json and
+# travels with the portrait; the second is a *driver profile*
+# (configs/local.driver.json, written by "Calibrate me" --
+# sha256.calibration) laid over whichever avatar is loaded, so a new
+# person and a new portrait each get the right defaults without the
+# other's. ``set_driver_options`` accepts only the driver's keys.
+DRIVER_OPTION_KEYS: frozenset[str] = frozenset(
+    {
+        "anchor_frames",
+        "expression_gates",
+        "expression_gain",
+        "eye_gain",
+        "eye_headroom",
+        "eye_scale",
+        "gaze_gain",
+        "gaze_down_relief",
+        "brow_gain",
+        "brow_follow",
+        "brow_deadband",
+        "brow_mouth_leak",
+        "brow_mouth_leak_slopes",
+        "mouth_smile_gain",
+        "mouth_opening_gain",
+        "mouth_lateral_gain",
+        "mouth_gate_mar",
+        "mouth_gate_width",
+        "mouth_activity_mar",
+        "mouth_activity_width",
+        "mouth_rest",
+        "lip_rest_rows",
+        "lip_rest_tracking",
+        "hold_pitch_degrees",
+        "hold_yaw_degrees",
+        "motion_smoothing",
+        "size_smoothing",
+        "crop_smoothing",
+        "crop_smoothing_beta",
+        "crop_centre_smoothing",
+        "crop_centre",
+        "translation_gain_x",
+        "translation_gain_y",
+        "scale_gain",
+        "yaw_pivot_z",
+        "crop_shift_x",
+    }
+)
+PORTRAIT_OPTION_KEYS: frozenset[str] = frozenset(
+    {
+        "crop_scale",
+        "crop_vy_ratio",
+        "crop_border",
+        "stitching",
+        "eye_retargeting",
+        "lip_retargeting",
+        "lip_gain",
+        "eye_expression_gain",
+        "eye_mask_output",
+        "retarget_zero_at_rest",
+        "mouth_tilt_trim",
+        "mask_jaw_shrink",
+        "mask_forehead_reach",
+        "mask_chin_reach",
+        "chin_follow",
+        "edge_match",
+        "rotation_pivot",
+        "pivot_z",
+    }
+)
 
 # The anchor as a file (day 15, 2026-09-11): everything _learn_anchor freezes,
 # so a "That looked wrong" capture can carry the session's own anchor and a
@@ -1129,16 +1204,161 @@ def _edge_residual(
     return faded
 
 
+# ---------------------------------------------------------------------------
+# The hairline (day 16, blocks B2 and C1)
+# ---------------------------------------------------------------------------
+#
+# Where the hair starts above the brows, as a fraction of the forehead --
+# the brow top to the mesh's own top point (10) along the face's own
+# vertical -- so 1.0 is the mesh's top and 1.5 is half a forehead above
+# it. Read by walking up from the brow top in 2-px steps at three
+# columns across the forehead and calling hair the first run of samples
+# whose luminance leaves the forehead skin's (the median of the first
+# third) by _HAIR_CONTRAST. The importer reads a portrait with it (the
+# profile); the engine reads the portrait at load and the driver at the
+# anchor when ``mask_forehead_reach`` is "hairline", and takes the lower
+# of the two less a clearance as the reach -- the whole forehead, on
+# skin on both sides. His four portraits read 1.52-1.58 (hair above the
+# mesh's top). Nothing is measured on a frame past the anchor.
+_HAIR_CONTRAST = 0.30
+_HAIR_RUN_PX = 6
+_HAIRLINE_STEP_PX = 2.0
+_HAIRLINE_SEARCH = 1.8  # of the forehead height, how far up the walk goes
+_HAIRLINE_CLEARANCE = 0.08  # of the forehead height, kept below the hairline
+_HAIRLINE_MODE = "hairline"
+_FOREHEAD_REACH_MIN = 0.3
+_FOREHEAD_REACH_MAX = 1.6
+_HAIRLINE_MIN_SAMPLES = 5
+_HAIRLINE_FRONTAL = (12.0, 15.0)  # |pitch|, |yaw| within which a frame is sampled
+_CHEEKS = (50, 280)
+_FOREHEAD_TOP = 10
+
+
+def _luminance(image: np.ndarray, *, bgr: bool = True) -> np.ndarray:
+    """Rec. 601 luminance of a BGR (or RGB) uint8 picture, float32."""
+    px = image.astype(np.float32)
+    r, b = (px[:, :, 2], px[:, :, 0]) if bgr else (px[:, :, 0], px[:, :, 2])
+    lum: np.ndarray = 0.299 * r + 0.587 * px[:, :, 1] + 0.114 * b
+    return lum
+
+
+def _patch_mean(lum: np.ndarray, centre: np.ndarray, radius: float) -> float:
+    """Mean of the square patch of half-width ``radius`` at ``centre``; NaN
+    when it falls off the picture."""
+    h, w = lum.shape
+    r = max(int(radius), 1)
+    x, y = round(float(centre[0])), round(float(centre[1]))
+    x0, x1 = max(x - r, 0), min(x + r + 1, w)
+    y0, y1 = max(y - r, 0), min(y + r + 1, h)
+    if x1 <= x0 or y1 <= y0:
+        return math.nan
+    return float(lum[y0:y1, x0:x1].mean())
+
+
+def _forehead_geometry(points: np.ndarray) -> tuple[np.ndarray, float]:
+    """The brow top (the brow point highest along the face's own vertical)
+    and the forehead height -- from it to the mesh's top point -- in the
+    picture's pixels."""
+    pts = np.asarray(points, dtype=np.float32)[:FACE_POINTS, :2]
+    _, uy, _ = _face_axes(pts)
+    brow_pts = pts[list(_BROWS)]
+    brow_top = brow_pts[np.argmin(brow_pts @ uy)]
+    forehead_h = max(float((brow_top - pts[_FOREHEAD_TOP]) @ uy), 1.0)
+    return brow_top, forehead_h
+
+
+def _hairline_fraction(lum: np.ndarray, points: np.ndarray) -> float | None:
+    """Where the hair starts above the brows on ``lum`` (a luminance
+    picture), for the face at ``points`` (its pixels, the 468 face points
+    or more) -- as a fraction of the forehead height; ``None`` when no
+    hair is met within :data:`_HAIRLINE_SEARCH` foreheads."""
+    pts = np.asarray(points, dtype=np.float32)[:FACE_POINTS, :2]
+    face_w = max(float(pts[:, 0].max() - pts[:, 0].min()), 1.0)
+    ux, uy, _ = _face_axes(pts)
+    brow_top, forehead_h = _forehead_geometry(pts)
+    centre_x = (pts[_CHEEKS[0]] + pts[_CHEEKS[1]]) / 2.0
+    base = brow_top - ux * float((brow_top - centre_x) @ ux)  # above the face's middle
+    steps = np.arange(0.0, _HAIRLINE_SEARCH * forehead_h, _HAIRLINE_STEP_PX)
+    profile: list[float] = []
+    for d in steps:
+        values = [
+            _patch_mean(lum, base - uy * d + ux * dx, 0.012 * face_w)
+            for dx in (-0.12 * face_w, 0.0, 0.12 * face_w)
+        ]
+        finite = [v for v in values if math.isfinite(v)]
+        profile.append(float(np.median(finite)) if finite else math.nan)
+    skin_zone = [
+        v
+        for d, v in zip(steps, profile, strict=True)
+        if 0.05 * forehead_h <= d <= 0.35 * forehead_h and math.isfinite(v)
+    ]
+    if not skin_zone:
+        return None
+    skin = float(np.median(skin_zone))
+    run = 0
+    for d, v in zip(steps, profile, strict=True):
+        if d < 0.35 * forehead_h or not math.isfinite(v):
+            run = 0
+            continue
+        if abs(v - skin) > _HAIR_CONTRAST * max(skin, 1.0):
+            run += 1
+            if run * _HAIRLINE_STEP_PX >= _HAIR_RUN_PX:
+                return float((d - (run - 1) * _HAIRLINE_STEP_PX) / forehead_h)
+        else:
+            run = 0
+    return None
+
+
+def _hairline_reach(
+    portrait: float | None, driver: float | None, *, ceiling: float = _FOREHEAD_REACH_MAX
+) -> float:
+    """The forehead reach for a pair: the lower of the two hairlines less
+    the clearance, within [_FOREHEAD_REACH_MIN, ceiling]; a side with no
+    hair found within the search does not limit it (a high forehead), so
+    both unknown means the ceiling."""
+    limits = [h - _HAIRLINE_CLEARANCE for h in (portrait, driver) if h is not None]
+    reach = min(limits) if limits else ceiling
+    return float(min(max(reach, _FOREHEAD_REACH_MIN), ceiling))
+
+
+def _hairline_frame_ok(pose: HeadPose | None) -> bool:
+    """Frontal enough to read the hairline from -- a tilt foreshortens the
+    forehead, a turn puts the hair over it."""
+    if pose is None:
+        return False
+    return abs(pose.pitch) <= _HAIRLINE_FRONTAL[0] and abs(pose.yaw) <= _HAIRLINE_FRONTAL[1]
+
+
+def _forehead_reach_is_hairline(options: dict[str, Any]) -> bool:
+    return bool(options.get("mask_forehead_reach", _OVAL_FOREHEAD_REACH) == _HAIRLINE_MODE)
+
+
 def _forehead_reach(options: dict[str, Any]) -> float:
-    """``mask_forehead_reach`` in ``[0.3, 1.0]``, default
+    """``mask_forehead_reach`` in ``[0.3, 1.6]``, default
     ``_OVAL_FOREHEAD_REACH`` (0.85): how far up the forehead the ovals go,
-    as a fraction of the brow-to-hairline distance -- 1.0 is the hairline
-    itself, lower stops the join further down on bare skin. Day 13's
-    forehead-line lever, swept with scripts/probes/jaw_band.py; both the
-    portrait's oval and the driver's read it."""
-    value = float(options.get("mask_forehead_reach", _OVAL_FOREHEAD_REACH))
-    if not 0.3 <= value <= 1.0:
-        raise ValueError(f"mask_forehead_reach must be in [0.3, 1.0], got {value}")
+    as a fraction of the brow-to-mesh-top distance -- 1.0 is the mesh's
+    own top, above it the forehead arc is lifted past it (day 16), lower
+    stops the join further down on bare skin. Day 13's forehead-line
+    lever, swept with scripts/probes/jaw_band.py; both the portrait's oval
+    and the driver's read it. ``"hairline"`` reads as the default here and
+    is settled at the anchor from the two faces' own hairlines (see
+    :func:`_hairline_reach`)."""
+    raw = options.get("mask_forehead_reach", _OVAL_FOREHEAD_REACH)
+    if isinstance(raw, str):
+        if raw == _HAIRLINE_MODE:
+            return _OVAL_FOREHEAD_REACH
+        msg = (
+            f"mask_forehead_reach must be a number in [{_FOREHEAD_REACH_MIN}, "
+            f"{_FOREHEAD_REACH_MAX}] or 'hairline', got {raw!r}"
+        )
+        raise ValueError(msg)
+    value = float(raw)
+    if not _FOREHEAD_REACH_MIN <= value <= _FOREHEAD_REACH_MAX:
+        msg = (
+            f"mask_forehead_reach must be in [{_FOREHEAD_REACH_MIN}, {_FOREHEAD_REACH_MAX}], "
+            f"got {value}"
+        )
+        raise ValueError(msg)
     return value
 
 
@@ -1207,16 +1427,52 @@ _MASK_EDGE_CLEARANCE = 2.0
 # August -- a stretched photograph's chin; this engine renders the chin
 # where his is, so it is measured again.
 _CHIN_REACH_MAX = 0.2
+# Day 16, block B3 ("auto"): the reach from the mask's own geometry
+# rather than by hand. The ROADMAP's premise was a proportion -- the
+# driver's lower face against the portrait's -- and it was measured: on
+# his four portraits the network draws the chin on the portrait's own
+# chin point (within 0.3-3 px, self-driven), and his nose-to-chin over
+# face height differs from the portraits' by 0-4 crop px (0.446-0.454
+# against 0.449-0.468); but the anchor's own rest_chin, learned live at
+# a session's start, read 10 px longer than his frontal median on the
+# 10:14 capture, so a reach that added the gap put the join 14-21 px
+# under his chin (the hand 0.04: +7..+12; day 15's look at 0.08, +26,
+# was "onto the neck"). What the hand value IS, in the mask's own
+# terms, is the contour's clearance above the chin point: the erosion's
+# radius plus half the feather, both of the crop face width -- 9.4 px on
+# his portrait against the hand's 9.3. "auto" is that, resolved at load
+# like a number; the importer writes it for every new avatar.
+_CHIN_REACH_AUTO = "auto"
 
 
 def _mask_chin_reach(options: dict[str, Any]) -> float:
     """``mask_chin_reach`` in ``[0, 0.2]``, default 0: how far both ovals
     reach below the chin, as a fraction of the portrait's crop face
-    height (see the comment above)."""
-    value = float(options.get("mask_chin_reach", 0.0))
+    height (see the comment above); ``"auto"`` reads as 0 here and is
+    resolved at the anchor (see :func:`_chin_reach_is_auto`)."""
+    raw = options.get("mask_chin_reach", 0.0)
+    if isinstance(raw, str):
+        if raw == _CHIN_REACH_AUTO:
+            return 0.0
+        raise ValueError(
+            f"mask_chin_reach must be a number in [0, {_CHIN_REACH_MAX}] or 'auto', got {raw!r}"
+        )
+    value = float(raw)
     if not 0.0 <= value <= _CHIN_REACH_MAX:
         raise ValueError(f"mask_chin_reach must be in [0, {_CHIN_REACH_MAX}], got {value}")
     return value
+
+
+def _chin_reach_is_auto(options: dict[str, Any]) -> bool:
+    return bool(options.get("mask_chin_reach", 0.0) == _CHIN_REACH_AUTO)
+
+
+def _auto_chin_reach(crop_points: np.ndarray) -> float:
+    """The mask contour's own clearance above the chin point, in crop
+    pixels: the erosion's radius plus half the feather, both fractions of
+    the portrait's crop face width (see :func:`_oval_mask`)."""
+    face_width = max(float(crop_points[:, 0].max() - crop_points[:, 0].min()), 1.0)
+    return float(face_width * (_OVAL_SHRINK / 2.0 + _OVAL_FEATHER / 2.0))
 
 
 def _chin_follow(options: dict[str, Any]) -> float:
@@ -1264,6 +1520,74 @@ def _chin_drop(nose_chin: float, rest: float | None, limit: float) -> float:
     return float(min(max(nose_chin - rest, 0.0), limit))
 
 
+@dataclass(frozen=True, slots=True)
+class ChinRoom:
+    """What a portrait's crop leaves under its chin (see :func:`chin_room`)."""
+
+    crop_face_height: float
+    chin_row: float
+    headroom: float
+    chin_reach: float
+    chin_drop_max: float
+    crop_inside: bool
+
+
+def chin_room(
+    points: np.ndarray,
+    *,
+    image_size: tuple[int, int] | None = None,
+    scale: float = CROP_SCALE,
+    vy_ratio: float = CROP_VY_RATIO,
+    forehead_reach: float = _OVAL_FOREHEAD_REACH,
+    chin_reach_fraction: float | str = 0.0,
+) -> ChinRoom:
+    """The room a portrait's crop has below its chin, in crop pixels, and
+    what the mask may spend it on -- the arithmetic :meth:`load_avatar`
+    does, as a function of the portrait's points alone (frame pixels, the
+    468 face points or more), so the importer (day 16, block B) can read
+    it before a load and say whether a photograph has the room. ``headroom``
+    is the rows between the chin and the crop's last usable row (less the
+    oval's own measured feather tail and :data:`_MASK_EDGE_CLEARANCE`);
+    ``chin_reach`` is what ``mask_chin_reach`` takes of it (a fraction, or
+    ``"auto"`` for the mask's own clearance), ``chin_drop_max``
+    what the jaw's drop gets (the smaller of :data:`_CHIN_DROP_MAX` of the
+    face and the rest). ``crop_inside`` (with ``image_size`` as ``(width,
+    height)``) says whether the whole crop square lies inside the picture:
+    outside it the crop is filled with black (the portrait's load uses
+    ``warpAffine``'s constant border), which is what padding at import
+    prevents."""
+    face = np.asarray(points, dtype=np.float32)[:FACE_POINTS, :2]
+    to_crop, to_frame = crop_matrix(face, scale=scale, vy_ratio=vy_ratio)
+    crop_points = (face @ to_crop[:, :2].T + to_crop[:, 2]).astype(np.float32)
+    mask = _oval_mask(crop_points, forehead_reach=forehead_reach)
+    crop_face_height = _face_height(crop_points)
+    chin_row = float(crop_points[_CHIN, 1])
+    tail = float(np.where((mask[:, :, 0] > 0.02).any(axis=1))[0].max()) - chin_row
+    edge_margin = max(tail, 0.0) + _MASK_EDGE_CLEARANCE
+    headroom = max(float(CROP_SIZE - 1) - chin_row - edge_margin, 0.0)
+    wanted = (
+        _auto_chin_reach(crop_points)
+        if chin_reach_fraction == _CHIN_REACH_AUTO
+        else float(chin_reach_fraction) * crop_face_height
+    )
+    reach = min(wanted, headroom)
+    drop = min(_CHIN_DROP_MAX * crop_face_height, headroom - reach)
+    inside = True
+    if image_size is not None:
+        width, height = image_size
+        corners = np.array(
+            [[0, 0], [CROP_SIZE, 0], [CROP_SIZE, CROP_SIZE], [0, CROP_SIZE]], dtype=np.float32
+        )
+        frame = corners @ to_frame[:, :2].T + to_frame[:, 2]
+        inside = bool(
+            frame[:, 0].min() >= 0
+            and frame[:, 1].min() >= 0
+            and frame[:, 0].max() <= width
+            and frame[:, 1].max() <= height
+        )
+    return ChinRoom(crop_face_height, chin_row, headroom, reach, drop, inside)
+
+
 def _oval_mask(
     crop_points: np.ndarray,
     size: int = CROP_SIZE,
@@ -1308,7 +1632,15 @@ def _oval_mask(
     brow_top = float(brow[:, 1].min())
     oval_top = float(trimmed[:, 1].min())
     ceiling = brow_top - (brow_top - oval_top) * forehead_reach
-    np.maximum(trimmed[:, 1], ceiling, out=trimmed[:, 1])
+    if forehead_reach > 1.0:
+        # Day 16 (C1): past the mesh's own top the forehead arc is lifted
+        # toward the ceiling -- all of it at the arc's top, none at the
+        # brow line, linear between -- so the hull reaches the hairline.
+        span = max(brow_top - oval_top, 1.0)
+        weight = np.clip((brow_top - trimmed[:, 1]) / span, 0.0, 1.0)
+        trimmed[:, 1] -= weight * (oval_top - ceiling)
+    else:
+        np.maximum(trimmed[:, 1], ceiling, out=trimmed[:, 1])
 
     if chin_drop != 0.0:
         mouth_y = float(crop_points[list(_MOUTH_CORNERS), 1].mean())
@@ -1661,6 +1993,44 @@ def _rotation_pivot(options: dict[str, Any]) -> str:
     return pivot
 
 
+def _crop_shift_x(options: dict[str, Any]) -> float:
+    """``crop_shift_x`` in crop pixels, ``[-40, 40]``, default 0: a constant
+    sideways shift of the driver's crop along the face's own horizontal
+    (+ toward the picture's right at zero roll). Day 16 (C2): the turn
+    lag measured on day 14 -- 21 px at p90 -- was mostly a STATIC offset:
+    on driving.mkv's frontal frames the avatar's eyes sit 7.5 px and its
+    nose 13-14 px to the right of his, and the turns' own lag is 4-7 px
+    either way once that is taken off (recordings/day16/turn-lag). A
+    constant shift of the crop moves the avatar by the same amount and
+    changes nothing relative (the anchor is learned in the shifted crop
+    too); the calibration measures it from the avatar's eyes against his
+    on the still frames and writes it to the driver profile."""
+    shift = float(options.get("crop_shift_x", 0.0))
+    if not (-40.0 <= shift <= 40.0):
+        msg = f"crop_shift_x must be in [-40, 40] crop px, got {shift}"
+        raise ValueError(msg)
+    return shift
+
+
+def _yaw_pivot_z(options: dict[str, Any]) -> float:
+    """``yaw_pivot_z`` in ``[0, 1]``, default 0.0 (off, bit-exact): the depth
+    behind the face, in keypoint units, that the *yaw* delta turns about
+    -- day 10's Step 4, built on day 16 (block C2) for the turn lag open
+    since day 4 (the avatar's nose 12-21 px behind his on a turn). The
+    same mechanism as the pitch pivot (:func:`_rotation_pivot`), on its
+    own axis: a point on the head's vertical axis behind the face, so a
+    turn about it carries the face sideways the way a real head on a
+    neck does, instead of spinning the keypoints about the space's
+    origin. Positive z is behind the face in this space (the eyes'
+    pivot sits at z = -0.113, in front). Independent of
+    ``rotation_pivot``: either, both or neither."""
+    z = float(options.get("yaw_pivot_z", 0.0))
+    if not (0.0 <= z <= 1.0):
+        msg = f"yaw_pivot_z must be in [0, 1], got {z}"
+        raise ValueError(msg)
+    return z
+
+
 def _pivot_z(options: dict[str, Any]) -> bool:
     """Whether the pitch-pivot's own depth (z, in keypoint space) is kept
     in the translation :func:`_rotation_pivot` adds, from
@@ -1816,7 +2186,13 @@ _MOUTH_OPENING = ((17, 1), (19, 1), (20, 1))
 # later (relaxed), and the difference rides on every opening as a constant.
 # The fix for that is a reference that follows his current neutral mouth,
 # not a fixed one from either face -- see lip_rest_tracking, if built.
-_MOUTH_RESTS = ("anchor", "portrait")
+# Day 16: "driver" -- the rows a calibration measured on THIS person's
+# relaxed mouth (``lip_rest_rows``, in the driver profile), written into
+# the anchor the way "portrait" writes the portrait's: his own units, his
+# own face, so a session that starts with pressed lips does not spend its
+# first minute over-opening while lip_rest_tracking catches up. Without
+# the rows it is "anchor".
+_MOUTH_RESTS = ("anchor", "portrait", "driver")
 
 
 def _mouth_rest(options: dict[str, Any]) -> str:
@@ -1833,6 +2209,44 @@ def _rest_mouth_from_portrait(loaded: _Portrait) -> None:
     graph reads, so the storage must stay the same."""
     for k, axis in _MOUTH_OPENING:
         loaded.exp_d0[0, k, axis] = loaded.exp_s[0, k, axis]
+
+
+def _lip_rest_rows(options: dict[str, Any]) -> tuple[float, ...] | None:
+    """``lip_rest_rows``: the driver's own resting reading on the
+    :data:`_MOUTH_OPENING` rows, in that order, as a calibration measured
+    it (day 16) -- what ``mouth_rest = "driver"`` writes into the anchor.
+    ``None`` when absent."""
+    raw = options.get("lip_rest_rows")
+    if raw is None:
+        return None
+    try:
+        rows = tuple(float(v) for v in raw)
+    except (TypeError, ValueError) as exc:
+        msg = f"lip_rest_rows must be {len(_MOUTH_OPENING)} numbers, got {raw!r}"
+        raise ValueError(msg) from exc
+    if len(rows) != len(_MOUTH_OPENING) or any(not math.isfinite(v) or abs(v) > 0.5 for v in rows):
+        msg = (
+            f"lip_rest_rows must be {len(_MOUTH_OPENING)} finite numbers in [-0.5, 0.5], "
+            f"got {raw!r}"
+        )
+        raise ValueError(msg)
+    return rows
+
+
+def _apply_mouth_rest(loaded: _Portrait) -> bool:
+    """After the anchor is frozen or seeded: overwrite its lip-opening rows
+    as ``mouth_rest`` says -- the portrait's own, or the driver's measured
+    rest -- and say whether anything was written. "anchor" (and "driver"
+    without rows) leaves the anchor's own reading."""
+    mode = _mouth_rest(loaded.options)
+    if mode == "portrait":
+        _rest_mouth_from_portrait(loaded)
+        return True
+    if mode == "driver" and loaded.lip_rest_rows is not None:
+        for (k, axis), value in zip(_MOUTH_OPENING, loaded.lip_rest_rows, strict=True):
+            loaded.exp_d0[0, k, axis] = value
+        return True
+    return False
 
 
 # Day 15, the fix that held (his live look reverted "portrait" the same
@@ -1857,6 +2271,14 @@ def _rest_mouth_from_portrait(loaded: _Portrait) -> None:
 # ride along in a capture's anchor, so a replay is still the session.
 _LIP_REST_SETTLE = 15
 _LIP_REST_GATE_SHUT = 0.02
+# Day 16 (C3): the first resting frames after the anchor freezes move the
+# rows this many times faster than the option's rate, for this many of
+# them -- a session that starts with pressed lips (his 09:50) was over-
+# opening for the 100-frame time constant's first seconds; at 4x over
+# 60 frames the anchor is within 10% of the resting reading in two
+# seconds instead of eight, and the slow rate takes over from there.
+_LIP_REST_FAST_FACTOR = 4.0
+_LIP_REST_FAST_FRAMES = 60
 
 # Day 15, his "a strong smile with the brows raised -- look what happens to
 # the teeth then". The extractor's reading of a brow raise is not confined
@@ -1892,6 +2314,33 @@ def _brow_mouth_leak(options: dict[str, Any]) -> float:
         msg = f"brow_mouth_leak must be in [0, 2], got {gain}"
         raise ValueError(msg)
     return gain
+
+
+def _brow_mouth_leak_slopes(options: dict[str, Any]) -> dict[tuple[int, int], float]:
+    """``brow_mouth_leak_slopes``: the leak table itself, as
+    ``[[keypoint, axis, slope], ...]`` -- what "Calibrate me" measures on
+    the driver's own brow raise (day 16). Default :data:`_BROW_MOUTH_LEAK`,
+    his two clips' average. A row given here replaces the whole table, so
+    a profile says every slope it wants, not only the changed ones."""
+    raw = options.get("brow_mouth_leak_slopes")
+    if raw is None:
+        return dict(_BROW_MOUTH_LEAK)
+    slopes: dict[tuple[int, int], float] = {}
+    try:
+        for entry in raw:
+            k_raw, axis_raw, slope_raw = entry
+            k, axis, slope = int(k_raw), int(axis_raw), float(slope_raw)
+            in_range = 0 <= k < NUM_KP and 0 <= axis < 3
+            if not (in_range and math.isfinite(slope) and abs(slope) <= 1.0):
+                raise ValueError(entry)
+            slopes[(k, axis)] = slope
+    except (TypeError, ValueError) as exc:
+        msg = (
+            "brow_mouth_leak_slopes must be [[keypoint 0..20, axis 0..2, slope in [-1, 1]], "
+            f"...], got {raw!r}"
+        )
+        raise ValueError(msg) from exc
+    return slopes
 
 
 def _lip_rest_tracking(options: dict[str, Any]) -> float:
@@ -2295,15 +2744,88 @@ def _brow_follow(options: dict[str, Any]) -> float:
     return g
 
 
-def _brow_lift(brow: float, rest_brow: float | None, pose: HeadPose | None) -> float:
-    """How far his brows are *raised* past rest this frame, beyond
-    :data:`_BROW_DEADBAND`, faded with pose -- the scalar
+# ---------------------------------------------------------------------------
+# The driver's own thresholds (day 16, 2026-09-12): "Calibrate me"
+# ---------------------------------------------------------------------------
+#
+# Every gate number above was set from HIS still frames and HIS live jitter,
+# by hand, over days 9-12. A second person's mouth does not jitter by his
+# 0.004 a frame and does not raise the brows by his 38%: the thresholds are
+# a property of the driver, not of the portrait or the network. So each is
+# an option now, read once at load into :class:`_GateThresholds`, with the
+# constants as the defaults -- and the driver profile a calibration writes
+# (sha256.calibration, configs/local.driver.json) lays its measured values
+# over the avatar's engine_options (see DRIVER_OPTION_KEYS). Without a
+# profile nothing changes: every default is the constant it replaces.
+
+
+@dataclass(frozen=True, slots=True)
+class _GateThresholds:
+    """One driver's gate thresholds -- see :func:`_gate_thresholds`."""
+
+    mouth_gate_mar: tuple[float, float] = _MOUTH_GATE_MAR
+    mouth_gate_width: tuple[float, float] = _MOUTH_GATE_WIDTH
+    activity_mar: float = _MOUTH_ACTIVITY_MAR
+    activity_width: float = _MOUTH_ACTIVITY_WIDTH
+    brow_deadband: float = _BROW_DEADBAND
+
+
+def _threshold_pair(
+    options: dict[str, Any], key: str, default: tuple[float, float], limit: float
+) -> tuple[float, float]:
+    raw = options.get(key, default)
+    try:
+        start, full = (float(v) for v in raw)
+    except (TypeError, ValueError) as exc:
+        msg = f"{key} must be [start, full], got {raw!r}"
+        raise ValueError(msg) from exc
+    if not (0.0 < start < full <= limit):
+        msg = f"{key} must satisfy 0 < start < full <= {limit}, got {raw!r}"
+        raise ValueError(msg)
+    return start, full
+
+
+def _threshold_unit(options: dict[str, Any], key: str, default: float, limit: float) -> float:
+    unit = float(options.get(key, default))
+    if not (0.0 < unit <= limit):
+        msg = f"{key} must be in (0, {limit}], got {unit}"
+        raise ValueError(msg)
+    return unit
+
+
+def _gate_thresholds(options: dict[str, Any]) -> _GateThresholds:
+    """The gates' thresholds for this driver: ``mouth_gate_mar`` and
+    ``mouth_gate_width`` as ``[start, full]`` (the distance gates, see
+    :data:`_MOUTH_GATE_MAR`/:data:`_MOUTH_GATE_WIDTH`), ``mouth_activity_mar``
+    and ``mouth_activity_width`` (the motion units, :data:`_MOUTH_ACTIVITY_MAR`/
+    :data:`_MOUTH_ACTIVITY_WIDTH`) and ``brow_deadband`` (:data:`_BROW_DEADBAND`).
+    Each defaults to its constant; validated once here, at load."""
+    deadband = float(options.get("brow_deadband", _BROW_DEADBAND))
+    if not (0.0 <= deadband <= 1.0):
+        msg = f"brow_deadband must be in [0, 1], got {deadband}"
+        raise ValueError(msg)
+    return _GateThresholds(
+        mouth_gate_mar=_threshold_pair(options, "mouth_gate_mar", _MOUTH_GATE_MAR, 0.2),
+        mouth_gate_width=_threshold_pair(options, "mouth_gate_width", _MOUTH_GATE_WIDTH, 1.0),
+        activity_mar=_threshold_unit(options, "mouth_activity_mar", _MOUTH_ACTIVITY_MAR, 0.1),
+        activity_width=_threshold_unit(options, "mouth_activity_width", _MOUTH_ACTIVITY_WIDTH, 0.5),
+        brow_deadband=deadband,
+    )
+
+
+def _brow_lift(
+    brow: float, rest_brow: float | None, pose: HeadPose | None, deadband: float | None = None
+) -> float:
+    """How far his brows are *raised* past rest this frame, beyond the dead
+    band (:data:`_BROW_DEADBAND`, or this driver's own from
+    :func:`_gate_thresholds`), faded with pose -- the scalar
     :meth:`LivePortraitEngine._render` turns into a keypoint offset via
     :data:`_BROW_LIFT_Y`. Never negative: a lowering is not carried (see
     the constants' own comment for why). 0.0 until the anchor has frozen."""
     if rest_brow is None:
         return 0.0
-    lift = max(brow / (rest_brow or 1e-6) - 1.0 - _BROW_DEADBAND, 0.0)
+    band = _BROW_DEADBAND if deadband is None else deadband
+    lift = max(brow / (rest_brow or 1e-6) - 1.0 - band, 0.0)
     if pose is not None:
         lift *= _fade(pose.pitch, _BROW_GATE_PITCH) * _fade(pose.yaw, _BROW_GATE_YAW)
     return lift
@@ -2329,6 +2851,7 @@ def _mouth_gate(
     rest_mar: float | None,
     rest_width: float | None,
     pose: HeadPose | None = None,
+    thresholds: _GateThresholds | None = None,
 ) -> float:
     """How much of the extractor's mouth reading to pass this frame: the
     larger of the ratio gate (he is opening it) and the width gate (he is
@@ -2339,10 +2862,12 @@ def _mouth_gate(
     one, and the reading is taken as it is."""
     if rest_mar is None or rest_width is None:
         return 1.0
-    widening = _soft_gate(width / (rest_width or 1e-6) - 1.0, _MOUTH_GATE_WIDTH)
+    gate_mar = _MOUTH_GATE_MAR if thresholds is None else thresholds.mouth_gate_mar
+    gate_width = _MOUTH_GATE_WIDTH if thresholds is None else thresholds.mouth_gate_width
+    widening = _soft_gate(width / (rest_width or 1e-6) - 1.0, gate_width)
     if pose is not None:
         widening *= _fade(pose.yaw, _MOUTH_GATE_YAW)
-    return max(_soft_gate(mar - rest_mar, _MOUTH_GATE_MAR), widening)
+    return max(_soft_gate(mar - rest_mar, gate_mar), widening)
 
 
 def _mouth_activity(
@@ -2351,6 +2876,7 @@ def _mouth_activity(
     mar_prev: float | None,
     width_prev: float | None,
     yaw_change: float = 0.0,
+    thresholds: _GateThresholds | None = None,
 ) -> tuple[float, float]:
     """How much his mouth moved since the last frame -- ``(ratio, width)``,
     each in units of :data:`_MOUTH_ACTIVITY_MAR` / :data:`_MOUTH_ACTIVITY_WIDTH`
@@ -2361,9 +2887,11 @@ def _mouth_activity(
     motion only (see :meth:`LivePortraitEngine._gates`)."""
     if mar_prev is None or width_prev is None:
         return 0.0, 0.0
+    unit_mar = _MOUTH_ACTIVITY_MAR if thresholds is None else thresholds.activity_mar
+    unit_width = _MOUTH_ACTIVITY_WIDTH if thresholds is None else thresholds.activity_width
     width_change = abs(width / (width_prev or 1e-6) - 1.0)
     width_change = max(width_change - _WIDTH_PER_DEGREE_YAW * abs(yaw_change), 0.0)
-    return abs(mar - mar_prev) / _MOUTH_ACTIVITY_MAR, width_change / _MOUTH_ACTIVITY_WIDTH
+    return abs(mar - mar_prev) / unit_mar, width_change / unit_width
 
 
 def _brow_gate(brow: float, rest_brow: float | None, pose: HeadPose | None) -> float:
@@ -2556,6 +3084,7 @@ class _Portrait:
         "correction",
         "crop_filters",
         "crop_points",
+        "crop_shift_x",
         "descriptor",
         "ear_recent",
         "exp_d0",
@@ -2566,21 +3095,28 @@ class _Portrait:
         "f_s",
         "face_height_rest",
         "features",
+        "forehead_reach",
         "gate",
         "gate_brow_prev",
         "gate_mouth_prev",
         "gate_open_prev",
         "gaze_prev",
         "graph",
+        "hairline_portrait",
+        "hairline_samples",
+        "hairline_settled",
         "holding",
         "last",
         "last_dt",
         "last_timestamp",
         "leak_gain",
+        "leak_slopes",
         "lip_rest",
         "lip_rest_alpha",
         "lip_rest_mask",
+        "lip_rest_rows",
         "lip_rest_run",
+        "lip_rest_steps",
         "mar_prev",
         "mask",
         "mask_bbox",
@@ -2611,18 +3147,34 @@ class _Portrait:
         "t_gain",
         "t_prev",
         "t_s",
+        "thresholds",
         "vram_mb",
         "width_prev",
         "x_c_s",
         "x_s",
+        "yaw_pivot",
         "yaw_prev",
         "z_rest",
     )
 
-    def __init__(self, descriptor: AvatarDescriptor) -> None:
+    def __init__(
+        self, descriptor: AvatarDescriptor, driver_options: Mapping[str, Any] | None = None
+    ) -> None:
         self.descriptor = descriptor
+        # The portrait's own options, with the driver's profile laid over
+        # them (day 16; see DRIVER_OPTION_KEYS -- the engine's
+        # set_driver_options has already refused any other key).
         self.options = dict(descriptor.manifest.engine_options)
+        if driver_options:
+            self.options.update(driver_options)
         self.anchor_wanted = int(self.options.get("anchor_frames", DEFAULT_ANCHOR_FRAMES))
+        # Day 16: this driver's gate thresholds, brow-to-mouth leak table
+        # and measured lip rest -- each the module constant unless the
+        # profile set it. Validated here, once, like the rest of the options
+        # load_avatar reads.
+        self.thresholds: _GateThresholds = _gate_thresholds(self.options)
+        self.leak_slopes: dict[tuple[int, int], float] = _brow_mouth_leak_slopes(self.options)
+        self.lip_rest_rows: tuple[float, ...] | None = _lip_rest_rows(self.options)
         self.anchor_seen = 0
         # How many candidate frames failed _anchor_frame_ok while the anchor
         # was still being learned -- logged once the anchor freezes, and
@@ -2666,7 +3218,18 @@ class _Portrait:
         self.chin_drop: float = 0.0
         # Day 13, his 03:28 captures: how far both ovals reach below the
         # chin, crop px (mask_chin_reach of the crop face height, at load).
+        # Day 16: "auto" is the mask's own clearance (see _auto_chin_reach).
         self.chin_reach: float = 0.0
+        # Day 16 (C1): the forehead reach in force -- the option's number,
+        # or with "hairline" the default until the anchor settles it from
+        # the portrait's hairline (read at load) and the driver's (sampled
+        # on frontal frames until the anchor freezes).
+        self.forehead_reach: float = _forehead_reach(self.options)
+        # Day 16 (C2): the driver crop's constant sideways shift, crop px.
+        self.crop_shift_x: float = _crop_shift_x(self.options)
+        self.hairline_portrait: float | None = None
+        self.hairline_samples: list[float | None] = []
+        self.hairline_settled: bool = not _forehead_reach_is_hairline(self.options)
         # Day 11: his resting iris offset (x, y) in units of eye width,
         # learned with the anchor like rest_brow; and the gaze drive's own
         # EMA state -- see the GAZE section and _gaze_drive.
@@ -2679,6 +3242,9 @@ class _Portrait:
         self.lip_rest_alpha: float = 0.0
         self.lip_rest_mask: Any = None
         self.lip_rest_run: int = 0
+        # Day 16 (C3): resting frames applied since the freeze (or the
+        # last reset/seed) -- the fast start counts these.
+        self.lip_rest_steps: int = 0
         # Day 12: his eye ratio on the last few frames, for _relieved_ear to
         # tell a blink's speed from a glance down (gaze_down_relief).
         self.ear_recent: deque[float] = deque(maxlen=_BLINK_WINDOW)
@@ -2748,6 +3314,9 @@ class _Portrait:
         # Set once in load_avatar, next to x_c_s -- computed from it, so it
         # must not move once the graph is captured.
         self.pivot: Any = None
+        # Day 16 (C2): the yaw delta's own pivot, (1, 1, 3) at (0, 0, z) --
+        # None when yaw_pivot_z is 0. Set once in load_avatar.
+        self.yaw_pivot: Any = None
         self.x_s: Any = None
         self.exp_s: Any = None
         self.scale_s: Any = None
@@ -2860,11 +3429,17 @@ class LivePortraitEngine:
         *,
         model_path: Path | str | None = None,
         weights: Path | str | None = None,
+        driver_options: Mapping[str, Any] | None = None,
     ) -> None:
         # The face-landmark model, to read the portrait's own face at load and
         # to name the driver's crop; the same one the tracker uses.
         self._model_path = Path(model_path) if model_path is not None else None
         self._weights = Path(weights) if weights is not None else None
+        # Day 16: the driver profile's options, laid over every avatar's own
+        # at load -- see set_driver_options.
+        self._driver_options: dict[str, Any] = {}
+        if driver_options:
+            self.set_driver_options(driver_options)
         self._running = False
         self._torch: Any = None
         self._device: Any = None
@@ -2921,6 +3496,28 @@ class LivePortraitEngine:
         if self._torch is not None:
             self._torch.cuda.empty_cache()
 
+    # --- the driver's profile (day 16) --------------------------------------
+
+    @property
+    def driver_options(self) -> dict[str, Any]:
+        """The driver profile's engine options as last set -- a copy."""
+        return dict(self._driver_options)
+
+    def set_driver_options(self, options: Mapping[str, Any] | None) -> None:
+        """Lay the driver's profile (``configs/local.driver.json``, written by
+        "Calibrate me") over every avatar's ``engine_options`` from the next
+        load on. Only :data:`DRIVER_OPTION_KEYS` are accepted: the profile
+        describes the person, never the picture. An avatar already loaded
+        keeps what it was loaded with -- the graph bakes its options -- so
+        the caller reloads it. ``None`` or ``{}`` clears the profile."""
+        merged = dict(options or {})
+        unknown = sorted(set(merged) - DRIVER_OPTION_KEYS)
+        if unknown:
+            msg = f"not driver options (see DRIVER_OPTION_KEYS): {unknown}"
+            raise ValueError(msg)
+        self._driver_options = merged
+        _LOG.info("Driver profile set: %s", ", ".join(sorted(merged)) or "(none)")
+
     # --- AvatarEngine ------------------------------------------------------
 
     def supports(self, descriptor: AvatarDescriptor) -> bool:
@@ -2944,7 +3541,7 @@ class LivePortraitEngine:
         torch = self._torch
         portrait = self._read_portrait(descriptor)
         points = self._landmarks_of(portrait, descriptor.id)
-        loaded = _Portrait(descriptor)
+        loaded = _Portrait(descriptor, self._driver_options)
         scale = float(loaded.options.get("crop_scale", CROP_SCALE))
         vy = float(loaded.options.get("crop_vy_ratio", CROP_VY_RATIO))
 
@@ -2956,7 +3553,12 @@ class LivePortraitEngine:
         _mask_jaw_shrink(loaded.options)
         _chin_follow(loaded.options)
         _edge_match(loaded.options)
-        _mouth_rest(loaded.options)
+        if _mouth_rest(loaded.options) == "driver" and loaded.lip_rest_rows is None:
+            _LOG.warning(
+                "Avatar %s: mouth_rest is 'driver' but no lip_rest_rows are set -- "
+                "the anchor's own lip rest is used",
+                descriptor.id,
+            )
         lip_rest_frames = _lip_rest_tracking(loaded.options)
         loaded.leak_gain = _brow_mouth_leak(loaded.options)
         forehead_reach = _forehead_reach(loaded.options)
@@ -2970,13 +3572,26 @@ class LivePortraitEngine:
         crop_points = (points @ to_crop[:, :2].T + to_crop[:, 2]).astype(np.float32)
         loaded.crop_points = crop_points
         loaded.mask = _oval_mask(crop_points, forehead_reach=forehead_reach)
+        if not loaded.hairline_settled:
+            loaded.hairline_portrait = _hairline_fraction(_luminance(portrait), points)
         # Day 13: the box reaches below the portrait's own chin by the
         # most the per-frame mask may let the jaw down (see _chin_drop).
         # The room the crop actually has below the portrait's chin -- see
         # _CHIN_DROP_MAX's own comment for why this, and not the fraction,
         # is the limit. The reach is taken first (it is a fixed choice about
         # where the join sits); the drop gets what is left.
-        crop_face_height = _face_height(crop_points)
+        room = chin_room(
+            points,
+            scale=scale,
+            vy_ratio=vy,
+            forehead_reach=forehead_reach,
+            chin_reach_fraction=(
+                _CHIN_REACH_AUTO
+                if _chin_reach_is_auto(loaded.options)
+                else _mask_chin_reach(loaded.options)
+            ),
+        )
+        crop_face_height = room.crop_face_height
         # The oval's own edge needs a little room below its hull, and how
         # much is MEASURED on this portrait's own mask rather than argued
         # from the kernels (day 14, 2026-09-10; day 13 had argued shrink +
@@ -2990,13 +3605,10 @@ class LivePortraitEngine:
         # 4 rows above the last one the last row reads 0.008, at 3 rows
         # 0.04, at 2 rows 0.12, at 1 row 0.3-0.6. So the hull keeps the
         # measured tail plus two rows clear of the bottom.
-        tail = float(np.where((loaded.mask[:, :, 0] > 0.02).any(axis=1))[0].max()) - float(
-            crop_points[_CHIN, 1]
-        )
-        edge_margin = max(tail, 0.0) + _MASK_EDGE_CLEARANCE
-        headroom = max(float(CROP_SIZE - 1) - float(crop_points[_CHIN, 1]) - edge_margin, 0.0)
-        loaded.chin_reach = min(_mask_chin_reach(loaded.options) * crop_face_height, headroom)
-        loaded.chin_drop_max = min(_CHIN_DROP_MAX * crop_face_height, headroom - loaded.chin_reach)
+        # measured -- is in chin_room, shared with the importer since day 16.
+        headroom = room.headroom
+        loaded.chin_reach = room.chin_reach
+        loaded.chin_drop_max = room.chin_drop_max
         loaded.mask_bbox = _mask_bbox(
             loaded.mask, reach_below=int(np.ceil(loaded.chin_drop_max + loaded.chin_reach))
         )
@@ -3039,6 +3651,12 @@ class LivePortraitEngine:
                 )
             else:
                 loaded.pivot = None
+            yaw_z = _yaw_pivot_z(loaded.options)
+            loaded.yaw_pivot = (
+                None
+                if yaw_z == 0.0
+                else torch.tensor([[[0.0, 0.0, yaw_z]]], device=self._device, dtype=torch.float32)
+            )
             loaded.exp_s = info["exp"].float().view(1, NUM_KP, 3)
             loaded.scale_s = info["scale"].float().view(1, 1)
             loaded.t_s = info["t"].float().view(1, 3)
@@ -3212,6 +3830,9 @@ class LivePortraitEngine:
             loaded.rest_pitch = None
             loaded.holding = False
             loaded.lip_rest_run = 0
+            loaded.lip_rest_steps = 0
+            loaded.hairline_samples = []
+            loaded.hairline_settled = not _forehead_reach_is_hairline(loaded.options)
 
     def rest_status(self, avatar_id: str) -> str | None:
         """A line for the UI while the anchor is still being learned, else
@@ -3273,11 +3894,11 @@ class LivePortraitEngine:
                 msg = f"anchor {name!r} has shape {tuple(source.shape)}, not {tuple(target.shape)}"
                 raise ValueError(msg)
             target.copy_(source)
-        # Day 15: a captured anchor replayed under "portrait" gets the same
-        # lip rest the session would learn now -- so a capture taken before
-        # the option, or with it off, can be measured with it on.
-        if _mouth_rest(loaded.options) == "portrait":
-            _rest_mouth_from_portrait(loaded)
+        # Day 15: a captured anchor replayed under "portrait" (day 16: or
+        # "driver") gets the same lip rest the session would learn now -- so
+        # a capture taken before the option, or with it off, can be measured
+        # with it on.
+        _apply_mouth_rest(loaded)
         for name in _ANCHOR_SCALARS:
             value = float(np.asarray(state.get(name, np.nan), dtype=np.float64))
             setattr(loaded, name, None if math.isnan(value) else value)
@@ -3306,6 +3927,7 @@ class LivePortraitEngine:
         loaded.centre_samples = []
         loaded.holding = False
         loaded.lip_rest_run = 0
+        loaded.lip_rest_steps = 0
         _LOG.info(
             "Avatar %s: anchor seeded from a capture -- rest EAR %s, rest MAR %s, "
             "face height %s px at distance %s",
@@ -3314,6 +3936,78 @@ class LivePortraitEngine:
             "?" if loaded.rest_mar is None else f"{loaded.rest_mar:.3f}",
             "?" if loaded.face_height_rest is None else f"{loaded.face_height_rest:.0f}",
             "?" if loaded.z_rest is None else f"{loaded.z_rest:.2f}",
+        )
+
+    def frame_readings(self, avatar_id: str) -> dict[str, float] | None:
+        """What the engine made of the last frame, as plain floats -- the
+        calibration's instrument (day 16, ``sha256.calibration``): whether
+        the anchor is frozen and the face held, the three gates as applied,
+        the rest values the anchor learned (NaN while unknown), the
+        extractor's own reading of every mouth keypoint's row
+        (``exp_<kp>_<axis>``, what a brow raise leaks into) and the anchor's
+        lip-opening rows (``anchor_<kp>_<axis>``). Two small tensors come back
+        from the GPU; call it after ``animate`` on the same thread, during a
+        calibration, not on every frame of a call. ``None`` for an avatar
+        this engine does not hold."""
+        loaded = self._loaded.get(avatar_id)
+        if loaded is None:
+            return None
+        readings: dict[str, float] = {
+            "anchor_frozen": float(loaded.anchor_seen >= loaded.anchor_wanted),
+            "holding": float(loaded.holding),
+            "gate_mouth": float(loaded.gate_mouth_prev),
+            "gate_open": float(loaded.gate_open_prev),
+            "gate_brow": float(loaded.gate_brow_prev),
+            "chin_drop": float(loaded.chin_drop),
+        }
+        for name in (
+            "rest_ear",
+            "rest_mar",
+            "rest_mouth_width",
+            "rest_brow",
+            "face_height_rest",
+            "z_rest",
+        ):
+            value = getattr(loaded, name)
+            readings[name] = math.nan if value is None else float(value)
+        gaze = loaded.rest_gaze
+        readings["rest_gaze_x"] = math.nan if gaze is None else float(gaze[0])
+        readings["rest_gaze_y"] = math.nan if gaze is None else float(gaze[1])
+        if loaded.exp_prev is not None and loaded.exp_d0 is not None:
+            exp = loaded.exp_prev.detach().float().cpu().numpy().reshape(NUM_KP, 3)
+            anchor = loaded.exp_d0.detach().float().cpu().numpy().reshape(NUM_KP, 3)
+            for k in MOUTH_KEYPOINTS:
+                for axis in range(3):
+                    readings[f"exp_{k}_{axis}"] = float(exp[k, axis])
+            for k, axis in _MOUTH_OPENING:
+                readings[f"anchor_{k}_{axis}"] = float(anchor[k, axis])
+        return readings
+
+    @staticmethod
+    def _settle_forehead(loaded: _Portrait) -> None:
+        """With ``mask_forehead_reach = "hairline"``, once the anchor is frozen
+        and enough frontal frames were read: the reach from the two
+        hairlines (:func:`_hairline_reach`), the portrait's mask and its box
+        rebuilt with it, and nothing measured again until a re-centre."""
+        if loaded.hairline_settled or loaded.crop_points is None:
+            return
+        if len(loaded.hairline_samples) < _HAIRLINE_MIN_SAMPLES:
+            return
+        found = [s for s in loaded.hairline_samples if s is not None]
+        driver = float(np.median(found)) if len(found) * 2 >= len(loaded.hairline_samples) else None
+        loaded.forehead_reach = _hairline_reach(loaded.hairline_portrait, driver)
+        loaded.mask = _oval_mask(loaded.crop_points, forehead_reach=loaded.forehead_reach)
+        loaded.mask_bbox = _mask_bbox(
+            loaded.mask, reach_below=int(np.ceil(loaded.chin_drop_max + loaded.chin_reach))
+        )
+        loaded.hairline_settled = True
+        loaded.hairline_samples = []
+        _LOG.info(
+            "Avatar %s: forehead reach settled at %.2f (portrait hairline %s, his %s)",
+            loaded.descriptor.id,
+            loaded.forehead_reach,
+            "?" if loaded.hairline_portrait is None else f"{loaded.hairline_portrait:.2f}",
+            "?" if driver is None else f"{driver:.2f}",
         )
 
     @staticmethod
@@ -3385,6 +4079,12 @@ class LivePortraitEngine:
                 centre_weight=self._centre_weight(loaded, tracking.head_pose),
             )
             cx, cy, size = self._smooth_crop(loaded, frame, cx, cy, size)
+            if loaded.crop_shift_x != 0.0:
+                # Day 16 (C2): a constant sideways shift, in the crop's own
+                # pixels, along the face's horizontal -- see _crop_shift_x.
+                shift = loaded.crop_shift_x * size / CROP_SIZE
+                cx += shift * math.cos(angle)
+                cy += shift * math.sin(angle)
             to_crop, to_frame = _similarity(cx, cy, angle, size)
             crop = cv2.warpAffine(
                 scene,
@@ -3413,6 +4113,12 @@ class LivePortraitEngine:
             loaded.features = target[[k for group in _EDGE_FEATURES for k in group]].astype(
                 np.float32
             )
+            # Day 16 (C1): his hairline, on frontal frames, until the anchor
+            # settles the forehead reach from it and the portrait's.
+            if not loaded.hairline_settled and _hairline_frame_ok(tracking.head_pose):
+                loaded.hairline_samples.append(
+                    _hairline_fraction(_luminance(scene, bgr=bgr), target)
+                )
             chin_drop = 0.0
             if _should_hold(loaded, tracking.head_pose) and loaded.last is not None:
                 face, _, _ = loaded.last
@@ -3460,7 +4166,7 @@ class LivePortraitEngine:
                         )
                 gates = self._gates(loaded, c_d_open, c_d_width, c_d_brow, tracking.head_pose)
                 brow_lift = _brow_follow(loaded.options) * _brow_lift(
-                    c_d_brow, loaded.rest_brow, tracking.head_pose
+                    c_d_brow, loaded.rest_brow, tracking.head_pose, loaded.thresholds.brow_deadband
                 )
                 face_rgb = self._render(
                     loaded,
@@ -3493,6 +4199,8 @@ class LivePortraitEngine:
                     c_d_chin, loaded.rest_chin, loaded.chin_drop_max
                 )
             loaded.chin_drop = chin_drop
+            if not loaded.hairline_settled and loaded.anchor_seen >= loaded.anchor_wanted:
+                self._settle_forehead(loaded)
 
             # The driver's own oval, in the same crop the portrait's was built
             # in -- and, under an open mouth, the portrait's own let down to
@@ -3504,7 +4212,7 @@ class LivePortraitEngine:
                 jaw_shrink=_mask_jaw_shrink(loaded.options),
                 portrait_crop_points=loaded.crop_points,
                 chin_drop=chin_drop,
-                forehead_reach=_forehead_reach(loaded.options),
+                forehead_reach=loaded.forehead_reach,
                 chin_reach=loaded.chin_reach,
             )
             masked = now()
@@ -3575,10 +4283,11 @@ class LivePortraitEngine:
         hold) once the rest is known."""
         if not _expression_gates(loaded.options):
             return 1.0, 1.0, 1.0
+        thresholds = loaded.thresholds
         yaw = pose.yaw if pose is not None else None
         yaw_change = 0.0 if yaw is None or loaded.yaw_prev is None else yaw - loaded.yaw_prev
         act_mar, act_width = _mouth_activity(
-            mar, width, loaded.mar_prev, loaded.width_prev, yaw_change
+            mar, width, loaded.mar_prev, loaded.width_prev, yaw_change, thresholds
         )
         # In units of a 30-fps frame: a slower frame sees more change for
         # the same motion (see the last_dt slot).
@@ -3586,11 +4295,11 @@ class LivePortraitEngine:
         act_mar *= per_frame
         act_width *= per_frame
         loaded.mar_prev, loaded.width_prev, loaded.yaw_prev = mar, width, yaw
-        mouth = _mouth_gate(mar, width, loaded.rest_mar, loaded.rest_mouth_width, pose)
+        mouth = _mouth_gate(mar, width, loaded.rest_mar, loaded.rest_mouth_width, pose, thresholds)
         brow_gate = _brow_gate(brow, loaded.rest_brow, pose)
         if loaded.rest_mar is None or loaded.rest_brow is None:
             return mouth, mouth, brow_gate
-        opening = _soft_gate(mar - loaded.rest_mar, _MOUTH_GATE_MAR)
+        opening = _soft_gate(mar - loaded.rest_mar, thresholds.mouth_gate_mar)
 
         def held(moving: float, hold_attr: str) -> float:
             if moving >= 1.0:
@@ -3711,7 +4420,7 @@ class LivePortraitEngine:
             # for _drive to subtract (see _BROW_MOUTH_LEAK). ``brow_deviation``
             # is his brow ratio less the anchor's rest, unscaled and not
             # dead-banded -- the leak follows the reading, not the drive.
-            for (k, axis), slope in _BROW_MOUTH_LEAK.items():
+            for (k, axis), slope in loaded.leak_slopes.items():
                 loaded.mouth_leak[0, k, axis] = slope * loaded.leak_gain * brow_deviation
             # Day 11: the gaze drive, on the eye keypoints' x rows of the
             # same offset tensor, written fresh every frame (see the GAZE
@@ -3743,10 +4452,12 @@ class LivePortraitEngine:
         at_rest = gates[0] < _LIP_REST_GATE_SHUT and gates[1] < _LIP_REST_GATE_SHUT
         loaded.lip_rest_run = loaded.lip_rest_run + 1 if at_rest else 0
         if loaded.lip_rest_run > _LIP_REST_SETTLE:
+            fast = loaded.lip_rest_steps < _LIP_REST_FAST_FRAMES
+            alpha = min(loaded.lip_rest_alpha * (_LIP_REST_FAST_FACTOR if fast else 1.0), 1.0)
             loaded.exp_d0.add_(
-                (loaded.exp_prev - loaded.exp_d0) * loaded.lip_rest_mask,
-                alpha=loaded.lip_rest_alpha,
+                (loaded.exp_prev - loaded.exp_d0) * loaded.lip_rest_mask, alpha=alpha
             )
+            loaded.lip_rest_steps += 1
 
     @staticmethod
     def _centre_weight(loaded: _Portrait, head_pose: HeadPose | None) -> float:
@@ -3879,9 +4590,9 @@ class LivePortraitEngine:
         loaded.pose_prev.copy_(sums["pose"] / n)
         loaded.pose_d0.copy_(sums["pose"] / n)
         # Day 15: the lips' rest is the portrait's, not his pressed one (see
-        # _MOUTH_RESTS); the smoothing state follows the anchor it primes to.
-        if _mouth_rest(loaded.options) == "portrait":
-            _rest_mouth_from_portrait(loaded)
+        # _MOUTH_RESTS; day 16: or the driver's own measured rest); the
+        # smoothing state follows the anchor it primes to.
+        if _apply_mouth_rest(loaded):
             loaded.exp_prev.copy_(loaded.exp_d0)
         if loaded.anchor_seen == loaded.anchor_wanted:
             if loaded.size_samples:
@@ -4000,8 +4711,22 @@ class LivePortraitEngine:
         # on top of the ordinary, untouched, whole-rotation x_c_s @ rel_rot
         # -- a pure yaw (rel_pitch == 0) makes it exactly zero, a pure
         # pitch reproduces the whole-rotation pivot exactly.
+        # Day 16 (C2): the yaw delta's own translation about a point behind
+        # the face (see _yaw_pivot_z), the same construction as the pitch
+        # pivot's: exactly zero on a pure pitch, so the two never fight.
+        t_yaw = None
+        if loaded.yaw_pivot is not None:
+            rel_yaw = yaw_s - loaded.pose_d0[1]
+            zero_yaw = torch.zeros_like(rel_yaw)
+            rot_y = get_rotation_matrix(zero_yaw, rel_yaw, zero_yaw)  # type: ignore[no-untyped-call]
+            eye_y = torch.eye(3, dtype=rot_y.dtype, device=rot_y.device)[None]
+            t_yaw = loaded.yaw_pivot @ (eye_y - rot_y)
+            t_yaw = torch.cat([t_yaw[..., :2], torch.zeros_like(t_yaw[..., 2:])], dim=-1)
         if _rotation_pivot(loaded.options) == "none":
-            x_c_rotated = loaded.x_c_s @ (rel_rot @ loaded.R_s)
+            if t_yaw is None:
+                x_c_rotated = loaded.x_c_s @ (rel_rot @ loaded.R_s)
+            else:
+                x_c_rotated = (loaded.x_c_s @ rel_rot + t_yaw) @ loaded.R_s
         else:
             rel_pitch = pitch_s - loaded.pose_d0[0]
             zero_deg = torch.zeros_like(rel_pitch)
@@ -4010,6 +4735,8 @@ class LivePortraitEngine:
             t_p = loaded.pivot @ (eye3 - rot_p)
             if not _pivot_z(loaded.options):
                 t_p = torch.cat([t_p[..., :2], torch.zeros_like(t_p[..., 2:])], dim=-1)
+            if t_yaw is not None:
+                t_p = t_p + t_yaw
             x_c_rotated = (loaded.x_c_s @ rel_rot + t_p) @ loaded.R_s
         x_d = scale_new[..., None] * (x_c_rotated + delta) + t_new[:, None, :]
 

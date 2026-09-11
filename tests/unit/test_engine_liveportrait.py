@@ -577,7 +577,7 @@ class TestForeheadLine:
         assert _forehead_reach({}) == 0.85
         assert _forehead_reach({"mask_forehead_reach": 0.6}) == 0.6
         with pytest.raises(ValueError, match="mask_forehead_reach"):
-            _forehead_reach({"mask_forehead_reach": 1.2})
+            _forehead_reach({"mask_forehead_reach": 2.0})  # day 16: up to 1.6, the hairline
         with pytest.raises(ValueError, match="mask_forehead_reach"):
             _forehead_reach({"mask_forehead_reach": 0.1})
 
@@ -1079,6 +1079,8 @@ class TestLipRestTracking:
             tmp_path, torch=torch, anchor_wanted=1
         )
         loaded.lip_rest_alpha = 1.0 / frames if frames > 0 else 0.0
+        # Day 16 (C3): past the fast start -- these tests read the plain rate.
+        loaded.lip_rest_steps = 10_000
         loaded.lip_rest_mask = torch.zeros(1, NUM_KP, 3)
         for k, axis in _MOUTH_OPENING:
             loaded.lip_rest_mask[0, k, axis] = 1.0
