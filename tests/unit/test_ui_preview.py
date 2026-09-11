@@ -194,3 +194,27 @@ class TestOverlay:
         # Landmarks at x=0.2 must appear at 0.8 across the video once mirrored.
         rect = preview.video_rect()
         assert columns.min() > rect.left() + rect.width() * 0.6
+
+
+class TestMirrorOverride:
+    """Day 15: the black screen carries words; mirrored words read
+    backwards, so one frame can be shown unmirrored whatever the setting."""
+
+    def _frame(self):
+        data = np.zeros((8, 16, 3), dtype=np.uint8)
+        data[:, :4] = 255  # bright on the LEFT of the source
+        return data
+
+    def test_the_setting_mirrors_by_default(self, preview):
+        preview.set_mirror(True)
+        preview.show_frame(self._frame(), PixelFormat.RGB24)
+        image = preview._pixmap.toImage()
+        assert image.pixelColor(15, 4).red() == 255  # moved to the right
+        assert image.pixelColor(0, 4).red() == 0
+
+    def test_a_frame_can_be_shown_unmirrored(self, preview):
+        preview.set_mirror(True)
+        preview.show_frame(self._frame(), PixelFormat.RGB24, mirror=False)
+        image = preview._pixmap.toImage()
+        assert image.pixelColor(0, 4).red() == 255  # stays on the left
+        assert image.pixelColor(15, 4).red() == 0

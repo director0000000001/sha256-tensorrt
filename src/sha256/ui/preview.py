@@ -83,24 +83,35 @@ class PreviewWidget(QWidget):
         data: np.ndarray,
         pixel_format: PixelFormat,
         tracking: FaceTrackingResult | None = None,
+        *,
+        mirror: bool | None = None,
     ) -> None:
-        """Accept one frame, optionally with its tracking overlay."""
+        """Accept one frame, optionally with its tracking overlay.
+
+        ``mirror`` overrides the widget's setting for this one frame: the
+        black screen carries words, and words mirrored read backwards (his
+        look of 2026-09-11), so the window shows that frame as the other
+        side sees it whatever the mirror is set to.
+        """
         image = _to_qimage(data, pixel_format)
         if image is None:
             return
 
-        if self._mirror:
+        mirrored = self._mirror if mirror is None else mirror
+        if mirrored:
             image = image.flipped(Qt.Orientation.Horizontal)
 
         pixmap = QPixmap.fromImage(image)
 
         if self._show_landmarks and tracking is not None and tracking.face_detected:
-            self._draw_landmarks(pixmap, tracking)
+            self._draw_landmarks(pixmap, tracking, mirrored)
 
         self._pixmap = pixmap
         self.update()
 
-    def _draw_landmarks(self, pixmap: QPixmap, tracking: FaceTrackingResult) -> None:
+    def _draw_landmarks(
+        self, pixmap: QPixmap, tracking: FaceTrackingResult, mirrored: bool | None = None
+    ) -> None:
         landmarks = tracking.landmarks
         if landmarks is None or landmarks.count == 0:
             return
@@ -108,6 +119,7 @@ class PreviewWidget(QWidget):
         width = pixmap.width()
         height = pixmap.height()
         points = landmarks.points[::_LANDMARK_STRIDE]
+        flip = self._mirror if mirrored is None else mirrored
 
         painter = QPainter(pixmap)
         try:
@@ -116,7 +128,7 @@ class PreviewWidget(QWidget):
             # Landmarks are normalised to the source frame, so they scale to
             # whatever the pixmap happens to be without knowing its resolution.
             for x, y, _z in points:
-                screen_x = (1.0 - float(x)) * width if self._mirror else float(x) * width
+                screen_x = (1.0 - float(x)) * width if flip else float(x) * width
                 painter.drawPoint(QPointF(screen_x, float(y) * height))
         finally:
             painter.end()

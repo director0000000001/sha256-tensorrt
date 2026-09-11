@@ -20,15 +20,19 @@ Diagnostics live behind the developer panel, which appears only when
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QFileDialog,
     QFrame,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
     QPushButton,
@@ -38,10 +42,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from sha256.app.owner import OWNER_FILENAME, OwnerAccess
+from sha256.avatar.importer import AvatarImportError, import_portrait, neural_template
 from sha256.core.enums import PipelineState
 from sha256.core.errors import Sha256Error
+from sha256.pipeline.conditioning import QUALITY_NAMES, OutputConditioner
 from sha256.pipeline.runner import PipelineRunner
+from sha256.tracking.mediapipe_tracker import DEFAULT_MODEL_RELATIVE_PATH
 from sha256.ui.background import BackgroundPanel
+from sha256.ui.hotkey import GlobalHotkey
 from sha256.ui.panels.debug_panel import DebugPanel
 from sha256.ui.preview import PreviewWidget
 from sha256.utils.logging import get_logger
@@ -64,6 +73,16 @@ _STATUS_INTERVAL_MS = 500
 # to the diagnostic made the app look like it was doing nothing.
 _VIEW_OUTPUT = "Avatar"
 _VIEW_CAMERA = "Tracking (no avatar)"
+
+
+def _quality_label(name: str) -> str:
+    """The combo's entry for a conditioner quality name: "Native", "480p"."""
+    return "Native" if name == "native" else name
+
+
+def _quality_name(label: str) -> str:
+    return "native" if label == "Native" else label
+
 
 # Everything is translucent so the background photograph stays visible through
 # it. Surfaces are dark enough that light text on them is readable over a photo
@@ -91,6 +110,13 @@ QPushButton {
 }
 QPushButton:hover { background-color: rgba(58, 58, 76, 225); }
 QPushButton:disabled { color: #74747f; background-color: rgba(30, 30, 38, 110); }
+
+#BlackoutButton:checked {
+    color: #fff1f1;
+    background-color: rgba(176, 44, 44, 230);
+    border: 1px solid rgba(255, 180, 180, 120);
+}
+#BlackoutButton:checked:hover { background-color: rgba(200, 60, 60, 245); }
 
 #PrimaryButton {
     font-weight: 600;
@@ -127,6 +153,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._context = context
         self._runner = PipelineRunner(context.controller)
+        # Day 15: his passphrase, and what it unlocks (see sha256.app.owner).
+        self._owner = OwnerAccess(context.paths.configs / OWNER_FILENAME)
 
         self.setWindowTitle("sha256")
         self.resize(1120, 780)
@@ -155,7 +183,22 @@ class MainWindow(QMainWindow):
         self._populate_avatars()
         self._populate_cameras()
         self._refresh_publish_state()
+        self._refresh_owner_state()
+
+        # The black screen's hotkey works with the meeting app in front --
+        # that is the whole point of it (see sha256.ui.hotkey). Bound now,
+        # released in closeEvent; if Windows refuses the key the button's
+        # tooltip says so and the button still works.
+        self._hotkey = GlobalHotkey(
+            self, context.settings.output.blackout_hotkey, self._toggle_blackout
+        )
+        self._hotkey.register()
+        self._refresh_blackout_tooltip()
         self._refresh_status()
+
+    @property
+    def _conditioner(self) -> OutputConditioner:
+        return self._context.controller.components.conditioner
 
     # --- construction ------------------------------------------------------
 
@@ -258,6 +301,32 @@ class MainWindow(QMainWindow):
         self._publish_check.toggled.connect(self._on_publish_toggled)
         layout.addWidget(self._publish_check)
 
+        # Day 15, his ask: the published picture scaled down and back up, so
+        # the other side sees a cheaper webcam rather than the avatar's small
+        # defects. Native is the camera's own size; the stream's format never
+        # changes whatever is chosen (see sha256.pipeline.conditioning).
+        self._quality_combo = QComboBox()
+        self._quality_combo.addItems([_quality_label(name) for name in QUALITY_NAMES])
+        self._quality_combo.setCurrentText(_quality_label(self._conditioner.quality))
+        self._quality_combo.setToolTip(
+            "Quality of the published picture. Lower hides small defects of the "
+            "avatar, like a cheaper webcam would. Native is the camera's own size."
+        )
+        self._quality_combo.currentTextChanged.connect(self._on_quality_changed)
+        layout.addWidget(self._quality_combo)
+
+        # Day 15, his ask: the black screen. Pressed, the virtual camera shows
+        # a black frame with the failure text instead of the avatar -- as if
+        # the camera's battery died -- until pressed again. The pipeline also
+        # switches it on by itself when it cannot work (see the conditioner);
+        # the status line says which.
+        self._blackout_button = QPushButton(self._conditioner.failure_text)
+        self._blackout_button.setObjectName("BlackoutButton")
+        self._blackout_button.setCheckable(True)
+        self._blackout_button.setChecked(self._conditioner.manual)
+        self._blackout_button.toggled.connect(self._on_blackout_toggled)
+        layout.addWidget(self._blackout_button)
+
         layout.addSpacing(10)
 
         # "That looked wrong." Saves the last ten seconds of tracking and the
@@ -282,6 +351,26 @@ class MainWindow(QMainWindow):
         )
         self._recentre_button.clicked.connect(self._on_recentre)
         layout.addWidget(self._recentre_button)
+
+        layout.addSpacing(10)
+
+        # Day 15, his ask: new faces are added from the app, by him alone.
+        # "Login" takes his passphrase (and sets it the first time); only
+        # then does "Add avatar" appear -- a photograph in, an avatar out
+        # (see sha256.avatar.importer for what is checked on the way).
+        self._login_button = QPushButton("Login")
+        self._login_button.setToolTip("The owner's passphrase; unlocks adding avatars.")
+        self._login_button.clicked.connect(self._on_login)
+        layout.addWidget(self._login_button)
+
+        self._add_avatar_button = QPushButton("Add avatar")
+        self._add_avatar_button.setToolTip(
+            "Make an avatar from a photograph: one face, looking straight at the "
+            "camera, eyes open, lips closed or barely parted, room below the chin."
+        )
+        self._add_avatar_button.clicked.connect(self._on_add_avatar)
+        self._add_avatar_button.setVisible(False)
+        layout.addWidget(self._add_avatar_button)
 
         layout.addStretch(1)
 
@@ -364,9 +453,102 @@ class MainWindow(QMainWindow):
             "That looked wrong",
             "Saved the last ten seconds.\n\n"
             f"{target}\n\n"
-            "tracking.npz — landmark and expression readings, no imagery\n"
+            "tracking.npz — landmark and expression readings and the avatar's "
+            "resting anchor, no imagery\n"
             "seen.png — the frame that was on screen (the avatar)\n"
             "camera.png — the camera frame at the same instant (your face)",
+        )
+
+    def _refresh_owner_state(self) -> None:
+        unlocked = self._owner.is_unlocked
+        self._add_avatar_button.setVisible(unlocked)
+        self._login_button.setText("Owner" if unlocked else "Login")
+        self._login_button.setEnabled(not unlocked)
+
+    def _ask_passphrase(self, title: str, prompt: str) -> str | None:
+        text, ok = QInputDialog.getText(self, title, prompt, QLineEdit.EchoMode.Password)
+        return text if ok else None
+
+    def _on_login(self) -> None:
+        """His passphrase -- set the first time, asked for after."""
+        if not self._owner.is_configured:
+            first = self._ask_passphrase(
+                "Set the owner passphrase",
+                "No passphrase is set yet. Choose one (at least 4 characters):",
+            )
+            if first is None:
+                return
+            again = self._ask_passphrase("Set the owner passphrase", "Type it once more:")
+            if again is None:
+                return
+            if first != again:
+                QMessageBox.warning(self, "Owner", "The two entries differ; nothing was set.")
+                return
+            try:
+                self._owner.set_passphrase(first)
+            except ValueError as exc:
+                QMessageBox.warning(self, "Owner", str(exc))
+                return
+            QMessageBox.information(
+                self, "Owner", f"Passphrase set and kept in {self._owner.path.name}."
+            )
+        else:
+            entered = self._ask_passphrase("Login", "The owner's passphrase:")
+            if entered is None:
+                return
+            if not self._owner.unlock(entered):
+                QMessageBox.warning(self, "Login", "That is not the passphrase.")
+                return
+        self._refresh_owner_state()
+
+    def _tracker_model_path(self) -> Path:
+        settings = self._context.settings
+        configured = settings.tracking.model_path
+        if configured:
+            return self._context.paths.resolve_relative(configured)
+        models_root = self._context.paths.resolve_relative(settings.models.root_path)
+        return models_root / DEFAULT_MODEL_RELATIVE_PATH
+
+    def _on_add_avatar(self) -> None:
+        """A photograph in, an avatar in the library out -- checked first."""
+        if not self._owner.is_unlocked:
+            return
+        photo, _ = QFileDialog.getOpenFileName(
+            self, "Choose a photograph", "", "Images (*.png *.jpg *.jpeg *.webp *.bmp)"
+        )
+        if not photo:
+            return
+        default = Path(photo).stem.replace("_", " ").replace("-", " ").strip() or "New avatar"
+        name, ok = QInputDialog.getText(self, "Add avatar", "Name for the avatar:", text=default)
+        if not ok or not name.strip():
+            return
+        manager = self._context.avatars
+        template = neural_template(manager.list_avatars(), manager.active_id)
+        try:
+            descriptor, report = import_portrait(
+                self._context.paths.avatars,
+                Path(photo),
+                name=name,
+                model_path=self._tracker_model_path(),
+                template=template,
+            )
+        except (AvatarImportError, Sha256Error) as exc:
+            _LOG.warning("Avatar not added: %s", exc)
+            QMessageBox.warning(self, "Add avatar", str(exc))
+            return
+        except Exception as exc:
+            _LOG.exception("Avatar import failed")
+            QMessageBox.critical(self, "Add avatar", f"The photograph could not be added: {exc}")
+            return
+        manager.refresh()
+        self._populate_avatars()
+        index = self._avatar_combo.findData(descriptor.id)
+        if index >= 0:
+            self._avatar_combo.setCurrentIndex(index)  # loads it, like picking it by hand
+        QMessageBox.information(
+            self,
+            "Add avatar",
+            f"{descriptor.manifest.name} added as {descriptor.root}\n\n{report.describe()}",
         )
 
     def _on_recentre(self) -> None:
@@ -380,6 +562,33 @@ class MainWindow(QMainWindow):
         active = self._context.avatars.active_id
         if engine is not None and active is not None:
             engine.reset_anchor(active)
+
+    def _on_quality_changed(self, label: str) -> None:
+        try:
+            self._conditioner.set_quality(_quality_name(label))
+        except ValueError as exc:
+            _LOG.warning("Output quality not changed: %s", exc)
+
+    def _on_blackout_toggled(self, on: bool) -> None:
+        self._conditioner.set_manual(on)
+        self._refresh_status()
+
+    def _toggle_blackout(self) -> None:
+        """The hotkey: the same as pressing the button, so the two never
+        disagree about what is on the virtual camera."""
+        self._blackout_button.toggle()
+
+    def _refresh_blackout_tooltip(self) -> None:
+        text = self._conditioner.failure_text
+        lines = [
+            f"Black out the virtual camera with the words “{text}”, as if the "
+            "camera's battery died. Press again to come back.",
+        ]
+        if self._hotkey.is_registered:
+            lines.append(f"Hotkey {self._hotkey.spec}, from any application.")
+        elif self._hotkey.error:
+            lines.append(f"Hotkey not available: {self._hotkey.error}.")
+        self._blackout_button.setToolTip("\n".join(lines))
 
     def _on_publish_toggled(self, enabled: bool) -> None:
         try:
@@ -452,8 +661,16 @@ class MainWindow(QMainWindow):
             )
         elif snapshot.frame is not None:
             # The rendered frame is already composited; landmarks would be drawn
-            # against a picture they do not correspond to.
-            self._preview.show_frame(snapshot.frame.data, snapshot.frame.pixel_format, None)
+            # against a picture they do not correspond to. The black screen
+            # carries words, and mirrored words read backwards: that frame is
+            # shown as the other side sees it, whatever the mirror is set to.
+            unmirrored = self._conditioner.blackout is not None
+            self._preview.show_frame(
+                snapshot.frame.data,
+                snapshot.frame.pixel_format,
+                None,
+                mirror=False if unmirrored else None,
+            )
 
     def _refresh_status(self) -> None:
         running = self._runner.is_running
@@ -492,6 +709,20 @@ class MainWindow(QMainWindow):
                 rest = engine.rest_status(active)
             self._status_line.setText(rest or "")
 
+        # The black screen outranks the rest of the line: while it is on, the
+        # one thing to know is that the other side is not seeing the avatar,
+        # and whether that was his hand or the pipeline's.
+        blackout = self._conditioner.blackout
+        if blackout is not None and (running or blackout == "manual"):
+            why = "by the button" if blackout == "manual" else blackout
+            self._status_line.setText(
+                f"BLACK SCREEN — the other side sees “{self._conditioner.failure_text}” ({why})"
+            )
+        if self._blackout_button.isChecked() != self._conditioner.manual:
+            self._blackout_button.blockSignals(True)
+            self._blackout_button.setChecked(self._conditioner.manual)
+            self._blackout_button.blockSignals(False)
+
         if not self._publish_check.isEnabled():
             # Poll only for the one transition that matters — the owner installs
             # a virtual camera while sha256 is open. Once it is available nothing
@@ -508,5 +739,6 @@ class MainWindow(QMainWindow):
         """Stop the pipeline before the window goes away."""
         self._preview_timer.stop()
         self._status_timer.stop()
+        self._hotkey.unregister()
         self._runner.stop()
         super().closeEvent(event)  # type: ignore[arg-type]
