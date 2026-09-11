@@ -4353,6 +4353,506 @@ a surprise. The two things that could stretch it: C1's hair (a switch
 that may stay off), and whatever A1 finds that fifteen days on one face
 never showed -- which is exactly why A1 comes first.
 
+### Day 16 (2026-09-12), block A2: "Calibrate me" -- built, tested, measured on his two clips
+
+**What was built (Fable 5.1, on his "start A2, do it fully, with tests").**
+A driver profile and the run that writes it, on the plan of the evening
+before, plus the split (A3) in code.
+
+- **The split (A3, the code side).** `DRIVER_OPTION_KEYS` /
+  `PORTRAIT_OPTION_KEYS` in `engine_liveportrait.py`: every engine
+  option is one or the other, and a test checks his avatar's
+  `metadata.json` names only known keys. The driver's: the gains
+  (`expression_gain`, `eye_gain`, `eye_headroom`, `eye_scale`,
+  `gaze_gain`, `brow_gain`, `brow_follow`, `mouth_*_gain`), the gates
+  (`expression_gates`, `mouth_gate_mar`, `mouth_gate_width`,
+  `mouth_activity_mar`, `mouth_activity_width`, `brow_deadband`), the
+  leak (`brow_mouth_leak`, `brow_mouth_leak_slopes`), the rest
+  (`mouth_rest`, `lip_rest_rows`, `lip_rest_tracking`, `anchor_frames`),
+  the holds and the smoothing, `translation_gain_*`, `scale_gain`,
+  `crop_centre`. The portrait's: the crop (`crop_scale`, `crop_vy_ratio`,
+  `crop_border`), the mask (`mask_*`, `chin_follow`, `edge_match`), the
+  networks (`stitching`, `*_retargeting`, `lip_gain`,
+  `eye_expression_gain`, `eye_mask_output`, `retarget_zero_at_rest`),
+  `mouth_tilt_trim`, `rotation_pivot`, `pivot_z`. The engine's
+  `set_driver_options` accepts the first set only; `_Portrait` lays it
+  over the manifest's options at load; the graph bakes them, so a
+  profile applied to a loaded avatar needs a reload.
+- **The hand constants became options** with the constants as defaults:
+  the four gate thresholds and the brow dead band (`_GateThresholds`,
+  read once at load, passed into `_mouth_gate` / `_mouth_activity` /
+  `_brow_lift`), the leak table (`brow_mouth_leak_slopes` as
+  `[[keypoint, axis, slope], ...]`, replacing the whole table), and
+  `mouth_rest = "driver"` with `lip_rest_rows` -- the driver's own
+  relaxed reading on the three lip-opening rows, written into the anchor
+  the way "portrait" writes the portrait's (`_apply_mouth_rest`, at the
+  freeze and on a seed). Nothing changes without a profile: 256 engine
+  tests unchanged.
+- **The instrument.** `LivePortraitEngine.frame_readings(avatar_id)`:
+  anchor frozen / held, the three gates as applied, the rest values, the
+  extractor's own reading of every mouth keypoint row (`exp_<kp>_<axis>`)
+  and the anchor's lip rows -- two small tensors off the GPU, meant for a
+  calibration, not the frame path.
+- **The package `sha256.calibration`.** `script` (twelve steps, 46 s
+  with the 3-s lead-in: sit still 5, blink 3, close the eyes 3, open the
+  mouth 3, talk 7, smile closed 3, smile with teeth 3, raise the brows 4,
+  glance 4, turn 5, sit still 3; the recorder's wording where the
+  movement is the same, and a keyword table that maps the recorder's
+  "full" and "natural" scripts onto the same steps); `samples` (his
+  readings with the engine's own ratio functions, the avatar's read back
+  by a second tracker on the composite); `measure` (below); `profile`
+  (`configs/local.driver.json`); `session` (the live run: the runner's
+  new `add_observer` hands every published frame to it on the pipeline
+  thread; the camera frame goes to a writer thread -- FFV1, the
+  recorder's codec -- and the composited frame to a reader thread with
+  its own unfiltered tracker, so the pipeline pays nothing; the clip and
+  its `tracking.npz` are aligned frame for frame, a dropped frame drops
+  its row; `clip.json` is the recorder's sidecar format with `kind` per
+  segment, so `measure_follow.py` reads a session as it reads
+  `driving.mkv`); `offline` (a clip through the same measurement).
+- **The window.** "Calibrate me" beside "Re-centre": refused without
+  Start or without the neural engine; a consent dialog that names the
+  recording's folder before anything is written; a large instruction
+  with a countdown over the video; press again to stop (the recording is
+  removed); at the end the measurement, `report.txt` and `profile.json`
+  in the session folder, the profile written (the previous one kept as
+  `local.driver.<its stamp>.json`), the engine given the profile and the
+  avatar reloaded under it with the pipeline stopped and started again
+  (a frame must not meet an unloaded avatar), and a dialog with the
+  report and where the person's face went. Closing the window mid-run
+  cancels and removes the recording. At start, `bootstrap.apply_driver_
+  profile` lays the machine's profile over the engine before the default
+  avatar loads.
+- **Tools.** `scripts/calibrate_clip.py --clip | --session | --samples`
+  (the last re-runs the measurement on saved per-frame samples in
+  seconds, no GPU -- how the rules below were re-read three times in an
+  afternoon); `measure_follow.py` finds its segments by keyword now.
+- **Tests: 1074 non-gui (was 971) + the gui files run one per process
+  (main_window 15, calibrate 8, shell 11).** The measurement is tested
+  on synthetic sessions with known gains, jitter and leak slopes; the
+  session on the runner's fake with a 64x48 clip really encoded; the
+  offline path on a 30-frame MJPG clip with a sidecar. ruff and mypy
+  clean (the 11 warp-engine mypy errors pre-exist).
+
+**The rules, each traced to the hand value it reproduces** (the
+docstring of `calibration/measure.py` carries them):
+
+| profile item | rule | the hand value's own rule (day) |
+|---|---|---|
+| `mouth_activity_mar` / `_width` | still p99 of the per-frame change / 1.1, floors 0.002 / 0.008 | live p99 read 1.1 units at 0.004 / 2.5% (days 9-12) |
+| `mouth_gate_mar` | 2 x the still top (p95 of his resting opening, both still steps), full 3 x start; [0.003, 0.012] | "twice the still reading's own top", full 3 x (day 9, x0.4 day 12) |
+| `mouth_gate_width` | 3 x the within-still-step spread (p95), full +0.05; [0.02, 0.06] | "still spread +-1% -> 0.03, full 0.08" (day 9) |
+| `brow_deadband` | p90 of his brow deviation over blink / eyes shut / open / talk / smiles / glance, frontal; [0.05, 0.25] | +9..13% over the same confounds -> 0.10 (day 9) |
+| `expression_gain` | old / the slope of (avatar opening, his opening) over talk + open; dead zone 5%, change x[0.65, 1.5] | talk mar gain to 1.0 (days 12, 15) |
+| `eye_gain` | old / the slope of (avatar EAR, his EAR) over blink + eyes shut; x[0.7, 1.4] | blink gain to 1.0 (days 8-12) |
+| `brow_follow` | old / (avatar rise p95 / his rise p95) over the raise -- the whole raise, since the drive has a dead band; needs his p95 >= 0.15 | "+38% -> +34%" (day 9) |
+| `gaze_gain` | old / (avatar glance range / his, p95-p5) over the glance, blinks out | gain 1.03-1.06 (day 11) |
+| `brow_mouth_leak_slopes` | per row, the slope of the extractor's row on his brow deviation over the raise with the lips shut (opening within 2 x the gate start); \|r\| >= 0.6, else the row kept | the day-15 regression |
+| `lip_rest_rows` + `mouth_rest="driver"` | median of the extractor's three lip rows over still frames with both mouth gates shut (>= 30) | the day-15 clip rest |
+| reported, not written | the smile's width response; the rest values; the drift of the resting mouth between the two still steps | day 9 set `mouth_smile_gain` by eye |
+
+The first cut of the rules (p99 for the distance gates and the dead band,
+a slope past the dead band for the brows and the gaze) read his clips
+wrong -- the width gate came out 0.08 (the closed smile would not have
+opened it) because his resting width sits 2-4% wider a minute into a
+clip, and the brow slope read 1.47 where the hand rule saw a whole raise
+against a whole raise. The saved samples made the second reading a
+matter of seconds: the rules above are the second.
+
+**Measured on his two clips (the bar: his hand values of day 15 within a
+few percent).** `calibrate_clip.py --clip recordings/driving.mkv` /
+`natural.mkv`, `--no-profile`, the avatar's own options; ~6 min each on
+the GPU; samples kept in `recordings/day16/*-samples.json`.
+
+| option | hand (metadata) | driving.mkv | natural.mkv | reading |
+|---|---|---|---|---|
+| `expression_gain` | 1.8 | 1.606 (talk 1.12x, r 0.99, 356 fr) | 1.8 kept (1.00x, r 0.95, 594 fr) | the clips disagree by 12%, day 15 saw the same (1.15 / 0.99); the hand value is their middle |
+| `eye_gain` | 1.0 | 1.0 kept (blink 0.96x, r 0.97) | no blink step | **within 5%** |
+| `brow_follow` | 1.0 | 0.919 (1.09x, r 0.94) | 1.192 (0.84x, r 0.99) | +-16% either side of the hand value; day 9 found the call-posture response lower |
+| `gaze_gain` | 1.0 | 0.918 (1.09x, r 0.98, 296 fr) | no glance step | 8%; day 11 read 1.03-1.06 on the same segment |
+| `mouth_gate_mar` | 0.004 / 0.012 | 0.0046 / 0.0138 | 0.0086 / 0.0258 | driving **15%**; natural's rest opening is twice driving's |
+| `mouth_gate_width` | 0.03 / 0.08 | 0.0313 / 0.0813 | 0.0506 / 0.1006 | driving **4%**; natural's still frames are noisier (1.7% spread) |
+| `brow_deadband` | 0.10 | 0.072 | 0.099 | natural **1%** (call posture, where the confound is); driving's scripted talk moves the brows less |
+| `mouth_activity_mar` / `_width` | 0.004 / 0.025 (live) | 0.002 / 0.008 (floors) | floors | a clip's still jitter is 3-7x below live (day 9 night); only a live run can set these -- expected, and the floors hold |
+| leak (17,1) (20,1) (7,1) (17,2) (20,2) | 0.052 0.144 0.020 -0.014 -0.025 | 0.043 0.101 0.015 -0.017 -0.019 | 0.059 0.188 0.024 -0.011 -0.030 | **the two clips' mean 0.051 0.145 0.020 -0.014 -0.025 -- the hand table within 3% on every row** (it was the clips' average) |
+| `lip_rest_rows` | clip rest (-0.001, 0.002, 0.008) (day 15) | (-0.0013, 0.0009, 0.0068) | (-0.0012, 0.0033, 0.0085) | within 0.0011 of the day-15 reading; the anchors' own rows 0.001 more open on both |
+| smile width (reported) | -- | 0.60x (r 0.99) | 1.20x (r 0.85) | not written; the two clips disagree 2x |
+
+So: the instrument reproduces what it was built from -- the leak table
+to 3%, eye_gain and the width gate to 5%, expression_gain on the clip it
+was set on -- and where his own two clips disagree (talk gain 12%, brow
+response 30% between them) the calibration says which clip it is
+reading. The bar "his profile within a few percent of the hand values"
+is met on the driving clip for everything but the live-only motion
+units and the opening gate (15%), and cannot be met from clips for the
+motion units at all. **His live run is the one that counts**, and it is
+the one thing this day could not do without him at the camera.
+
+**A finding for later: the resting mouth drifts.** Between the first
+still step and the last, his resting width read +3.7% (driving) and
++2.4% (natural) wider, and the opening +0.0007..0.0011 -- past the
+width gate's start on driving. The gates compare to the anchor's frozen
+rest, so late in a session the width gate can sit part-open at rest
+(the extractor side has `lip_rest_tracking`; the gate side has no
+rest-width tracking). The calibration reports it as a note; a
+`rest_width_tracking` on the same pattern is the candidate fix, not
+built.
+
+**The replay bar.** A session's `clip.mkv` + `clip.json` are the
+recorder's format with the calibration's instructions; `measure_follow`
+finds its segments by keyword now (blink / close your eyes / mouth wide
+/ talk / smile / eyebrows), which a unit test checks against both
+scripts. There is no live session yet to replay -- the first is his;
+`driving.mkv` through the changed `measure_follow.py` is the run that
+proves the path (`recordings/day16/driving-follow-day16.csv`).
+
+**What he sees live (the instruction for his look).** Start, the avatar
+on, then "Calibrate me": a dialog names the folder
+(`recordings/calibration-<stamp>/`) and asks; 46 seconds of
+instructions in large type with a countdown; then "Measuring..." for a
+few seconds, the pipeline stops and starts once (the reload), and a
+dialog with the report. The profile is `configs/local.driver.json`;
+`configs/local.driver.<stamp>.json` keeps the one before. To undo:
+delete the file and restart, or set any option back by hand -- the
+avatar's `metadata.json` is never touched. Then the three things to
+watch on a call: talking (the gain is now his measured one), a slight
+opening after sitting with the lips pressed (`mouth_rest = "driver"`:
+the anchor starts from his relaxed rows -- the one item that can look
+different in the first minute), and a brow raise (his own slopes).
+Press "That looked wrong" during anything odd. The offline check
+afterwards: `calibrate_clip.py --session recordings/calibration-<stamp>`
+re-measures the same face after any engine change, no sitting required.
+
+**Files of his face this day:** `recordings/day16/` (two sample JSONs --
+readings, no imagery -- the logs, and the measure_follow CSV). Nothing
+new with pixels.
+
+### Day 16, block B: new avatars without surprises -- built, measured on his four portraits
+
+**B1, the picture prepared at import** (`importer.prepare_portrait`,
+`chin_room` in the engine). The inspection now keeps the face's points
+(`PortraitReport.points`); with them the photograph is scaled down to a
+450-px face when taller (INTER_AREA; never up), then padded with its own
+edge rows (`BORDER_REPLICATE`, not black) until the engine's whole crop
+square lies inside the picture and the chin has 0.40 of a face height
+under it. `chin_room(points)` is the load's own arithmetic -- the crop's
+chin row, the headroom less the oval's measured feather tail and the
+clearance, the reach and the jaw drop's cap, and whether the crop lies
+inside the picture -- as a pure function the importer asks before any
+load; `load_avatar` reads the same function now. The original is kept as
+`original.<ext>` (asset role `source_original`, optional), the numbers in
+`portrait_profile.json`. **His four portraits**: all had 0.23-0.27 of a
+face height under the chin (the crop at -0.06 wants 0.24); prepared they
+have 0.40, the crop inside, the jaw drop 50-52 px: portrait 1 scaled
+0.81 and padded 179/64/91/97 px (top/bottom/left/right) to 1021x1076;
+portraits 3 and 4 (2048-px photographs) scaled 0.40; portrait 2 (642 px)
+padded only. The ROADMAP's bar ("a photograph with the chin at its
+bottom edge imports and the chin drop's cap reads 50 px or more") is a
+unit test on a synthetic face with the chin 10 px above the edge, and
+his portrait's own case is a test that runs when the model and the
+portrait are on the machine. **A finding**: the cap is a crop-framing
+number (52 px at `crop_vy_ratio` -0.06 for every face, since the crop
+normalises the face height), not a picture number -- what the padding
+buys is a crop with skin under the chin instead of a black band where
+the mask's reach and drop paste.
+
+**B2, the portrait profile** (`importer.portrait_profile`). Read from the
+prepared picture: the chin's luminance against the cheeks' (points 50 /
+280; a patch between the lower lip and the chin) -- `bare` under 8%
+darker, `stubble` to 20%, `beard` above; the hairline, walked up from
+the brow top along the face's own vertical at three columns, as the
+fraction of the forehead (brow top to the mesh's own top) where the
+luminance leaves the forehead skin's by 30% for 6 px; the lips (closed /
+parted / open by the mouth ratio). What it writes into the new avatar's
+`engine_options`: `mask_chin_reach: "auto"` (B3 below) and
+`mask_forehead_reach` lowered to the hairline less 0.08 when the hair
+starts below the default 0.85 -- never below a floor of the mask's own
+softness (erosion + half the feather of the face width) plus the brow
+hair's height (day 13's lesson at 0.65: a fraction has no floor above
+the brows). The jaw shrink is *not* set from the portrait: day 12 found
+it a decision about the pair (0.08 hid a bearded driver's jaw under a
+bare portrait and put a ledge under a stubbled portrait on a shaved
+one); the profile records the beard for that decision, and the
+calibration's session frames could carry the driver's side later.
+**His four**: stubble / stubble / beard / stubble (chin 18-20% darker
+than the cheek -- the moustache and stubble he no longer has, day 12),
+hairline at 1.52-1.58 of the forehead (above the mesh's top, so the
+reach stays 0.85 -- his hand value), lips closed (0.005) / open (0.166,
+0.187, 0.114 -- the importer's own warning). Imported into a temporary
+library through the real path, all four validate, with `original.png` /
+`original.jpg` beside `portrait.png` and no hand edit of
+`metadata.json`: the bar met, on the mask side, by measurement; his eye
+on the pasted result is the other half.
+
+**B3, portrait-to-driver proportions -- measured, and the premise did not
+hold.** The plan: the driver's nose-to-chin over face height against the
+portrait's sets the chin reach at the anchor. Measured with MediaPipe on
+the portraits' crops and on his captures' frontal frames: the portraits
+read 0.449 / 0.464 / 0.468 / 0.458, he reads 0.446-0.454 -- a difference
+of 0-4 crop px, real and small. Self-driven, each portrait's rendered
+chin lands on its own chin point within 0.3-3 px (the network does not
+move the chin), and on his day-15 captures the rendered face sits 2-6 px
+above his as a whole (eyes -5, chin -6 on 10:14; the crop's placement,
+not a proportion). Then the reach that added the anchor's own rest_chin
+was tried on the captures: the live anchor's reach read 10 px longer
+than his frontal median (a session starts at whatever posture) and put
+the join 14-21 px under his chin; the hand 0.04 puts it +7..+12, reach 0
+puts it 2-6 px *above* (`recordings/day16/join-probe.log`). What the
+hand value is, in the mask's own terms, is the contour's clearance above
+the chin point -- the erosion's radius plus half the feather, of the crop
+face width: 9.4 px on his portrait against the hand's 9.3. So
+`mask_chin_reach: "auto"` = that clearance, resolved at load like a
+number (`_auto_chin_reach`, `chin_room`), the importer writes it for
+every new avatar, and his metadata keeps 0.04 (the same to a tenth of a
+pixel). The bar as written ("the avatar's chin within 4 px of the
+driver's on his day-15 captures") is a placement bar, not a mask bar,
+and stands at 2-6 px whole-face on the captures with a frontal anchor.
+
+**Tests: 1101 -> 1104 non-gui** (`test_portrait_preparation.py` 11,
+`test_engine_chin_reach_auto.py` 3; the importer's 15 unchanged), gui
+files as before; ruff and mypy clean.
+
+**What he sees live.** "Add avatar" on any of his photographs: the report
+now says what was done to the picture ("prepared: scaled ..., padded
+..."), what the picture holds ("portrait: stubble ..., hairline ...,
+lips ...") and the folder has `original.<ext>` and
+`portrait_profile.json` beside `portrait.png`. The chin join on a new
+avatar is "auto" -- the same place his 0.04 puts it.
+
+### Day 16, block C: what his eye still sees -- three levers built, two measured off, one waiting for his eye
+
+**C2, the turn lag -- the premise measured, and it was mostly not a lag.**
+The yaw pivot of day 10's Step 4 was built as `yaw_pivot_z` (a point on
+the head's vertical axis behind the face, in keypoint units; the yaw
+delta's own translation `p (I - R_y)`, added beside the pitch pivot's,
+exactly zero on a pure pitch; default 0 = bit-exact) and swept on
+driving.mkv's turns (frames 1342-1641, `measure_follow --last 1641`,
+`recordings/day16/driving-yaw-*.csv`) against the day-16 baseline
+(`driving-follow-day16.csv`):
+
+| run | turn \|dx nose\| p50 / p90 / max | yaw [-90,-30) lag p50 | yaw [30,90) lag p50 | frontal dx p50 |
+|---|---|---|---|---|
+| baseline (0) | 12.6 / 21.3 / 38.5 | +19.9 | -3.3 | +13.4 |
+| yaw_pivot_z 0.1 | 14.0 / 27.6 / 40.5 | -4.8 | -15.0 | +13.2 |
+| yaw_pivot_z 0.3 | 15.3 / 59.0 / 72.7 | -29.9 | (worse) | +11.3 |
+
+The baseline's "lag" is one-sided: +20..25 px on a turn to his right, -3..-9
+on a turn to his left -- and **+13.4 px on the frontal frames**, where
+there is no turn at all. Read per anchor on the day-16 measure_follow
+table: the avatar's eyes sit +7.5 px, its mouth +7.6, its chin +6.1 and
+its nose +14.2 to the screen-right of his at rest. So the day-14 "21 px
+at p90" was a static sideways offset of the whole face (~7 px) plus the
+portrait's own nose sitting further right than its eyes (~7 px more at the
+nose), with 4-7 px of real, symmetric lag on top. A pivot shifts the face
+by sin(yaw) in one direction and cannot take a constant off; at 0.1 it
+moved every turn by ~25 px, five times the real lag. **Kept as an option,
+default 0, not in his metadata.** What follows from the finding:
+`crop_shift_x` (crop px along the face's horizontal, in
+DRIVER_OPTION_KEYS): a constant shift of the driver's crop, which moves the
+avatar by the same amount and nothing relative (the anchor learns in the
+shifted crop). "Calibrate me" measures it -- the avatar's eye centre
+against his on the still frames, `avatar_eye_dx` in the profile's rest --
+and writes it (dead zone 2 px; on driving.mkv the reading would be +7.5
+px -> -5.8 crop px). Unmeasured live; the first live calibration sets it.
+
+**C3, the first seconds after a pressed anchor.** `lip_rest_tracking` now
+moves the anchor's lip rows four times faster over the first 60 resting
+frames after the freeze (`_LIP_REST_FAST_FACTOR`/`_FRAMES`), then at the
+option's rate -- within 10% of the resting reading in two seconds instead
+of eight; a re-centre or a seed starts the fast frames again. With
+`mouth_rest = "driver"` from the profile the start is his relaxed rows to
+begin with. Tests on the CPU fixture; the old lip-rest tests start past
+the fast frames.
+
+**C1a, the forehead to the hairline -- built, measured, not kept.**
+`mask_forehead_reach` accepts numbers up to 1.6 (past 1.0 the oval's
+forehead arc is lifted toward the ceiling -- all of it at the arc's top,
+none at the brow line -- so the hull reaches above the mesh's own top
+point) and `"hairline"`: the portrait's hairline is read at load
+(`_hairline_fraction`, the importer's reader moved into the engine: a walk
+up from the brow top along the face's vertical at three columns, hair
+where the luminance leaves the forehead skin's by 30% for 6 px), the
+driver's on frontal frames until the anchor freezes, and the reach settled
+at the lower of the two less 0.08 (`_hairline_reach`, [0.3, 1.6]); the
+portrait's mask and its box are rebuilt then; a re-centre measures again.
+Measured with `jaw_band.py --capture --render` on four captures (forehead
+band, grey levels): the two day-12 captures learn no anchor under --render
+and read identically (8.67 / +0.94; 9.40 / +1.79); on 032824 (anchor
+learned) abs 5.89 -> 5.50, step +0.45 -> +2.28; on 101434 (seeded) abs
+2.56 -> 3.29, step -0.44 -> -0.07. No gain on the metric, and the band
+moves with the edge so the numbers are not the same band; his eye is the
+judge and the forehead was parked at his "later". **Default 0.85, his
+metadata unchanged; "hairline" is there to try.** The hair switch (a
+segmentation matte, the portrait's hair over his) is not built -- the
+2-3 days it needs are block D's now.
+
+**What he sees live (block C):** nothing changes by default. To try the
+forehead: `"mask_forehead_reach": "hairline"` in his metadata, Start,
+look at the camera for the second the anchor takes, and the join moves to
+the lower of the two hairlines. The crop shift arrives with his first
+"Calibrate me".
+
+### Day 16, block D: the package and the five -- D1, D2, D4 built; D3 decided; D5, D6 his
+
+**D1, the courtesy switch** (`sha256.app.kill_switch`, `[kill_switch]` in
+the settings: `url` empty by default, `check_hours` 1, `timeout_seconds`
+5). A static file at the URL, read at start and hourly on its own thread:
+JSON `{"enabled": false, "message": "..."}` or the text `off` stops the
+application -- the window stops the pipeline, disables Start and shows
+the message once; everything else (no URL: no request at all; no host, a
+slow host, a 404, an empty or strange file) is allowed. Never on the
+frame path. Tests with a local HTTP server: the stop, the message, the
+fail-open cases, the listener surviving its own failure. The guide says
+what it is and that clearing the URL is the user's right.
+
+**D2, the GPU check.** `bootstrap._start_engine_with_fallback`: when the
+neural engine cannot start (no NVIDIA GPU / CUDA / weights -- the
+`EngineError` it already raised, which used to stop the application from
+opening), the photograph engine is started in its place and the window
+says so once (`ApplicationContext.startup_notes`); a card under 6000 MB
+gets a note too. Tests with a stub registry.
+
+**D3, the virtual camera:** decided, not coded. pyvirtualcam (GPL) stays
+for development and drives the OBS Virtual Camera device; the shipped
+folder's `default.toml` sets it, the guide tells each user to install OBS
+Studio once. A native filter is not worth its days.
+
+**D4, the portable build.** `packaging/sha256.spec` (PyInstaller: the
+frozen `sha256.exe` with torch, mediapipe, cv2, PySide6, pyvirtualcam;
+the weights and avatars stay outside) and `scripts/build_exe.py` (freezes,
+then lays `models/`, `avatars/` (the ids named), `configs/default.toml`
+with the shipped backends and the switch URL, and `USER_GUIDE.md` beside
+the executable, zips it on request). `AppPaths.resolve` knows the layout:
+a frozen executable with a `models` folder beside it is its own root
+(`portable_root`) -- a USB drive or a folder, everything together, which
+is how he hands it out; without it, `%LOCALAPPDATA%` as before.
+`docs/USER_GUIDE.md` is the one page: what is needed (the card, the
+camera's settings -- NTSC, USB Streaming, Smartphone Connect off, a data
+cable -- OBS once, Discord closed), the first run (Start, Calibrate me,
+the virtual camera), the call (Re-centre, the black screen and its hotkey,
+the quality, That looked wrong), adding an avatar (the owner), a table of
+what goes wrong, and privacy. PyInstaller 6.22 was added to the dev
+group and the build run on this machine: 141 s to freeze, the portable
+folder 5.3 GB (the CUDA runtime is most of it), `sha256.exe` 44 MB. The
+first frozen run died in PyInstaller's "Unhandled exception" dialog
+within 10 s: the layout had appended the shipped backends to
+`default.toml`, and TOML declares a table once ("Cannot declare
+('engine',) twice") -- they go in `configs/local.toml` now, layered as a
+machine's own file is. The second run opened the `sha256` window at 30 s
+with the neural avatar loaded (405 MB on the GPU), the tracker ready, the
+hotkey bound, no camera plugged in at the time (0 devices enumerated).
+The portable layout was also started on the development interpreter with
+`sys.frozen` faked (26 s to the active avatar). What remains D4's own bar
+is a second machine that never saw the repository -- his test -- and the
+zip's size on the download site.
+
+**D5 (five people) and D6 (push) are his:** portraits, installs, calls;
+the push when he says, under the anonymity rules.
+
+**Tests at the end of the day: 1132 non-gui, the gui files one per
+process (main_window 15, calibrate 8, block D 2, shell 11); ruff and mypy
+clean (the 11 warp-engine errors pre-exist).**
+
+**What he sees live (block D):** nothing on this machine unless the
+switch URL is set. On a second machine: the folder from `dist/
+sha256-portable/`, the guide's first-run steps; a machine without an
+NVIDIA card opens on the photograph engine with a plain sentence.
+
+### Day 16, his first look at "Calibrate me" (2026-09-12, 00:41): more time, a voice, and what his live profile read
+
+**He ran it** (`recordings/calibration-20260912-004157`: 894 frames at the
+live ~19 fps, none dropped, FFV1, 467 MB; `configs/local.driver.json`
+written 00:42) and said: *"you give me very little time for the movements
+-- I have to read and then do the movement; either a voice, or 3-5 more
+seconds per task."* Both:
+
+- **A read phase per step** (`CalibrationStep.read_seconds`, 4 s on every
+  movement step; the lead-in and the first still step have none -- the
+  anchor wants those frames at once). `step_at` returns a `StepPosition`
+  (step, seconds left in the phase, whether it is the read phase); the
+  session tags read-phase frames `ready` (their own sidecar segment, "Get
+  ready: ..."; the keyword table maps them to `lead`, never a measured
+  step); the window shows "Get ready... 4" then "NOW 3". About 85 s now.
+- **A voice** (`sha256.ui.speech.Speaker`): Qt's own text-to-speech
+  (SAPI / WinRT on this machine, both present) reads each instruction as
+  its step begins, once per step; a machine without a voice is silent and
+  the read phase carries it. Replaced by a fake in the window tests.
+- The brows step is 5 s (the leak's thirty shut-lips frames need it).
+
+**What his live profile read, and what the rules did with it.**
+
+| item | hand | live (00:41) | re-measured with the rules below |
+|---|---|---|---|
+| talk gain -> `expression_gain` | 1.8 | 1.20x -> 1.497 | 1.20x -> 1.5 |
+| blink -> `eye_gain` | 1.0 | 0.51x -> 1.4 (the change ceiling) | 0.48x -> 1.4 |
+| brow raise -> `brow_follow` | 1.0 | 0.97x, kept | 0.98x, 0.867 with the band's correction |
+| glance -> `gaze_gain` | 1.0 | 1.25x -> 0.81 | 1.25x -> 0.8 |
+| avatar's eyes vs his at rest -> `crop_shift_x` | 0 | +9.8 px -> -5.9 | +9.9 -> -5.9 |
+| `mouth_activity_mar` / `_width` | 0.004 / 0.025 | 0.002 / 0.0108 (the still step read 0.0008 / 1.2%) | 0.004 / 0.025 (floors) |
+| `mouth_gate_mar` | 0.004 / 0.012 | 0.0061 / 0.0183 | 0.007 / 0.021 |
+| `mouth_gate_width` | 0.03 / 0.08 | 0.06 / 0.11 (still spread 4.2%) | 0.06 / 0.11 (5.0%, the ceiling) |
+| `brow_deadband` | 0.10 | 0.173 (confound p90 17%) | 0.066 (offline p90 6.6%; bounded [0.05, 0.15]) |
+| lip rest rows | clip (-0.001, 0.002, 0.008) | (-0.0003, 0.0023, 0.0132) | not measured (26 shut-gate frames) |
+| leak table | day 15 | kept (25 shut-lips frames < 30) | kept |
+
+Read against the clips' numbers: the talk gain live (1.20x) is driving's
+(1.12x) and more; the blink at 0.51x is *half* what the clips read (0.96x)
+-- live at 19 fps a blink is two or three frames, and what the second
+tracker sees of the avatar's lids on the composite is smaller than on a
+30-fps clip; `eye_gain` went to the change ceiling (1.4x) on it, and
+whether that over-closes at rest is his eye's call (the eye network's own
+rest is subtracted, so 1.4 scales the blink's depth only). The sideways
+offset is real and the same on the clips (+7.5 px there, +9.9 live). The
+still step read far LESS mouth jitter than a call's rest (0.0008 against
+the day-9 captures' 0.0043) and far MORE width spread (4-5% against the
+clips' 1-2%): a deliberate stillness is not a call's stillness. Hence the
+rule changes:
+
+- **The motion units are floored at the day-12 live values** (0.004 /
+  0.025): a still step cannot see a call's jitter, so the calibration can
+  only raise the units, never make the gates twitchier at rest.
+- **The first still step's first 30 usable frames are dropped** from the
+  jitter and the rest (the tracker and the person settle; the width
+  spread read 4.2% with them and 5.0% without -- his mouth genuinely moves
+  at rest, so the width gate stays at its 0.06 ceiling: the closed smile
+  (+8% median) opens it part-way; his eye decides whether that is worse
+  than a gate that opens at rest).
+- **The brow dead band is bounded [0.05, 0.15]**, and **the brow gain is
+  corrected for the band's own change** (`extra_factor` in `_adjust`: the
+  drive lifts by his rise less the band, so a band that moves would raise
+  the avatar less at the same peak -- the gain is scaled by (peak - old
+  band) / (peak - new band) so the measured peak ratio still comes out at
+  1.0). Live the confound read 17% at p90 and offline 6.6% on the same
+  frames -- a difference between the live 19-fps tracking and the clip's
+  30-fps replay that is not understood; the bounds hold either.
+- The leak's shut-lips criterion is at least 0.008 of opening
+  (`LEAK_SHUT_MIN`); with the longer brows step the thirty frames should
+  come.
+
+**Not changed on his word:** the profile in force is the one his 00:41
+run wrote (eye_gain 1.4, the width gate 0.06, the dead band 0.173, the
+units 0.002 / 0.011). To go back to the hand values: delete
+`configs/local.driver.json` and restart; the next "Calibrate me" writes
+the profile under the rules above.
+
+**The passphrase** he set (00:45): `configs/local.owner.json` holds a
+32-hex salt, a 64-hex key, 200 000 iterations; the file reads as
+configured and a wrong passphrase is refused. The passphrase itself is
+his alone.
+
+**"Add avatar" opens with the guide** (`sha256.avatar.photo_guide`,
+`sha256.ui.photo_guide_dialog`): what the photograph must be (frontal,
+eyes open, lips closed or barely parted, even front light, hair off the
+forehead, no glasses, a large face, room below the chin, a plain
+background, square 1024+), then two prompts to paste into an image
+generator -- the portrait (with a line to describe the person) and the
+optional lips-barely-parted variant (attach the portrait; day 6's teeth
+lever) -- each with a Copy button; "Choose the photograph..." goes on to
+the file dialog, Cancel stops. In English, as asked.
+
+**Tests: 1135 non-gui, the gui files one per process (main_window 17,
+calibrate 8, block D 2, shell 11); ruff and mypy clean.**
+
 ## Honest odds
 
 - **The picture:** high. LivePortrait is proven and it fits this GPU; what is not
