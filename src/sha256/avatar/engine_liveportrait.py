@@ -161,6 +161,27 @@ CROP_VY_RATIO = -0.06
 # frame; a call does not start with a neutral face on cue.
 DEFAULT_ANCHOR_FRAMES = 15
 
+# The anchor as a file (day 15, 2026-09-11): everything _learn_anchor freezes,
+# so a "That looked wrong" capture can carry the session's own anchor and a
+# replay of it drives the portrait exactly as the session did -- until now a
+# replay had to learn an anchor from the capture's own frames, and a capture
+# taken with the head tilted (his of 08:10, pitch -5..-10 on all 300 frames)
+# could learn none at all. The tensors are what _drive reads as the anchor;
+# the scalars are the rest values the gates, the crop and the eye/brow/chin
+# drives measure against. None is written as NaN and read back as None.
+_ANCHOR_TENSORS = ("exp_d0", "t_d0", "scale_d0", "R_d0", "pose_d0")
+_ANCHOR_SCALARS = (
+    "rest_ear",
+    "rest_mar",
+    "rest_mouth_width",
+    "rest_brow",
+    "rest_chin",
+    "face_height_rest",
+    "z_rest",
+    "centre_offset",
+    "rest_pitch",
+)
+
 # What counts as a frame worth learning the anchor from (day 5, 2026-09-05).
 # It used to be "the first 15 frames after load, whatever they hold" -- and
 # an anchor learned while the owner was turned -12 deg away, reaching for the
@@ -958,7 +979,18 @@ _MASK_BOX_MARGIN = 4
 # here rather than imported for the same reason the mask is: no shared
 # internals between engines. See that function's docstring for why a plane
 # and not a blur, and why the blur is weighted by the mask.
-_CORRECTION_DOWNSCALE = 8
+# Day 15 (his tilt captures of 10:57, shaved): the dark line under the
+# avatar's chin when he tilts down is the portrait's own jaw shadow, pasted
+# where his jaw is lit. At an eighth-scale grid the edge residual could not
+# see a line ~8 px tall; at a quarter-scale one it can: on three captures
+# the jaw band fell 18.8 / 18.9 / 20.4 -> 11.0 / 12.2 / 13.2 and the forehead
+# 3.7 / 4.7 / 3.0 -> 2.8 / 3.8 / 2.3, the line visibly softer in the zooms
+# (recordings/day15-jaw-fine-*.png). The cell counts below that mean a
+# physical size (the brow-hair dilation, the zone's softening, the fill's
+# reach) doubled with it; the edge blur stayed 3 cells -- 12 px now, the
+# finer match being the point (5 cells, the old 24 px, gave 13.5 / 14.6 /
+# 15.9).
+_CORRECTION_DOWNSCALE = 4
 _CORRECTION_INERTIA = 0.8
 
 # Day 13: the forehead line -- his one complaint on the fp32 build. Measured
@@ -1001,9 +1033,9 @@ _EDGE_BLUR = 3
 # out as a dark patch above the avatar's brows -- his forehead that night
 # was brighter than the avatar's, the residual around the zone was
 # brightening it, and the zone stayed dark.
-_EDGE_EXCLUDE_DILATE = 2
-_EDGE_EXCLUDE_SOFTEN = 5
-_EDGE_FILL_BLUR = 15
+_EDGE_EXCLUDE_DILATE = 4
+_EDGE_EXCLUDE_SOFTEN = 10
+_EDGE_FILL_BLUR = 30
 _EDGE_FEATURES = (
     _BROWS[:6] + _LEFT_EYE_CORNERS + (159, 145),
     _BROWS[6:] + _RIGHT_EYE_CORNERS + (386, 374),
@@ -1749,7 +1781,129 @@ _MOUTH_SMILE = ((14, 1),)
 # ratio 0.004) and the avatar in an open, toothy one: the width gate had
 # opened the whole mouth, and the extractor's reading of a strong smile
 # carries parted lips with it. The lips now part only when his do.
+# Day 15 (his 2026-09-11 look at the day-14 build: "on a cheerful toothy
+# smile the teeth grow a little in height"): ``mouth_opening_gain`` (default
+# 1.0, bit-exact) weights these three components the way mouth_smile_gain
+# weights the smile's -- the lips' parting on its own, the smile's width
+# and the gate untouched. Measured: the avatar's opening over his on the
+# clips' smiles 1.02-1.05 at the median but 1.08-1.26 at the 90th percentile,
+# and 1.76 on the frame he pressed on (his lips just parted) -- small
+# openings over-shoot most, where expression_gain 1.8 multiplies a small
+# reading and the network has not saturated.
 _MOUTH_OPENING = ((17, 1), (19, 1), (20, 1))
+
+# Day 15, his second capture (09:50, the toothy smile itself, with the
+# session's own anchor in the file): the avatar's lips parted 1.60x his,
+# and the SAME frame rendered with an anchor learned on driving.mkv parted
+# them 1.06x. The two anchors differ in almost nothing but these three
+# components: his live rest read (0.003, -0.007, 0.017), the clip's
+# (-0.001, 0.002, 0.008), the portrait's own closed mouth (-0.000, -0.004,
+# 0.003). His lips were PRESSED at that session's start -- what a person
+# does looking at a screen -- and the extractor reads a pressed mouth as
+# closed beyond closed, so every opening measured from there is larger by
+# a constant (+0.1 of mouth ratio on both of his captures, the 08:10 talk
+# frame included, which a multiplicative gain fitted by accident). With
+# the anchor's opening rows taken from the portrait's own closed mouth --
+# relaxed, read in the same units by the same network -- his frame came
+# out 0.98-1.02x his. ``mouth_rest`` in engine_options: "portrait" does
+# that; "anchor" keeps his own rest reading. **"anchor" is the default,
+# and "portrait" was REVERTED on his live look the same morning:** with
+# the portrait's relaxed lips as the reference, his own pressed rest reads
+# as "closing" -- a slight opening did not open the avatar's mouth but
+# drooped it, a closing pursed the lips, and talking stopped following. The
+# reference has to be HIS posture; what goes wrong is that his posture at
+# the anchor (pressed, at the session's start) is not his posture minutes
+# later (relaxed), and the difference rides on every opening as a constant.
+# The fix for that is a reference that follows his current neutral mouth,
+# not a fixed one from either face -- see lip_rest_tracking, if built.
+_MOUTH_RESTS = ("anchor", "portrait")
+
+
+def _mouth_rest(options: dict[str, Any]) -> str:
+    value = str(options.get("mouth_rest", "anchor"))
+    if value not in _MOUTH_RESTS:
+        msg = f"mouth_rest must be one of {_MOUTH_RESTS}, got {value!r}"
+        raise ValueError(msg)
+    return value
+
+
+def _rest_mouth_from_portrait(loaded: _Portrait) -> None:
+    """Overwrite the anchor's lip-opening components (:data:`_MOUTH_OPENING`)
+    with the portrait's own, in place -- ``exp_d0`` is a static tensor the
+    graph reads, so the storage must stay the same."""
+    for k, axis in _MOUTH_OPENING:
+        loaded.exp_d0[0, k, axis] = loaded.exp_s[0, k, axis]
+
+
+# Day 15, the fix that held (his live look reverted "portrait" the same
+# morning: a slight opening drooped, a closing pursed, talking stopped
+# following -- the reference has to be HIS mouth). What goes wrong is that
+# his mouth at the anchor is not his mouth minutes later: lips pressed at a
+# session's start (looking at a screen), relaxed once he talks. Measured by
+# seeding his 09:50 anchor (pressed) into a driving.mkv run: the toothy
+# smile 1.58x his, the wide mouth 1.59x, TALK 2.20x (p90 3.6x) -- against
+# 1.03 / 1.10 / 0.97 with the clip's own anchor. The reference's precision
+# matters at the thousandth (0.001 on these rows is ~10% of a talking
+# mouth), so it cannot be a one-time reading. ``lip_rest_tracking`` (frames,
+# default 100; 0 off): once the anchor is frozen, on every frame the day-9
+# gates call a resting mouth (opening and width gates both shut, the face
+# not held) for more than _LIP_REST_SETTLE frames in a row, the anchor's
+# lip-opening rows (_MOUTH_OPENING) move toward the extractor's reading of
+# that frame by 1/frames -- a time constant of ~4-5 s live -- and nothing
+# else of the anchor moves. With the same pressed anchor and tracking: 1.08
+# / 1.12 / 1.12; with the clip's own anchor and tracking: 1.09 / 1.11 /
+# 1.10 (a session's resting mouth reads a hair more closed than its first
+# fifteen frames; +0.1 of ratio, the thousandth again). The tracked rows
+# ride along in a capture's anchor, so a replay is still the session.
+_LIP_REST_SETTLE = 15
+_LIP_REST_GATE_SHUT = 0.02
+
+# Day 15, his "a strong smile with the brows raised -- look what happens to
+# the teeth then". The extractor's reading of a brow raise is not confined
+# to the brows: over driving.mkv's raise (1642-1760, mouth shut) the mouth
+# rows move with his brow ratio at r = 0.83-0.98 -- the lower lip's y (20)
+# by +0.10..+0.19 per unit of brow ratio, 17's y by +0.04..+0.06, 7's y and
+# the z of 17/20 less (the two clips agree in sign there; 19's y and the
+# smile row 14 did not, and are left out). Gated away while the mouth is
+# shut; during a smile the mouth gate is open and the leak rides in with
+# the smile's own reading -- and it points the OTHER way from an opening:
+# the toothy-smile frame re-rendered with a +0.06 raise's leak added closed
+# by a third (mouth ratio 0.190 -> 0.135; natural.mkv's 0.392 -> 0.266),
+# the brow drive itself narrowing the smile 7% on top. So the leak his
+# measured brow deviation predicts is subtracted from the relative
+# expression in _drive (``mouth_leak``, written each frame in _render);
+# ``brow_mouth_leak`` in engine_options scales it, 1.0 the clips' average,
+# 0 off. The slopes are his face's, from two clips that differ by up to
+# 1.8x -- a live capture pressed DURING the moment is what tunes them.
+_BROW_MOUTH_LEAK: dict[tuple[int, int], float] = {
+    (17, 1): 0.052,
+    (20, 1): 0.144,
+    (7, 1): 0.020,
+    (17, 2): -0.014,
+    (20, 2): -0.025,
+}
+
+
+def _brow_mouth_leak(options: dict[str, Any]) -> float:
+    """``brow_mouth_leak`` in ``[0, 2]``, default 1.0: how much of the
+    measured brow-to-mouth leak (:data:`_BROW_MOUTH_LEAK`) is subtracted."""
+    gain = float(options.get("brow_mouth_leak", 1.0))
+    if not (0.0 <= gain <= 2.0):
+        msg = f"brow_mouth_leak must be in [0, 2], got {gain}"
+        raise ValueError(msg)
+    return gain
+
+
+def _lip_rest_tracking(options: dict[str, Any]) -> float:
+    """``lip_rest_tracking`` in frames, default 100 -- the time constant the
+    anchor's lip rest follows his resting mouth with; 0 is off, the anchor
+    as learned (day 14's behaviour)."""
+    frames = float(options.get("lip_rest_tracking", 100.0))
+    if not (0.0 <= frames <= 10000.0):
+        msg = f"lip_rest_tracking must be in [0, 10000] frames, got {frames}"
+        raise ValueError(msg)
+    return frames
+
 
 # With the lateral components cut, what tilt is left is the portrait's own
 # (the photograph's mouth sits 0.020 of inter-ocular higher on one side;
@@ -1808,6 +1962,7 @@ def _region_masks(
     *,
     mouth_lateral_gain: float = 0.0,
     mouth_smile_gain: float = 1.0,
+    mouth_opening_gain: float = 1.0,
     expression_gain: float = 1.0,
 ) -> tuple[Any, Any]:
     """The two masks :meth:`LivePortraitEngine._drive` multiplies into the
@@ -1844,6 +1999,9 @@ def _region_masks(
         rel_mask[0, k, axis] = mouth_lateral_gain * expression_gain
     for k, axis in _MOUTH_SMILE:
         rel_mask[0, k, axis] = mouth_smile_gain * expression_gain
+    # Day 15: the lips' parting on its own (see _MOUTH_OPENING).
+    for k, axis in _MOUTH_OPENING:
+        rel_mask[0, k, axis] = mouth_opening_gain * expression_gain
     eye_mask = torch.zeros(1, NUM_KP, 3, device=device, dtype=torch.float32)
     if eye_mask_output:
         eye_mask[0, list(EYE_KEYPOINTS), :] = 1.0
@@ -2418,11 +2576,16 @@ class _Portrait:
         "last",
         "last_dt",
         "last_timestamp",
+        "leak_gain",
         "lip_rest",
+        "lip_rest_alpha",
+        "lip_rest_mask",
+        "lip_rest_run",
         "mar_prev",
         "mask",
         "mask_bbox",
         "mouth_hold",
+        "mouth_leak",
         "open_hold",
         "options",
         "pivot",
@@ -2509,6 +2672,13 @@ class _Portrait:
         # EMA state -- see the GAZE section and _gaze_drive.
         self.rest_gaze: tuple[float, float] | None = None
         self.gaze_prev: float = 0.0
+        # Day 15: the lip rest tracking (see _lip_rest_tracking) -- the
+        # weight one resting frame moves the anchor's lip rows by (0 off),
+        # the (1, NUM_KP, 3) mask of those rows, and how many resting frames
+        # in a row the gates have called so far.
+        self.lip_rest_alpha: float = 0.0
+        self.lip_rest_mask: Any = None
+        self.lip_rest_run: int = 0
         # Day 12: his eye ratio on the last few frames, for _relieved_ear to
         # tell a blink's speed from a glance down (gaze_down_relief).
         self.ear_recent: deque[float] = deque(maxlen=_BLINK_WINDOW)
@@ -2632,6 +2802,13 @@ class _Portrait:
         # except BROW_KEYPOINTS' y, which _render writes each frame from his
         # own measured brow height. Set for real in load_avatar.
         self.brow_delta: Any = None
+        # Day 15: the brow raise's leak into the mouth rows this frame,
+        # (1, NUM_KP, 3), subtracted from the relative expression in _drive
+        # -- written by _render from his measured brow deviation and the
+        # slopes in _BROW_MOUTH_LEAK, scaled by ``leak_gain`` (the
+        # brow_mouth_leak option, read once at load).
+        self.mouth_leak: Any = None
+        self.leak_gain: float = 0.0
         # The eye/lip retargeting networks' own output at the portrait's own
         # ratio -- what each network says when asked for *no change*. Not
         # zero: both were trained on LivePortrait's own landmark scheme's
@@ -2779,6 +2956,9 @@ class LivePortraitEngine:
         _mask_jaw_shrink(loaded.options)
         _chin_follow(loaded.options)
         _edge_match(loaded.options)
+        _mouth_rest(loaded.options)
+        lip_rest_frames = _lip_rest_tracking(loaded.options)
+        loaded.leak_gain = _brow_mouth_leak(loaded.options)
         forehead_reach = _forehead_reach(loaded.options)
         to_crop, _ = crop_matrix(points, scale=scale, vy_ratio=vy)
         crop = cv2.warpAffine(portrait, to_crop, (CROP_SIZE, CROP_SIZE), flags=cv2.INTER_LINEAR)
@@ -2881,6 +3061,13 @@ class LivePortraitEngine:
             loaded.scale_gain = torch.tensor(
                 [[_scale_gain(loaded.options)]], device=self._device, dtype=torch.float32
             )
+            # Day 15: the lip rest tracking's own mask and weight.
+            loaded.lip_rest_alpha = 1.0 / lip_rest_frames if lip_rest_frames > 0 else 0.0
+            loaded.lip_rest_mask = torch.zeros(
+                1, NUM_KP, 3, device=self._device, dtype=torch.float32
+            )
+            for k, axis in _MOUTH_OPENING:
+                loaded.lip_rest_mask[0, k, axis] = 1.0
             loaded.R_d0 = loaded.R_s.clone()
 
             # The smoothing state (day 7, 2026-09-05), primed from the
@@ -2912,6 +3099,7 @@ class LivePortraitEngine:
                 self._device,
                 mouth_lateral_gain=_mouth_axis_gain(loaded.options, "mouth_lateral_gain", 0.0),
                 mouth_smile_gain=_mouth_axis_gain(loaded.options, "mouth_smile_gain", 1.0),
+                mouth_opening_gain=_mouth_axis_gain(loaded.options, "mouth_opening_gain", 1.0),
                 expression_gain=_expression_gain(loaded.options),
             )
             loaded.crop_filters = _crop_filters(loaded.options)
@@ -2926,6 +3114,7 @@ class LivePortraitEngine:
             # ``ratios`` still holds exactly the portrait's own targets.
             loaded.gate = torch.ones(1, NUM_KP, 3, device=self._device, dtype=torch.float32)
             loaded.brow_delta = torch.zeros(1, NUM_KP, 3, device=self._device, dtype=torch.float32)
+            loaded.mouth_leak = torch.zeros(1, NUM_KP, 3, device=self._device, dtype=torch.float32)
             # The constant mouth tilt trim lives in the same offset tensor
             # (its own component is never written per frame) -- see
             # _mouth_tilt_trim.
@@ -3022,6 +3211,7 @@ class LivePortraitEngine:
             loaded.centre_offset = None
             loaded.rest_pitch = None
             loaded.holding = False
+            loaded.lip_rest_run = 0
 
     def rest_status(self, avatar_id: str) -> str | None:
         """A line for the UI while the anchor is still being learned, else
@@ -3033,6 +3223,97 @@ class LivePortraitEngine:
         return (
             "Look straight at the camera to centre the avatar "
             f"({loaded.anchor_seen}/{loaded.anchor_wanted})"
+        )
+
+    def anchor_state(self, avatar_id: str) -> dict[str, np.ndarray] | None:
+        """The frozen anchor as plain arrays -- what a capture writes beside
+        its tracking so a replay can be the session itself (see
+        :data:`_ANCHOR_TENSORS`, :meth:`seed_anchor`). ``None`` while the
+        anchor is still being learned, and for an avatar this engine does
+        not hold. The arrays are copies: nothing here aliases the graph's
+        own tensors."""
+        loaded = self._loaded.get(avatar_id)
+        if loaded is None or loaded.anchor_seen < loaded.anchor_wanted or loaded.exp_d0 is None:
+            return None
+        state: dict[str, np.ndarray] = {}
+        for name in _ANCHOR_TENSORS:
+            state[name] = getattr(loaded, name).detach().float().cpu().numpy().copy()
+        for name in _ANCHOR_SCALARS:
+            value = getattr(loaded, name)
+            state[name] = np.array(np.nan if value is None else float(value), dtype=np.float64)
+        gaze = loaded.rest_gaze
+        state["rest_gaze"] = np.array(
+            (np.nan, np.nan) if gaze is None else (float(gaze[0]), float(gaze[1])),
+            dtype=np.float64,
+        )
+        return state
+
+    def seed_anchor(self, avatar_id: str, state: dict[str, Any]) -> None:
+        """Make a captured anchor (:meth:`anchor_state`'s arrays) this avatar's
+        own, frozen: the tensors ``_drive`` reads are overwritten in place
+        (the graph keeps reading the same storage), the rest values are set,
+        the smoothing state is primed to the anchor exactly as the freeze
+        does, and the per-frame state (gates, holds, the blink window) is
+        cleared as :meth:`reset_anchor` clears it. From the next frame the
+        engine runs as the session that wrote the capture ran."""
+        loaded = self._loaded.get(avatar_id)
+        if loaded is None:
+            msg = f"avatar {avatar_id!r} is not loaded"
+            raise AvatarLoadError(msg)
+        torch = self._torch
+        for name in _ANCHOR_TENSORS:
+            if name not in state:
+                msg = f"the anchor state has no {name!r}"
+                raise ValueError(msg)
+            target = getattr(loaded, name)
+            source = torch.as_tensor(
+                np.asarray(state[name], dtype=np.float32), device=target.device
+            ).to(target.dtype)
+            if tuple(source.shape) != tuple(target.shape):
+                msg = f"anchor {name!r} has shape {tuple(source.shape)}, not {tuple(target.shape)}"
+                raise ValueError(msg)
+            target.copy_(source)
+        # Day 15: a captured anchor replayed under "portrait" gets the same
+        # lip rest the session would learn now -- so a capture taken before
+        # the option, or with it off, can be measured with it on.
+        if _mouth_rest(loaded.options) == "portrait":
+            _rest_mouth_from_portrait(loaded)
+        for name in _ANCHOR_SCALARS:
+            value = float(np.asarray(state.get(name, np.nan), dtype=np.float64))
+            setattr(loaded, name, None if math.isnan(value) else value)
+        gaze = np.asarray(state.get("rest_gaze", (np.nan, np.nan)), dtype=np.float64).reshape(-1)
+        if gaze.size < 2 or math.isnan(float(gaze[0])):
+            loaded.rest_gaze = None
+        else:
+            loaded.rest_gaze = (float(gaze[0]), float(gaze[1]))
+        # The freeze's own priming of the day-7 smoothing state, and the
+        # per-frame state a fresh anchor starts without (see reset_anchor).
+        loaded.exp_prev.copy_(loaded.exp_d0)
+        loaded.t_prev.copy_(loaded.t_d0)
+        loaded.scale_prev.copy_(loaded.scale_d0)
+        loaded.pose_prev.copy_(loaded.pose_d0)
+        loaded.anchor_seen = loaded.anchor_wanted
+        loaded.anchor_sum = {}
+        loaded.anchor_rejected = 0
+        loaded.gaze_prev = 0.0
+        loaded.ear_recent.clear()
+        loaded.gate_mouth_prev = 0.0
+        loaded.gate_open_prev = 0.0
+        loaded.gate_brow_prev = 0.0
+        loaded.mouth_hold = 0
+        loaded.open_hold = 0
+        loaded.size_samples = []
+        loaded.centre_samples = []
+        loaded.holding = False
+        loaded.lip_rest_run = 0
+        _LOG.info(
+            "Avatar %s: anchor seeded from a capture -- rest EAR %s, rest MAR %s, "
+            "face height %s px at distance %s",
+            avatar_id,
+            "?" if loaded.rest_ear is None else f"{loaded.rest_ear:.3f}",
+            "?" if loaded.rest_mar is None else f"{loaded.rest_mar:.3f}",
+            "?" if loaded.face_height_rest is None else f"{loaded.face_height_rest:.0f}",
+            "?" if loaded.z_rest is None else f"{loaded.z_rest:.2f}",
         )
 
     @staticmethod
@@ -3193,6 +3474,9 @@ class LivePortraitEngine:
                     rest_sample=(c_d_width, c_d_brow),
                     gates=gates,
                     brow_lift=brow_lift,
+                    brow_deviation=(
+                        c_d_brow - loaded.rest_brow if loaded.rest_brow is not None else 0.0
+                    ),
                     gaze=gaze,
                     centre_sample=centre_sample,
                     chin_sample=c_d_chin,
@@ -3364,6 +3648,7 @@ class LivePortraitEngine:
         rest_sample: tuple[float, float] | None = None,
         gates: tuple[float, float, float] = (1.0, 1.0, 1.0),
         brow_lift: float = 0.0,
+        brow_deviation: float = 0.0,
         gaze: tuple[float, float] | None = None,
         centre_sample: tuple[float, float] | None = None,
         chin_sample: float | None = None,
@@ -3422,6 +3707,12 @@ class LivePortraitEngine:
             loaded.gate[0, list(BROW_KEYPOINTS), :] = gates[2]
             for k, y_per_unit in _BROW_LIFT_Y.items():
                 loaded.brow_delta[0, k, 1] = brow_lift * y_per_unit
+            # Day 15: what his brow deviation leaks into the mouth rows,
+            # for _drive to subtract (see _BROW_MOUTH_LEAK). ``brow_deviation``
+            # is his brow ratio less the anchor's rest, unscaled and not
+            # dead-banded -- the leak follows the reading, not the drive.
+            for (k, axis), slope in _BROW_MOUTH_LEAK.items():
+                loaded.mouth_leak[0, k, axis] = slope * loaded.leak_gain * brow_deviation
             # Day 11: the gaze drive, on the eye keypoints' x rows of the
             # same offset tensor, written fresh every frame (see the GAZE
             # section and _gaze_drive).
@@ -3430,9 +3721,32 @@ class LivePortraitEngine:
                 loaded.brow_delta[0, k, 0] = gaze_x * x_per_unit
             loaded.static_in.copy_(image)
             loaded.graph.replay()
+            self._track_lip_rest(loaded, gates)
             out = loaded.static_out[0].permute(1, 2, 0).float().clamp_(0.0, 1.0).mul_(255.0)
             face: np.ndarray = out.to(torch.uint8).cpu().numpy()
         return face
+
+    @staticmethod
+    def _track_lip_rest(loaded: _Portrait, gates: tuple[float, float, float]) -> None:
+        """After a replay: if the anchor is frozen and this frame's gates say
+        the mouth is at rest -- for more than :data:`_LIP_REST_SETTLE` frames
+        in a row -- move the anchor's lip-opening rows toward the extractor's
+        reading of this frame (``exp_prev``, which the replay just wrote) by
+        ``lip_rest_alpha``. One masked in-place op on the static tensor the
+        graph reads; nothing else of the anchor moves. See
+        :func:`_lip_rest_tracking`."""
+        if loaded.lip_rest_alpha <= 0.0 or loaded.lip_rest_mask is None:
+            return
+        if loaded.anchor_seen < loaded.anchor_wanted or loaded.holding:
+            loaded.lip_rest_run = 0
+            return
+        at_rest = gates[0] < _LIP_REST_GATE_SHUT and gates[1] < _LIP_REST_GATE_SHUT
+        loaded.lip_rest_run = loaded.lip_rest_run + 1 if at_rest else 0
+        if loaded.lip_rest_run > _LIP_REST_SETTLE:
+            loaded.exp_d0.add_(
+                (loaded.exp_prev - loaded.exp_d0) * loaded.lip_rest_mask,
+                alpha=loaded.lip_rest_alpha,
+            )
 
     @staticmethod
     def _centre_weight(loaded: _Portrait, head_pose: HeadPose | None) -> float:
@@ -3564,6 +3878,11 @@ class LivePortraitEngine:
         loaded.scale_prev.copy_(sums["scale"] / n)
         loaded.pose_prev.copy_(sums["pose"] / n)
         loaded.pose_d0.copy_(sums["pose"] / n)
+        # Day 15: the lips' rest is the portrait's, not his pressed one (see
+        # _MOUTH_RESTS); the smoothing state follows the anchor it primes to.
+        if _mouth_rest(loaded.options) == "portrait":
+            _rest_mouth_from_portrait(loaded)
+            loaded.exp_prev.copy_(loaded.exp_d0)
         if loaded.anchor_seen == loaded.anchor_wanted:
             if loaded.size_samples:
                 loaded.face_height_rest = float(
@@ -3651,7 +3970,12 @@ class LivePortraitEngine:
         # or raising his brows, 0.0 while his mouth and brows are at rest
         # whatever the extractor made of his lifted head. See the GATES
         # section above for the live complaint and the numbers.
-        delta = loaded.exp_s + (exp_now - loaded.exp_d0) * loaded.rel_mask * loaded.gate
+        # Day 15: less the brow raise's leak into the mouth rows (mouth_leak,
+        # zeros without a raise -- see _BROW_MOUTH_LEAK).
+        delta = (
+            loaded.exp_s
+            + (exp_now - loaded.exp_d0 - loaded.mouth_leak) * loaded.rel_mask * loaded.gate
+        )
         # Day 13: scale_gain is (1, 1) -- at 1.0 the ratio is exact and this
         # is the old scale_s * (scale_now / scale_d0); at the default 0.0 the
         # portrait keeps its own scale whatever the extractor reads into an
@@ -3895,6 +4219,7 @@ class LivePortraitEngine:
             avatar_id=avatar_id,
             render_timestamp=now(),
             is_placeholder=True,
+            is_passthrough=True,
         )
 
     # --- tensors -----------------------------------------------------------

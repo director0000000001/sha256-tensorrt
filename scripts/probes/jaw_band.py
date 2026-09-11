@@ -171,6 +171,19 @@ def start_engine(avatar_id: str, overrides: dict[str, object]) -> LivePortraitEn
     return engine
 
 
+def capture_anchor(data: Any) -> dict[str, np.ndarray] | None:
+    """The session's own anchor, if the capture carries one (day 15: the
+    ``anchor_*`` arrays ``PipelineRunner.capture`` writes), keyed as
+    ``LivePortraitEngine.seed_anchor`` wants; ``None`` for an older capture."""
+    prefix = "anchor_"
+    state = {
+        name[len(prefix) :]: data[name]
+        for name in data.files
+        if name.startswith(prefix) and name != "anchor_avatar"
+    }
+    return state if "exp_d0" in state else None
+
+
 def tracking_at(data: Any, index: int) -> FaceTrackingResult:
     """One captured frame's readings as the engine's own type -- the same
     rebuild scripts/replay_capture.py does (no head-pose distance: the
@@ -302,6 +315,13 @@ def run_capture(args: argparse.Namespace) -> int:
         overrides = parse_options(args.option)
         engine = start_engine(args.avatar, overrides)
         try:
+            # Day 15: a capture that carries the session's own anchor seeds
+            # the engine with it, and the replay drives the portrait as the
+            # session did; an older capture learns one from the last frame
+            # as before (if that frame is frontal enough -- else none).
+            anchor = capture_anchor(data)
+            if anchor is not None:
+                engine.seed_anchor(args.avatar, anchor)
             for index in range(last + 1):
                 frame = VideoFrame(
                     data=camera,
@@ -324,7 +344,11 @@ def run_capture(args: argparse.Namespace) -> int:
             raise SystemExit(f"{args.capture}: nothing rendered")
         _, to_frame, mask = state
         seen = np.ascontiguousarray(out.data)
-        what = f"re-rendered by this build, overrides {overrides}, the pasted mask"
+        anchor_note = "the session's own" if anchor is not None else "learned or none"
+        what = (
+            f"re-rendered by this build, overrides {overrides}, the pasted mask, "
+            f"anchor {anchor_note}"
+        )
     else:
         points = data["landmarks"][last][:FACE_POINTS, :2] * (width, height)
         to_crop, to_frame = crop_matrix(points.astype(np.float32))

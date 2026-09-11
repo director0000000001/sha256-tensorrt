@@ -139,6 +139,12 @@ class RenderedFrame:
     is_placeholder: bool = False
     """True when this is a fallback frame (no avatar loaded, tracking lost)."""
 
+    is_passthrough: bool = False
+    """True when the picture is the camera's own frame, untouched -- the engine
+    had no face to draw over it. The one frame that must never leave the
+    pipeline as it is (see ``sha256.pipeline.conditioning``): a placeholder
+    drawn by an engine is not this; the person's own face is."""
+
     @property
     def height(self) -> int:
         return int(self.data.shape[0])

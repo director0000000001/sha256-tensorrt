@@ -24,6 +24,7 @@ from sha256.avatar.engine_liveportrait import (
     _BROW_GATE_PITCH,
     _BROW_GATE_YAW,
     _BROW_LIFT_Y,
+    _BROW_MOUTH_LEAK,
     _CROP_CENTRES,
     _DEFAULT_CROP_SMOOTHING_HZ,
     _DEFAULT_FRAME_DT,
@@ -60,6 +61,7 @@ from sha256.avatar.engine_liveportrait import (
     _brow_gain,
     _brow_gate,
     _brow_lift,
+    _brow_mouth_leak,
     _brow_ratio,
     _centre_offset,
     _chin_drop,
@@ -90,6 +92,7 @@ from sha256.avatar.engine_liveportrait import (
     _gaze_offset,
     _hold_thresholds,
     _lip_ratio,
+    _lip_rest_tracking,
     _lip_target,
     _mask_bbox,
     _mask_chin_reach,
@@ -99,6 +102,7 @@ from sha256.avatar.engine_liveportrait import (
     _mouth_axis_gain,
     _mouth_gate,
     _mouth_open_ratio,
+    _mouth_rest,
     _mouth_tilt_trim,
     _mouth_width_ratio,
     _nose_chin,
@@ -829,6 +833,415 @@ class TestChinDrop:
         assert loaded.rest_chin is None
 
 
+class TestAnchorSnapshot:
+    """``anchor_state`` / ``seed_anchor`` (day 15): the frozen anchor as
+    arrays a capture can carry, and an engine seeded from them running as
+    the session that wrote them. On :class:`TestAnchorGatingInRender`'s
+    CPU fixture (a faked motion net, a no-op graph)."""
+
+    @staticmethod
+    def _fresh(tmp_path, torch, anchor_wanted: int = 2):
+        engine, loaded = TestAnchorGatingInRender()._engine_and_loaded(
+            tmp_path, torch=torch, anchor_wanted=anchor_wanted
+        )
+        # The round trip is the subject here, not the lip rest (see
+        # TestMouthRest): his own reading travels as it is.
+        loaded.options = {"mouth_rest": "anchor"}
+        return engine, loaded
+
+    def _frozen(self, tmp_path, torch):
+        engine, loaded = self._fresh(tmp_path, torch, anchor_wanted=2)
+        driver_rgb = np.zeros((MODEL_SIZE, MODEL_SIZE, 3), dtype=np.uint8)
+        samples = ((0.30, 0.01, 0.40, 0.20, 118.0), (0.32, 0.03, 0.42, 0.22, 122.0))
+        for ear, mar, width, brow, chin in samples:
+            engine._render(
+                loaded,
+                driver_rgb,
+                ear,
+                mar,
+                ear,
+                mar,
+                anchor_ok=True,
+                rest_sample=(width, brow),
+                chin_sample=chin,
+            )
+        assert loaded.anchor_seen == 2
+        # Values the fake motion net cannot produce, so the tensors are seen
+        # to travel and not just their zeros.
+        loaded.exp_d0.fill_(0.25)
+        loaded.t_d0.copy_(torch.tensor([[0.1, -0.2, 0.0]]))
+        loaded.scale_d0.fill_(1.05)
+        loaded.pose_d0.copy_(torch.tensor([[3.0], [-2.0], [1.0]]))
+        return engine, loaded
+
+    def test_nothing_before_the_freeze_and_nothing_for_an_unknown_avatar(self, tmp_path):
+        torch = pytest.importorskip("torch")
+        engine, loaded = self._fresh(tmp_path, torch, anchor_wanted=2)
+        driver_rgb = np.zeros((MODEL_SIZE, MODEL_SIZE, 3), dtype=np.uint8)
+        assert engine.anchor_state(loaded.descriptor.id) is None
+        assert engine.anchor_state("nobody") is None
+
+        engine._render(loaded, driver_rgb, 0.3, 0.0, 0.3, 0.0, anchor_ok=True)
+        assert engine.anchor_state(loaded.descriptor.id) is None  # one of two
+        engine._render(loaded, driver_rgb, 0.3, 0.0, 0.3, 0.0, anchor_ok=True)
+        assert engine.anchor_state(loaded.descriptor.id) is not None
+
+    def test_the_state_is_plain_copies_with_the_rest_values_and_nan_for_unknowns(self, tmp_path):
+        torch = pytest.importorskip("torch")
+        engine, loaded = self._frozen(tmp_path, torch)
+
+        state = engine.anchor_state(loaded.descriptor.id)
+
+        assert state is not None
+        assert all(isinstance(v, np.ndarray) for v in state.values())
+        assert state["exp_d0"].shape == (1, NUM_KP, 3)
+        assert float(state["exp_d0"].mean()) == pytest.approx(0.25)
+        assert state["t_d0"].shape == (1, 3) and state["scale_d0"].shape == (1, 1)
+        assert state["R_d0"].shape == (1, 3, 3) and state["pose_d0"].shape == (3, 1)
+        assert float(state["rest_ear"]) == pytest.approx(0.31)
+        assert float(state["rest_mar"]) == pytest.approx(0.02)
+        assert float(state["rest_mouth_width"]) == pytest.approx(0.41)
+        assert float(state["rest_brow"]) == pytest.approx(0.21)
+        assert float(state["rest_chin"]) == pytest.approx(120.0)
+        # No size or centre samples in this fixture: unknown, written as NaN.
+        assert np.isnan(float(state["face_height_rest"]))
+        assert np.isnan(float(state["z_rest"]))
+        assert np.isnan(state["rest_gaze"]).all()
+        # A copy: writing into it does not reach the engine's own tensor.
+        state["exp_d0"][...] = 9.0
+        assert float(loaded.exp_d0.mean()) == pytest.approx(0.25)
+
+    def test_seeding_makes_a_fresh_engine_the_session_that_wrote_it(self, tmp_path):
+        torch = pytest.importorskip("torch")
+        engine, loaded = self._frozen(tmp_path, torch)
+        state = engine.anchor_state(loaded.descriptor.id)
+        fresh, fresh_loaded = self._fresh(tmp_path, torch, anchor_wanted=15)
+        fresh_loaded.holding = True
+        fresh_loaded.gate_mouth_prev = 0.7
+        fresh_loaded.ear_recent.append(0.3)
+        assert fresh.rest_status(fresh_loaded.descriptor.id) is not None
+
+        fresh.seed_anchor(fresh_loaded.descriptor.id, state)
+
+        assert fresh.rest_status(fresh_loaded.descriptor.id) is None
+        assert fresh_loaded.anchor_seen == fresh_loaded.anchor_wanted == 15
+        for name in ("exp_d0", "t_d0", "scale_d0", "R_d0", "pose_d0"):
+            assert torch.equal(getattr(fresh_loaded, name), getattr(loaded, name)), name
+        assert fresh_loaded.rest_ear == pytest.approx(0.31)
+        assert fresh_loaded.rest_mar == pytest.approx(0.02)
+        assert fresh_loaded.rest_mouth_width == pytest.approx(0.41)
+        assert fresh_loaded.rest_brow == pytest.approx(0.21)
+        assert fresh_loaded.rest_chin == pytest.approx(120.0)
+        assert fresh_loaded.face_height_rest is None and fresh_loaded.z_rest is None
+        assert fresh_loaded.rest_gaze is None
+        # The smoothing state primed to the anchor as the freeze primes it;
+        # the per-frame state cleared as reset_anchor clears it.
+        assert torch.equal(fresh_loaded.exp_prev, loaded.exp_d0)
+        assert torch.equal(fresh_loaded.t_prev, loaded.t_d0)
+        assert torch.equal(fresh_loaded.scale_prev, loaded.scale_d0)
+        assert torch.equal(fresh_loaded.pose_prev, loaded.pose_d0)
+        assert fresh_loaded.holding is False
+        assert fresh_loaded.gate_mouth_prev == 0.0
+        assert len(fresh_loaded.ear_recent) == 0
+        # And the seeded engine reports the same state back.
+        again = fresh.anchor_state(fresh_loaded.descriptor.id)
+        assert again is not None
+        for key, value in state.items():
+            np.testing.assert_allclose(again[key], value, equal_nan=True)
+
+    def test_it_survives_the_file_a_capture_writes(self, tmp_path):
+        torch = pytest.importorskip("torch")
+        engine, loaded = self._frozen(tmp_path, torch)
+        state = engine.anchor_state(loaded.descriptor.id)
+        assert state is not None
+        np.savez_compressed(
+            tmp_path / "tracking.npz", **{f"anchor_{k}": v for k, v in state.items()}
+        )
+        data = np.load(tmp_path / "tracking.npz", allow_pickle=False)
+        back = {k[len("anchor_") :]: data[k] for k in data.files}
+
+        fresh, fresh_loaded = self._fresh(tmp_path, torch)
+        fresh.seed_anchor(fresh_loaded.descriptor.id, back)
+
+        assert torch.equal(fresh_loaded.exp_d0, loaded.exp_d0)
+        assert torch.equal(fresh_loaded.R_d0, loaded.R_d0)
+        assert fresh_loaded.rest_mar == pytest.approx(0.02)
+        assert fresh_loaded.centre_offset is None
+
+    def test_seeding_refuses_a_wrong_shape_a_missing_tensor_and_an_unknown_avatar(self, tmp_path):
+        torch = pytest.importorskip("torch")
+        engine, loaded = self._frozen(tmp_path, torch)
+        state = engine.anchor_state(loaded.descriptor.id)
+        assert state is not None
+
+        with pytest.raises(AvatarLoadError):
+            engine.seed_anchor("nobody", state)
+        bad = dict(state)
+        bad["exp_d0"] = np.zeros((1, 2, 3), dtype=np.float32)
+        with pytest.raises(ValueError, match="exp_d0"):
+            engine.seed_anchor(loaded.descriptor.id, bad)
+        missing = dict(state)
+        del missing["R_d0"]
+        with pytest.raises(ValueError, match="R_d0"):
+            engine.seed_anchor(loaded.descriptor.id, missing)
+
+
+class TestMouthRest:
+    """``mouth_rest`` (day 15): the anchor's lip-opening components come from
+    his own rest reading ("anchor", the default) or from the portrait's own
+    closed mouth ("portrait") -- his pressed lips at a session's start had
+    every opening 1.6x his and the portrait's relaxed ones put that frame at
+    1.0x, but live "portrait" drooped a slight opening and pursed a closing,
+    so it is an option, not the rule. On the CPU fixture with a faked
+    motion net."""
+
+    @staticmethod
+    def _fixture(tmp_path, torch, mouth_rest: str | None):
+        engine, loaded = TestAnchorGatingInRender()._engine_and_loaded(
+            tmp_path, torch=torch, anchor_wanted=2
+        )
+        if mouth_rest is not None:
+            loaded.options = {"mouth_rest": mouth_rest}
+        # The portrait's own reading: a value on every mouth row the fake
+        # motion net (all zeros) can never produce.
+        loaded.exp_s = torch.zeros(1, NUM_KP, 3)
+        for k, axis in _MOUTH_OPENING:
+            loaded.exp_s[0, k, axis] = 0.05
+        loaded.exp_s[0, 14, 1] = 0.02
+        return engine, loaded
+
+    def test_reads_and_validates(self):
+        assert _mouth_rest({}) == "anchor"
+        assert _mouth_rest({"mouth_rest": "portrait"}) == "portrait"
+        with pytest.raises(ValueError, match="mouth_rest"):
+            _mouth_rest({"mouth_rest": "clip"})
+
+    def test_portrait_puts_the_portraits_lip_rest_into_the_anchor(self, tmp_path):
+        torch = pytest.importorskip("torch")
+        engine, loaded = self._fixture(tmp_path, torch, "portrait")
+        driver_rgb = np.zeros((MODEL_SIZE, MODEL_SIZE, 3), dtype=np.uint8)
+
+        for _ in range(2):
+            engine._render(loaded, driver_rgb, 0.3, 0.0, 0.3, 0.0, anchor_ok=True)
+
+        assert loaded.anchor_seen == 2
+        for k, axis in _MOUTH_OPENING:
+            assert loaded.exp_d0[0, k, axis] == pytest.approx(0.05), (k, axis)
+        assert loaded.exp_d0[0, 14, 1] == 0.0  # the smile row stays his own (the fake's mean)
+        assert loaded.exp_d0[0, 3, 0] == 0.0
+        assert torch.equal(loaded.exp_prev, loaded.exp_d0)
+
+    def test_anchor_keeps_his_own_reading(self, tmp_path):
+        torch = pytest.importorskip("torch")
+        engine, loaded = self._fixture(tmp_path, torch, None)  # the default
+        driver_rgb = np.zeros((MODEL_SIZE, MODEL_SIZE, 3), dtype=np.uint8)
+
+        for _ in range(2):
+            engine._render(loaded, driver_rgb, 0.3, 0.0, 0.3, 0.0, anchor_ok=True)
+
+        for k, axis in _MOUTH_OPENING:
+            assert loaded.exp_d0[0, k, axis] == 0.0, (k, axis)
+
+    def test_a_seeded_anchor_gets_the_same_treatment(self, tmp_path):
+        torch = pytest.importorskip("torch")
+        engine, loaded = self._fixture(tmp_path, torch, "portrait")
+        state = {
+            "exp_d0": np.full((1, NUM_KP, 3), 0.01, dtype=np.float32),
+            "t_d0": np.zeros((1, 3), dtype=np.float32),
+            "scale_d0": np.ones((1, 1), dtype=np.float32),
+            "R_d0": np.eye(3, dtype=np.float32)[None],
+            "pose_d0": np.zeros((3, 1), dtype=np.float32),
+        }
+
+        engine.seed_anchor(loaded.descriptor.id, state)
+
+        for k, axis in _MOUTH_OPENING:
+            assert loaded.exp_d0[0, k, axis] == pytest.approx(0.05), (k, axis)
+        assert loaded.exp_d0[0, 14, 1] == pytest.approx(0.01)
+        assert torch.equal(loaded.exp_prev, loaded.exp_d0)
+
+        loaded.options = {"mouth_rest": "anchor"}
+        engine.seed_anchor(loaded.descriptor.id, state)
+        for k, axis in _MOUTH_OPENING:
+            assert loaded.exp_d0[0, k, axis] == pytest.approx(0.01), (k, axis)
+
+
+class TestLipRestTracking:
+    """``lip_rest_tracking`` (day 15): once the anchor is frozen, frames the
+    gates call a resting mouth -- after a settle -- pull the anchor's
+    lip-opening rows toward the extractor's reading; an open or moving
+    mouth stops it and starts the settle again; 0 is exact. On the CPU
+    fixture (a faked motion net, a no-op graph): ``exp_prev`` stands for
+    the reading the replay would have written."""
+
+    def _fixture(self, tmp_path, torch, frames: float = 2.0):
+        engine, loaded = TestAnchorGatingInRender()._engine_and_loaded(
+            tmp_path, torch=torch, anchor_wanted=1
+        )
+        loaded.lip_rest_alpha = 1.0 / frames if frames > 0 else 0.0
+        loaded.lip_rest_mask = torch.zeros(1, NUM_KP, 3)
+        for k, axis in _MOUTH_OPENING:
+            loaded.lip_rest_mask[0, k, axis] = 1.0
+        driver_rgb = np.zeros((MODEL_SIZE, MODEL_SIZE, 3), dtype=np.uint8)
+        engine._render(loaded, driver_rgb, 0.3, 0.0, 0.3, 0.0, anchor_ok=True)  # frozen
+        assert loaded.anchor_seen == loaded.anchor_wanted
+        # The reading a resting frame would leave: 0.1 on every row.
+        loaded.exp_prev.fill_(0.1)
+        return engine, loaded, driver_rgb
+
+    @staticmethod
+    def _rest(engine, loaded, driver_rgb, n: int, gates=(0.0, 0.0, 0.0)):
+        for _ in range(n):
+            engine._render(loaded, driver_rgb, 0.3, 0.0, 0.3, 0.0, anchor_ok=False, gates=gates)
+
+    def test_reads_and_validates(self):
+        assert _lip_rest_tracking({}) == 100.0
+        assert _lip_rest_tracking({"lip_rest_tracking": 0}) == 0.0
+        with pytest.raises(ValueError, match="lip_rest_tracking"):
+            _lip_rest_tracking({"lip_rest_tracking": -1})
+
+    def test_resting_frames_move_the_lip_rows_only_after_the_settle(self, tmp_path):
+        torch = pytest.importorskip("torch")
+        engine, loaded, driver_rgb = self._fixture(tmp_path, torch, frames=2.0)
+
+        self._rest(engine, loaded, driver_rgb, 15)
+        assert loaded.lip_rest_run == 15
+        assert float(loaded.exp_d0.abs().max()) == 0.0  # nothing yet
+
+        self._rest(engine, loaded, driver_rgb, 1)
+        for k, axis in _MOUTH_OPENING:
+            assert loaded.exp_d0[0, k, axis] == pytest.approx(0.05), (k, axis)
+        self._rest(engine, loaded, driver_rgb, 1)
+        for k, axis in _MOUTH_OPENING:
+            assert loaded.exp_d0[0, k, axis] == pytest.approx(0.075), (k, axis)
+        # Only those three components: the smile row, the brows, everything
+        # else stays the anchor's own.
+        untouched = loaded.exp_d0.clone()
+        for k, axis in _MOUTH_OPENING:
+            untouched[0, k, axis] = 0.0
+        assert float(untouched.abs().max()) == 0.0
+
+    def test_an_open_or_moving_mouth_stops_it_and_restarts_the_settle(self, tmp_path):
+        torch = pytest.importorskip("torch")
+        engine, loaded, driver_rgb = self._fixture(tmp_path, torch, frames=2.0)
+        self._rest(engine, loaded, driver_rgb, 16)
+        after_one = float(loaded.exp_d0[0, 19, 1])
+        assert after_one == pytest.approx(0.05)
+
+        self._rest(engine, loaded, driver_rgb, 1, gates=(1.0, 0.0, 0.0))  # the width gate open
+        assert loaded.lip_rest_run == 0
+        self._rest(engine, loaded, driver_rgb, 1, gates=(0.0, 1.0, 0.0))  # the opening gate open
+        assert loaded.lip_rest_run == 0
+        assert float(loaded.exp_d0[0, 19, 1]) == pytest.approx(after_one)
+
+        self._rest(engine, loaded, driver_rgb, 15)
+        assert float(loaded.exp_d0[0, 19, 1]) == pytest.approx(after_one)
+        self._rest(engine, loaded, driver_rgb, 1)
+        assert float(loaded.exp_d0[0, 19, 1]) == pytest.approx(0.075)
+
+    def test_a_held_face_and_an_unfrozen_anchor_do_not_count(self, tmp_path):
+        torch = pytest.importorskip("torch")
+        engine, loaded, driver_rgb = self._fixture(tmp_path, torch, frames=2.0)
+        loaded.holding = True
+        self._rest(engine, loaded, driver_rgb, 20)
+        assert loaded.lip_rest_run == 0 and float(loaded.exp_d0.abs().max()) == 0.0
+        loaded.holding = False
+        engine.reset_anchor(loaded.descriptor.id)  # learning again: nothing moves
+        self._rest(engine, loaded, driver_rgb, 20)
+        assert float(loaded.exp_d0.abs().max()) == 0.0
+
+    def test_off_is_exact(self, tmp_path):
+        torch = pytest.importorskip("torch")
+        engine, loaded, driver_rgb = self._fixture(tmp_path, torch, frames=0.0)
+        self._rest(engine, loaded, driver_rgb, 40)
+        assert float(loaded.exp_d0.abs().max()) == 0.0
+
+    def test_seeding_and_resetting_forget_the_count(self, tmp_path):
+        torch = pytest.importorskip("torch")
+        engine, loaded, driver_rgb = self._fixture(tmp_path, torch, frames=2.0)
+        self._rest(engine, loaded, driver_rgb, 10)
+        assert loaded.lip_rest_run == 10
+        engine.reset_anchor(loaded.descriptor.id)
+        assert loaded.lip_rest_run == 0
+        self._rest(engine, loaded, driver_rgb, 0)
+        state = {
+            "exp_d0": np.zeros((1, NUM_KP, 3), dtype=np.float32),
+            "t_d0": np.zeros((1, 3), dtype=np.float32),
+            "scale_d0": np.ones((1, 1), dtype=np.float32),
+            "R_d0": np.eye(3, dtype=np.float32)[None],
+            "pose_d0": np.zeros((3, 1), dtype=np.float32),
+        }
+        loaded.lip_rest_run = 7
+        engine.seed_anchor(loaded.descriptor.id, state)
+        assert loaded.lip_rest_run == 0
+
+
+class TestBrowMouthLeak:
+    """``brow_mouth_leak`` (day 15): the extractor reads a brow raise into
+    the mouth rows too, and a toothy smile with the brows up closed by a
+    third for it; the leak his brow deviation predicts is written by
+    ``_render`` and subtracted in ``_drive``."""
+
+    def test_reads_and_validates(self):
+        assert _brow_mouth_leak({}) == 1.0
+        assert _brow_mouth_leak({"brow_mouth_leak": 0.0}) == 0.0
+        with pytest.raises(ValueError, match="brow_mouth_leak"):
+            _brow_mouth_leak({"brow_mouth_leak": 2.5})
+
+    def test_render_writes_the_leak_from_his_brow_deviation(self, tmp_path):
+        torch = pytest.importorskip("torch")
+        engine, loaded = TestAnchorGatingInRender()._engine_and_loaded(
+            tmp_path, torch=torch, anchor_wanted=1
+        )
+        loaded.leak_gain = 1.0
+        driver_rgb = np.zeros((MODEL_SIZE, MODEL_SIZE, 3), dtype=np.uint8)
+
+        engine._render(loaded, driver_rgb, 0.3, 0.0, 0.3, 0.0, anchor_ok=False, brow_deviation=0.05)
+
+        for (k, axis), slope in _BROW_MOUTH_LEAK.items():
+            assert loaded.mouth_leak[0, k, axis] == pytest.approx(slope * 0.05), (k, axis)
+        rest = loaded.mouth_leak.clone()
+        for k, axis in _BROW_MOUTH_LEAK:
+            rest[0, k, axis] = 0.0
+        assert float(rest.abs().max()) == 0.0
+        # No deviation, no leak; half the gain, half the leak.
+        engine._render(loaded, driver_rgb, 0.3, 0.0, 0.3, 0.0, anchor_ok=False, brow_deviation=0.0)
+        assert float(loaded.mouth_leak.abs().max()) == 0.0
+        loaded.leak_gain = 0.5
+        engine._render(loaded, driver_rgb, 0.3, 0.0, 0.3, 0.0, anchor_ok=False, brow_deviation=0.05)
+        assert loaded.mouth_leak[0, 20, 1] == pytest.approx(_BROW_MOUTH_LEAK[(20, 1)] * 0.025)
+
+    def test_drive_subtracts_it_from_the_relative_expression(self, tmp_path):
+        torch = pytest.importorskip("torch")
+        calls: dict[str, list] = {}
+        engine, loaded = TestDriveNetworkOptions()._engine_and_loaded(
+            tmp_path, torch=torch, calls=calls
+        )
+        engine._nets["motion"] = lambda image: {
+            "exp": torch.zeros(1, NUM_KP * 3),
+            "scale": torch.ones(1, 1),
+            "t": torch.zeros(1, 3),
+            "pitch": torch.zeros(1, 66),
+            "yaw": torch.zeros(1, 66),
+            "roll": torch.zeros(1, 66),
+        }
+        loaded.options = {"size_smoothing": 0.0, "eye_retargeting": False}
+        loaded.x_c_s = torch.ones(1, NUM_KP, 3)
+        loaded.rel_mask = torch.ones(1, NUM_KP, 3)
+        loaded.gate = torch.ones(1, NUM_KP, 3)
+
+        engine._drive(loaded, torch.zeros(1, 3, 256, 256))
+        without = calls["warping"][-1][1]["kp_driving"].float().clone()
+        loaded.mouth_leak[0, 20, 1] = 0.01
+        engine._drive(loaded, torch.zeros(1, 3, 256, 256))
+        with_leak = calls["warping"][-1][1]["kp_driving"].float().clone()
+
+        diff = with_leak - without
+        assert diff[0, 20, 1] == pytest.approx(-0.01, abs=5e-4)  # fp16 keypoints
+        diff[0, 20, 1] = 0.0
+        assert float(diff.abs().max()) < 5e-4
+
+
 class TestEyeLipRatios:
     """``_eye_ratios``/``_lip_ratio``: LivePortrait's own close-ratio measure,
     on MediaPipe's points -- the eye/lip retargeting networks' own input."""
@@ -1042,6 +1455,7 @@ class TestDriveNetworkOptions:
         # both no-ops here, as load_avatar's own start state is.
         loaded.gate = torch.ones(1, NUM_KP, 3)
         loaded.brow_delta = torch.zeros(1, NUM_KP, 3)
+        loaded.mouth_leak = torch.zeros(1, NUM_KP, 3)
         loaded.eye_rest = torch.zeros(1, NUM_KP, 3)
         loaded.lip_rest = torch.zeros(1, NUM_KP, 3)
         # The day-7 smoothing state: primed the same way load_avatar primes
@@ -1224,6 +1638,7 @@ class TestRotationPivot:
         loaded.rel_mask, loaded.eye_mask = _region_masks(0.0, True, torch, torch.device("cpu"))
         loaded.gate = torch.ones(1, NUM_KP, 3)
         loaded.brow_delta = torch.zeros(1, NUM_KP, 3)
+        loaded.mouth_leak = torch.zeros(1, NUM_KP, 3)
         loaded.eye_rest = torch.zeros(1, NUM_KP, 3)
         loaded.lip_rest = torch.zeros(1, NUM_KP, 3)
         loaded.exp_prev = zeros_kp.clone()
@@ -1587,6 +2002,7 @@ class TestMotionSmoothing:
         )
         loaded.gate = torch.ones(1, NUM_KP, 3)
         loaded.brow_delta = torch.zeros(1, NUM_KP, 3)
+        loaded.mouth_leak = torch.zeros(1, NUM_KP, 3)
         loaded.eye_rest = torch.zeros(1, NUM_KP, 3)
         loaded.lip_rest = torch.zeros(1, NUM_KP, 3)
         loaded.exp_prev = zeros_kp.clone()
@@ -1736,8 +2152,35 @@ class TestRegionMasks:
                 if (k, axis) not in _MOUTH_SMILE:
                     assert rel_mask[0, k, axis] == 1.0, (k, axis)
 
+    def test_rel_mask_opening_gain_weights_the_lips_parting_only(self):
+        """Day 15: the y of 17 / 19 / 20 is the lips' parting (see
+        _MOUTH_OPENING); mouth_opening_gain weights exactly those, and
+        nothing of the smile, the lateral components or the rest of the
+        mouth -- and it multiplies with expression_gain like the others."""
+        torch = pytest.importorskip("torch")
+        rel_mask, _ = _region_masks(
+            1.0,
+            True,
+            torch,
+            torch.device("cpu"),
+            mouth_lateral_gain=1.0,
+            mouth_smile_gain=1.0,
+            mouth_opening_gain=0.6,
+            expression_gain=2.0,
+        )
+        assert _MOUTH_OPENING == ((17, 1), (19, 1), (20, 1))
+        assert not set(_MOUTH_OPENING) & (set(_MOUTH_SMILE) | set(_MOUTH_LATERAL))
+        for k, axis in _MOUTH_OPENING:
+            assert rel_mask[0, k, axis] == pytest.approx(1.2), (k, axis)
+        for k in MOUTH_KEYPOINTS:
+            for axis in range(3):
+                if (k, axis) not in _MOUTH_OPENING:
+                    assert rel_mask[0, k, axis] == pytest.approx(2.0), (k, axis)
+
     def test_mouth_axis_gain_reads_and_validates(self):
         assert _mouth_axis_gain({}, "mouth_lateral_gain", 0.0) == 0.0
+        assert _mouth_axis_gain({}, "mouth_opening_gain", 1.0) == 1.0
+        assert _mouth_axis_gain({"mouth_opening_gain": 0.6}, "mouth_opening_gain", 1.0) == 0.6
         assert _mouth_axis_gain({"mouth_smile_gain": 0.8}, "mouth_smile_gain", 1.0) == 0.8
         assert (
             _mouth_axis_gain({"mouth_smile_gain": 1.5}, "mouth_smile_gain", 1.0) == 1.5
@@ -1841,6 +2284,7 @@ class TestRegionMasks:
         )
         loaded.gate = torch.ones(1, NUM_KP, 3)
         loaded.brow_delta = torch.zeros(1, NUM_KP, 3)
+        loaded.mouth_leak = torch.zeros(1, NUM_KP, 3)
         loaded.eye_rest = torch.zeros(1, NUM_KP, 3)
         loaded.lip_rest = torch.zeros(1, NUM_KP, 3)
         return engine, loaded, calls
@@ -2009,6 +2453,7 @@ class TestAnchorGatingInRender:
         # before every replay.
         loaded.gate = torch.ones(1, NUM_KP, 3)
         loaded.brow_delta = torch.zeros(1, NUM_KP, 3)
+        loaded.mouth_leak = torch.zeros(1, NUM_KP, 3)
         # The day-7 smoothing state: _render's own path (through the fake
         # graph below) never touches these, but _learn_anchor now primes
         # them on every accepted anchor frame (see TestMotionSmoothing), so
@@ -2198,6 +2643,9 @@ class TestAnchorGatingInRender:
         the same clean mean ``exp_d0`` itself was just set to."""
         torch = pytest.importorskip("torch")
         engine, loaded = self._engine_and_loaded(tmp_path, torch=torch, anchor_wanted=2)
+        loaded.options = {
+            "mouth_rest": "anchor"
+        }  # the running mean itself, not the portrait's lip rest
         engine._nets["motion"] = self._motion_with_exp(torch, [0.2, 0.6])
         driver_rgb = np.zeros((MODEL_SIZE, MODEL_SIZE, 3), dtype=np.uint8)
 
@@ -2215,6 +2663,9 @@ class TestAnchorGatingInRender:
         is hard-overwritten there too."""
         torch = pytest.importorskip("torch")
         engine, loaded = self._engine_and_loaded(tmp_path, torch=torch, anchor_wanted=1)
+        loaded.options = {
+            "mouth_rest": "anchor"
+        }  # the running mean itself, not the portrait's lip rest
         driver_rgb = np.zeros((MODEL_SIZE, MODEL_SIZE, 3), dtype=np.uint8)
 
         engine._nets["motion"] = self._motion_with_exp(torch, [0.7])
@@ -2378,6 +2829,7 @@ class TestExtremePoseHold:
         loaded.eye_mask = torch.zeros(1, NUM_KP, 3)
         loaded.gate = torch.ones(1, NUM_KP, 3)
         loaded.brow_delta = torch.zeros(1, NUM_KP, 3)
+        loaded.mouth_leak = torch.zeros(1, NUM_KP, 3)
         loaded.graph = _CountingGraph()
         loaded.static_in = torch.zeros(1, 3, MODEL_SIZE, MODEL_SIZE)
         loaded.static_out = torch.zeros(1, 3, CROP_SIZE, CROP_SIZE)
