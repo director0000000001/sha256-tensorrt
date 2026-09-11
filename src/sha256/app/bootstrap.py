@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from sha256.app.kill_switch import KillSwitch
 from sha256.app.registry import Registries
 from sha256.avatar.cache import ResidencyCache
 from sha256.avatar.engine_liveportrait import LivePortraitEngine
@@ -21,11 +22,13 @@ from sha256.avatar.engine_null import NullAvatarEngine
 from sha256.avatar.engine_warp import WarpAvatarEngine
 from sha256.avatar.manager import AvatarManager
 from sha256.avatar.repository import FilesystemAvatarRepository
+from sha256.calibration.profile import PROFILE_FILENAME, DriverProfile
 from sha256.camera.null import NullCameraProvider
 from sha256.camera.opencv_capture import OpenCVCameraProvider
 from sha256.config.loader import load_settings
 from sha256.config.paths import AppPaths
 from sha256.config.schema import Settings
+from sha256.core.errors import EngineError
 from sha256.core.interfaces import (
     AvatarEngine,
     CameraProvider,
@@ -47,7 +50,12 @@ from sha256.utils.logging import configure_logging, get_logger
 from sha256.virtual_camera.null import NullVirtualCameraSink
 from sha256.virtual_camera.pyvirtualcam_sink import PyVirtualCameraSink
 
-__all__ = ["ApplicationContext", "build_application", "register_builtin_backends"]
+__all__ = [
+    "ApplicationContext",
+    "apply_driver_profile",
+    "build_application",
+    "register_builtin_backends",
+]
 
 _LOG = get_logger(__name__)
 
@@ -133,9 +141,19 @@ class ApplicationContext:
     monitor: PerformanceMonitor
     avatars: AvatarManager
     controller: PipelineController
+    # Day 16: the driver profile that was laid over the engine at start,
+    # if the machine has one (configs/local.driver.json) -- None otherwise.
+    driver_profile: DriverProfile | None = None
+    # Day 16 (D1/D2): the courtesy switch (unconfigured = inert), and what
+    # the start had to say to the person -- a fallback taken, a card too
+    # small -- for the window to show once.
+    kill_switch: KillSwitch | None = None
+    startup_notes: tuple[str, ...] = ()
 
     def shutdown(self) -> None:
         """Release everything, in the safe order. Idempotent."""
+        if self.kill_switch is not None:
+            self.kill_switch.stop()
         self.controller.stop()
         self.avatars.unload_all()
         engine = self.avatars.engine
@@ -198,8 +216,13 @@ def build_application(
         height=settings.rendering.output_height,
     )
     virtual_camera: VirtualCameraSink = _create_virtual_camera(registries, settings)
-    engine: AvatarEngine = _create_engine(registries, settings, paths)
-    engine.start()
+    engine, notes = _start_engine_with_fallback(registries, settings, paths)
+    driver_profile = apply_driver_profile(engine, paths.configs / PROFILE_FILENAME)
+    kill_switch = KillSwitch(
+        settings.kill_switch.url,
+        interval_seconds=settings.kill_switch.check_hours * 3600.0,
+        timeout=settings.kill_switch.timeout_seconds,
+    )
 
     avatars = _build_avatar_manager(settings, paths, engine)
 
@@ -242,7 +265,87 @@ def build_application(
         monitor=monitor,
         avatars=avatars,
         controller=controller,
+        driver_profile=driver_profile,
+        kill_switch=kill_switch,
+        startup_notes=tuple(notes),
     )
+
+
+def _start_engine_with_fallback(
+    registries: Registries, settings: Settings, paths: AppPaths
+) -> tuple[AvatarEngine, list[str]]:
+    """Start the configured engine; when the neural engine cannot (no
+    NVIDIA GPU, no CUDA, the weights missing), start the photograph
+    engine in its place and say so in a plain sentence (day 16, D2) --
+    the five run on their own machines and a machine without a card must
+    still open. Also a note when the card is smaller than the neural
+    avatars want."""
+    notes: list[str] = []
+    engine: AvatarEngine = _create_engine(registries, settings, paths)
+    try:
+        engine.start()
+    except EngineError as exc:
+        if settings.engine.backend != "liveportrait":
+            raise
+        _LOG.warning("The neural engine cannot start here (%s); using the photograph engine", exc)
+        notes.append(
+            "This computer has no usable NVIDIA GPU for the neural avatar, so the "
+            "photograph engine is running instead. Only 'warp' avatars will load."
+        )
+        fallback = settings.model_copy(
+            update={"engine": settings.engine.model_copy(update={"backend": "warp"})}
+        )
+        engine = _create_engine(registries, fallback, paths)
+        engine.start()
+        return engine, notes
+    vram = _gpu_memory_mb()
+    if settings.engine.backend == "liveportrait" and vram is not None and vram < 6000:
+        notes.append(
+            f"The graphics card has {vram} MB; the neural avatar wants about 4500 MB free "
+            "and may not fit beside a browser and the call."
+        )
+    return engine, notes
+
+
+def _gpu_memory_mb() -> int | None:
+    """The first CUDA device's memory in MB, or None without torch / CUDA."""
+    try:
+        import torch
+    except ImportError:
+        return None
+    try:
+        if not torch.cuda.is_available():
+            return None
+        return int(torch.cuda.get_device_properties(0).total_memory // (1024 * 1024))
+    except Exception:  # a driver that answers strangely must not stop the start
+        return None
+
+
+def apply_driver_profile(engine: object, path: Path) -> DriverProfile | None:
+    """Lay the driver profile at ``path`` (day 16, "Calibrate me") over the
+    engine's avatars, for an engine that takes one -- ``set_driver_options``
+    is the neural engine's, not part of the protocol, so any other engine
+    is left alone. Before the default avatar is selected, so the first
+    load already carries it. A profile the engine refuses (a key that is
+    not the driver's) is reported and skipped, never fatal."""
+    setter = getattr(engine, "set_driver_options", None)
+    if setter is None:
+        return None
+    profile = DriverProfile.load(path)
+    if profile is None:
+        return None
+    try:
+        setter(profile.overlay())
+    except ValueError as exc:
+        _LOG.warning("Driver profile %s not applied: %s", path, exc)
+        return None
+    _LOG.info(
+        "Driver profile from %s (measured %s): %s",
+        path.name,
+        profile.measured_at or "?",
+        ", ".join(sorted(profile.overlay())) or "nothing",
+    )
+    return profile
 
 
 def _create_virtual_camera(registries: Registries, settings: Settings) -> VirtualCameraSink:

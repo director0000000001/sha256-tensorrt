@@ -20,10 +20,13 @@ Diagnostics live behind the developer panel, which appears only when
 
 from __future__ import annotations
 
+import shutil
+import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -44,15 +47,20 @@ from PySide6.QtWidgets import (
 
 from sha256.app.owner import OWNER_FILENAME, OwnerAccess
 from sha256.avatar.importer import AvatarImportError, import_portrait, neural_template
+from sha256.calibration import PROFILE_FILENAME, STEPS, CalibrationSession, DriverProfile
+from sha256.calibration.measure import calibrate, describe
+from sha256.calibration.script import total_seconds
 from sha256.core.enums import PipelineState
 from sha256.core.errors import Sha256Error
 from sha256.pipeline.conditioning import QUALITY_NAMES, OutputConditioner
 from sha256.pipeline.runner import PipelineRunner
-from sha256.tracking.mediapipe_tracker import DEFAULT_MODEL_RELATIVE_PATH
+from sha256.tracking.mediapipe_tracker import DEFAULT_MODEL_RELATIVE_PATH, MediaPipeFaceTracker
 from sha256.ui.background import BackgroundPanel
 from sha256.ui.hotkey import GlobalHotkey
 from sha256.ui.panels.debug_panel import DebugPanel
+from sha256.ui.photo_guide_dialog import PhotoGuideDialog
 from sha256.ui.preview import PreviewWidget
+from sha256.ui.speech import Speaker
 from sha256.utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -67,6 +75,8 @@ _LOG = get_logger(__name__)
 # newest frame is when it wakes.
 _PREVIEW_INTERVAL_MS = 33
 _STATUS_INTERVAL_MS = 500
+# The calibration's instruction and its countdown are redrawn this often.
+_CALIBRATION_TICK_MS = 100
 
 # The avatar view is first, and therefore the default. The tracking view exists
 # to answer "is it following me"; the avatar view is the product, and defaulting
@@ -92,6 +102,15 @@ QLabel { color: #f2f2f6; background: transparent; }
 QCheckBox { color: #e2e2ea; background: transparent; }
 
 #StatusLine { color: #fca5a5; font-size: 13px; }
+#Instruction {
+    color: #ffffff;
+    font-size: 26px;
+    font-weight: 600;
+    background-color: rgba(12, 12, 18, 200);
+    border: 1px solid rgba(255, 255, 255, 40);
+    border-radius: 12px;
+    padding: 14px 24px;
+}
 #Fps { color: #6ee7b7; font-size: 14px; font-weight: 600; }
 
 #Bar {
@@ -149,6 +168,10 @@ QComboBox QAbstractItemView {
 class MainWindow(QMainWindow):
     """Start screen and running screen, over a background image."""
 
+    # Day 16 (D1): the kill switch reports from its own thread; the
+    # signal carries its word onto this one.
+    switched_off = Signal(str)
+
     def __init__(self, context: ApplicationContext) -> None:
         super().__init__()
         self._context = context
@@ -180,6 +203,18 @@ class MainWindow(QMainWindow):
         self._status_timer.timeout.connect(self._refresh_status)
         self._status_timer.start()
 
+        # Day 16: "Calibrate me" -- the running session, if one is on, and
+        # the timer that keeps its instruction and countdown on screen.
+        self._calibration: CalibrationSession | None = None
+        # The instructions read aloud where a voice exists (see ui.speech);
+        # made when a calibration starts, replaced in tests.
+        self._speaker: Speaker | None = None
+        self._speaker_factory: Callable[[], Speaker] = Speaker
+        self._spoken_step = -1
+        self._calibration_timer = QTimer(self)
+        self._calibration_timer.setInterval(_CALIBRATION_TICK_MS)
+        self._calibration_timer.timeout.connect(self._tick_calibration)
+
         self._populate_avatars()
         self._populate_cameras()
         self._refresh_publish_state()
@@ -194,6 +229,17 @@ class MainWindow(QMainWindow):
         )
         self._hotkey.register()
         self._refresh_blackout_tooltip()
+        # Day 16 (D1/D2): the courtesy switch, and what the start had to say.
+        self._switched_off = False
+        self.switched_off.connect(self._on_switched_off)
+        switch = context.kill_switch
+        if switch is not None and switch.configured:
+            switch._on_state = lambda state: (
+                self.switched_off.emit(state.message) if not state.allowed else None
+            )
+            switch.start()
+        if context.startup_notes:
+            QTimer.singleShot(0, self._show_startup_notes)
         self._refresh_status()
 
     @property
@@ -221,6 +267,16 @@ class MainWindow(QMainWindow):
         self._stack.addWidget(self._build_start_screen())
         self._stack.addWidget(self._preview)
         layout.addWidget(self._stack, 1)
+
+        # Day 16: the calibration's instruction, over the video and above
+        # the bar, large enough to read from where a person sits. Hidden
+        # except while a calibration runs.
+        self._instruction = QLabel()
+        self._instruction.setObjectName("Instruction")
+        self._instruction.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._instruction.setWordWrap(True)
+        self._instruction.hide()
+        layout.addWidget(self._instruction)
 
         layout.addWidget(self._build_bar())
         return page
@@ -351,6 +407,21 @@ class MainWindow(QMainWindow):
         )
         self._recentre_button.clicked.connect(self._on_recentre)
         layout.addWidget(self._recentre_button)
+
+        # Day 16: "Calibrate me" -- a guided three-quarters of a minute
+        # measured by the engine's own instruments into a driver profile
+        # (see sha256.calibration), and a recording of the session for the
+        # offline measurement. For anyone, not the owner alone: each of the
+        # five runs it once at their own camera.
+        self._calibrate_button = QPushButton("Calibrate me")
+        self._calibrate_button.setToolTip(
+            f"A guided {total_seconds(STEPS):.0f} seconds -- sit still, blink, talk, smile, "
+            "raise the brows, glance, turn -- measured into your own profile, so the "
+            "avatar follows your face and not the owner's. Records the session on this "
+            "computer; press again to stop."
+        )
+        self._calibrate_button.clicked.connect(self._on_calibrate)
+        layout.addWidget(self._calibrate_button)
 
         layout.addSpacing(10)
 
@@ -510,8 +581,12 @@ class MainWindow(QMainWindow):
         return models_root / DEFAULT_MODEL_RELATIVE_PATH
 
     def _on_add_avatar(self) -> None:
-        """A photograph in, an avatar in the library out -- checked first."""
+        """A photograph in, an avatar in the library out -- checked first.
+        The guide comes first (day 16, his ask): what the photograph must be
+        and the prompts that make one, then the file dialog."""
         if not self._owner.is_unlocked:
+            return
+        if PhotoGuideDialog(self).exec() != int(PhotoGuideDialog.DialogCode.Accepted):
             return
         photo, _ = QFileDialog.getOpenFileName(
             self, "Choose a photograph", "", "Images (*.png *.jpg *.jpeg *.webp *.bmp)"
@@ -550,6 +625,240 @@ class MainWindow(QMainWindow):
             "Add avatar",
             f"{descriptor.manifest.name} added as {descriptor.root}\n\n{report.describe()}",
         )
+
+    # --- Calibrate me (day 16) ---------------------------------------------
+
+    def _calibration_engine(self) -> Any | None:
+        """The engine, when it can be calibrated -- one with the neural
+        engine's per-frame readings; the photograph engine has none."""
+        engine = self._context.avatars.engine
+        return engine if engine is not None and hasattr(engine, "frame_readings") else None
+
+    def _output_tracker(self) -> MediaPipeFaceTracker:
+        """An unfiltered tracker for reading the avatar's face back off the
+        composited output, the way scripts/measure_follow.py does."""
+        tracking = self._context.settings.tracking
+        return MediaPipeFaceTracker(
+            model_path=self._tracker_model_path(),
+            min_detection_confidence=tracking.min_detection_confidence,
+            min_presence_confidence=tracking.min_presence_confidence,
+            min_tracking_confidence=tracking.min_tracking_confidence,
+            smoothing=0.0,
+            mouth_smoothing=0.0,
+        )
+
+    def _on_calibrate(self) -> None:
+        """Start a calibration, or stop the one running."""
+        if self._calibration is not None:
+            self._cancel_calibration()
+            return
+        engine = self._calibration_engine()
+        active = self._context.avatars.active_id
+        if not self._runner.is_running:
+            QMessageBox.information(
+                self, "Calibrate me", "Press Start first, so the avatar is running on your face."
+            )
+            return
+        if engine is None or active is None:
+            QMessageBox.information(
+                self,
+                "Calibrate me",
+                "Calibrate me needs the neural engine and an avatar selected.",
+            )
+            return
+        recordings = self._context.paths.root / "recordings"
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        directory = recordings / f"calibration-{stamp}"
+        answer = QMessageBox.question(
+            self,
+            "Calibrate me",
+            f"About {total_seconds(STEPS):.0f} seconds of instructions: sit still, blink, "
+            "open your mouth, talk, smile, raise your eyebrows, glance, turn your head.\n\n"
+            "The session is RECORDED -- your camera frames and their tracking -- into\n"
+            f"{directory}\n"
+            "on this computer only, so your face can be re-measured later without you. "
+            "You can delete that folder at any time.\n\nContinue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        session = CalibrationSession(
+            self._runner,
+            engine=engine,
+            avatar_id=active,
+            directory=directory,
+            output_tracker_factory=self._output_tracker,
+            fps=self._context.settings.camera.target_fps,
+        )
+        try:
+            session.start()
+        except Exception as exc:
+            _LOG.exception("Calibration could not start")
+            QMessageBox.critical(self, "Calibrate me", f"Could not start: {exc}")
+            session.cancel()
+            return
+        self._calibration = session
+        self._spoken_step = -1
+        if self._speaker is None:
+            self._speaker = self._speaker_factory()
+        self._calibrate_button.setText("Stop calibrating")
+        self._instruction.show()
+        self._calibration_timer.start()
+        self._tick_calibration()
+
+    def _tick_calibration(self) -> None:
+        session = self._calibration
+        if session is None:
+            return
+        if session.finished:
+            self._finish_calibration()
+            return
+        placed = session.current()
+        if placed is None:
+            return
+        index, step, left, reading = placed
+        if index != self._spoken_step:
+            self._spoken_step = index
+            if self._speaker is not None:
+                self._speaker.say(step.instruction)
+        phase = "Get ready..." if reading else "NOW"
+        self._instruction.setText(
+            f"{index + 1} / {len(session.steps)}\n{step.instruction}\n{phase}  {left:.0f}"
+        )
+
+    def _end_calibration_ui(self) -> None:
+        self._calibration = None
+        self._calibration_timer.stop()
+        if self._speaker is not None:
+            self._speaker.stop()
+        self._instruction.hide()
+        self._calibrate_button.setText("Calibrate me")
+        self._refresh_status()
+
+    def _cancel_calibration(self) -> None:
+        """Stop, and remove what was recorded -- nothing of the person stays."""
+        session = self._calibration
+        self._end_calibration_ui()
+        if session is not None:
+            session.cancel()
+
+    def _current_driver_options(self, avatar_id: str, engine: Any) -> dict[str, Any]:
+        """What the avatar runs with now: its own options with the engine's
+        driver profile over them -- the gains are corrected from these."""
+        current: dict[str, Any] = {}
+        try:
+            for candidate in self._context.avatars.list_avatars():
+                if candidate.id == avatar_id:
+                    current.update(candidate.manifest.engine_options)
+        except Sha256Error:
+            pass
+        current.update(getattr(engine, "driver_options", {}) or {})
+        return current
+
+    def _finish_calibration(self) -> None:
+        """The steps are over: measure, write the profile, apply it."""
+        session = self._calibration
+        if session is None:
+            return
+        self._calibration_timer.stop()
+        self._instruction.setText("Measuring...")
+        engine = self._calibration_engine()
+        active = self._context.avatars.active_id
+        try:
+            files = session.finish()
+        except Exception as exc:
+            _LOG.exception("Calibration could not finish")
+            QMessageBox.critical(self, "Calibrate me", f"The session could not be saved: {exc}")
+            self._end_calibration_ui()
+            return
+        if engine is None or active is None:
+            self._end_calibration_ui()
+            return
+        current = self._current_driver_options(active, engine)
+        result = calibrate(session.samples, current)
+        report = describe(result, current=current)
+        (files.directory / "report.txt").write_text(report + "\n", encoding="utf-8")
+        where = (
+            f"The session ({files.frames_written} frames of your face) is at\n"
+            f"{files.directory}\n-- this computer only; delete it when it is no longer needed."
+        )
+        if not result.ok:
+            self._end_calibration_ui()
+            QMessageBox.warning(
+                self, "Calibrate me", f"Nothing could be measured.\n\n{report}\n\n{where}"
+            )
+            return
+        path = self._context.paths.configs / PROFILE_FILENAME
+        try:
+            session_name = str(files.directory.relative_to(self._context.paths.root))
+        except ValueError:
+            session_name = str(files.directory)
+        profile = DriverProfile.from_result(result, avatar=active, session=session_name)
+        if path.is_file():
+            # The last person's profile is kept beside the new one.
+            previous = DriverProfile.load(path)
+            stamp = (previous.measured_at if previous else "").replace(":", "") or "previous"
+            shutil.copy(path, path.with_name(f"local.driver.{stamp}.json"))
+        profile.save(path)
+        profile.save(files.directory / "profile.json")
+        self._end_calibration_ui()
+        applied = self._apply_driver_profile(engine, active, profile)
+        QMessageBox.information(
+            self,
+            "Calibrate me",
+            f"Your profile is written to {path}\n\n{report}\n\n{where}"
+            + ("" if applied else "\n\nIt was not applied; restart to use it."),
+        )
+
+    def _apply_driver_profile(self, engine: Any, avatar_id: str, profile: DriverProfile) -> bool:
+        """Lay the profile over the engine and reload the avatar under it --
+        the graph bakes the options at load. The pipeline is stopped for the
+        reload (a frame must not meet an unloaded avatar) and started again."""
+        try:
+            engine.set_driver_options(profile.overlay())
+        except ValueError as exc:
+            _LOG.warning("The profile was refused by the engine: %s", exc)
+            return False
+        was_running = self._runner.is_running
+        if was_running:
+            self._preview_timer.stop()
+            self._runner.stop()
+        manager = self._context.avatars
+        ok = True
+        try:
+            manager.unload(avatar_id)
+            manager.select(avatar_id)
+        except Sha256Error as exc:
+            _LOG.warning("The avatar could not be reloaded with the profile: %s", exc)
+            QMessageBox.warning(self, "Calibrate me", f"The avatar did not reload: {exc}")
+            ok = False
+        if was_running:
+            try:
+                self._runner.start()
+                self._preview_timer.start()
+            except Exception as exc:
+                _LOG.exception("The pipeline did not restart after the calibration")
+                QMessageBox.critical(self, "Could not start", str(exc))
+                ok = False
+        self._refresh_status()
+        return ok
+
+    def _show_startup_notes(self) -> None:
+        QMessageBox.information(self, "sha256", "\n\n".join(self._context.startup_notes))
+
+    def _on_switched_off(self, message: str) -> None:
+        """The owner's switch says stop: the pipeline stops, Start is
+        disabled, and the message is shown once."""
+        if self._switched_off:
+            return
+        self._switched_off = True
+        if self._calibration is not None:
+            self._cancel_calibration()
+        self._on_stop()
+        self._primary_button.setEnabled(False)
+        self._status_line.setText(message)
+        QMessageBox.information(self, "sha256", message)
 
     def _on_recentre(self) -> None:
         """Learn the resting face again, for whichever avatar is active.
@@ -675,7 +984,7 @@ class MainWindow(QMainWindow):
     def _refresh_status(self) -> None:
         running = self._runner.is_running
         self._stop_button.setEnabled(running)
-        self._primary_button.setEnabled(not running)
+        self._primary_button.setEnabled(not running and not self._switched_off)
 
         error = self._runner.last_error
         if error is not None:
@@ -707,6 +1016,8 @@ class MainWindow(QMainWindow):
             active = self._context.avatars.active_id
             if running and engine is not None and active is not None:
                 rest = engine.rest_status(active)
+            if self._calibration is not None:
+                rest = "Calibrating -- follow the instruction above"
             self._status_line.setText(rest or "")
 
         # The black screen outranks the rest of the line: while it is on, the
@@ -740,5 +1051,10 @@ class MainWindow(QMainWindow):
         self._preview_timer.stop()
         self._status_timer.stop()
         self._hotkey.unregister()
+        if self._context.kill_switch is not None:
+            self._context.kill_switch.stop()
+        if self._calibration is not None:
+            # A half-done recording of the person is not kept.
+            self._cancel_calibration()
         self._runner.stop()
         super().closeEvent(event)  # type: ignore[arg-type]
