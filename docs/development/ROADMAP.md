@@ -4239,25 +4239,31 @@ constraint: quality over the date, packaging last.
 **Block A -- a second face (days 16-17).** Everything measured so far is
 his; the first thing to learn is what does not carry.
 
-- **A1. A friend's recording.** One friend, with their consent, sits
-  where he sits and runs `scripts/record_driving_clip.py` twice (the
-  scripted clip and `--script natural`), two minutes each. The files stay
-  under `recordings/` (gitignored) and are deleted when done. Then the
-  whole measurement on them: `measure_follow.py`, the day-15 bars, the
-  brow-to-mouth probe, the anchor testbed. *Done when* there is a table
-  of which bars a second face fails and by how much. Half a day; his
-  part is the recording.
-- **A2. "Calibrate me".** A guided half-minute in the window -- sit
-  still, blink, open the mouth, smile with teeth, raise the brows, turn
-  left and right -- measured live by the same instruments and written to
-  a *driver profile* (`configs/local.driver.json`, per person) that is
-  laid over the avatar's engine options: the gates' jitter thresholds,
-  the brow-to-mouth leak's slopes, the expression gain that brings the
+- **A2 first, then A1 in person** (his word, the same evening: the
+  friend comes to him, and the app measures the face live). **A2.
+  "Calibrate me".** A guided half-minute in the window -- sit still,
+  blink, open the mouth, smile with teeth, raise the brows, turn left and
+  right -- measured live by the same instruments and written to a
+  *driver profile* (`configs/local.driver.json`, per person) that is laid
+  over the avatar's engine options: the gates' jitter thresholds, the
+  brow-to-mouth leak's slopes, the expression gain that brings the
   talking mouth to 1.0, the lip rest, the resting ratios. This is the
   fifteen days' hand work for the measurable parts, done by the app in
-  thirty seconds for anyone. *Done when* the friend's failing bars from
-  A1 come within the day-15 numbers with a profile, and his own do not
-  regress. One to two days.
+  thirty seconds for anyone. **And it records its own session** -- the
+  clip and the tracking, the way a capture does, under `recordings/`
+  (gitignored), with the person's consent and deleted when done -- so
+  the same face can be re-measured offline after every change without
+  the person present. *Done when* his own profile measures what day 15
+  set by hand within a few percent, and the session file replays through
+  `measure_follow.py`. One to two days, built before the friend comes.
+- **A1. The friend's visit.** They sit where he sits, run "Calibrate
+  me", make a five-minute call, and press "That looked wrong" *during*
+  anything that looks wrong. What comes out: a profile, a session clip,
+  captures with their anchors. Then the whole measurement on the clip:
+  the day-15 bars, the brow-to-mouth probe, the anchor testbed. *Done
+  when* there is a table of which bars a second face fails and by how
+  much, with and without the profile. Half a day of measurement; his
+  part is the visit.
 - **A3. The split, written down.** Which options belong to the portrait
   (the mask reaches, the jaw shrink, the crop of the picture) and which
   to the driver (gains, gates, leak, rest), so a new person and a new
