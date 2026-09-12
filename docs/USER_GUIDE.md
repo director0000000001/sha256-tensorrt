@@ -19,39 +19,48 @@ Close Discord and anything else that holds the camera before you start.
 ## The first time
 
 1. Start `sha256.exe`. If Windows warns about an unknown publisher, choose
-   *More info → Run anyway* — the build is not signed, on purpose.
-2. Pick your **Camera** and an **Avatar**, press **Start**. Look straight
-   at the camera for a second: the status line says when the avatar has
-   centred on you.
-3. Press **Calibrate me**. Say yes, follow the large instructions for
+   *More info → Run anyway* — the build is not signed, on purpose. The bar
+   along the bottom has what a call needs: **Start**, **Stop**, the
+   **Camera**, the **Avatar**, **Virtual camera** and the red button.
+   Everything else is under **Menu**, at the bar's right end.
+2. Pick your **Camera** and an **Avatar**, press **Start**. Sit still and
+   look at the camera for a second: the status line counts the frames and
+   says when the avatar has centred on you.
+3. Open **Menu → Calibrate me**. Say yes, follow the large instructions for
    about a minute and a half (sit still, blink, open your mouth, talk,
    smile, raise your eyebrows, glance left and right, turn your head).
    Each one is read aloud and shown with a few seconds to get ready, then
-   a countdown while you do it. At the end the
-   app writes your profile (`configs/local.driver.json`) and reloads the
-   avatar with it. This is what makes the avatar follow *your* face
-   rather than the owner's. The session is recorded under `recordings/`
-   on this computer only — delete that folder whenever you like.
-4. Tick **Virtual camera**. In Zoom, Meet, Teams or Discord choose
+   a countdown while you do it. At the end the app asks your name, keeps
+   your profile under it (`configs/drivers/`), reloads the avatar with it
+   and shows what it measured. This is what makes the avatar follow
+   *your* face rather than the owner's. The session is recorded under
+   `recordings/` on this computer only — delete that folder whenever you
+   like.
+4. Every time you sit down: **Menu → Person → your name**. The status line
+   reads "Profile: *your name*" while nothing else needs saying. Someone
+   else at the same computer chooses theirs; **Nobody** runs the avatar
+   with its own values.
+5. Tick **Virtual camera**. In Zoom, Meet, Teams or Discord choose
    **OBS Virtual Camera** as the camera.
 
 ## On a call
 
-- **Re-centre** if you moved your chair: look at the camera for a second.
+- **Menu → Re-centre** if you moved your chair: look at the camera for a second.
 - **Camera battery died** (the red button, or **Ctrl+Alt+B** from any
   window) blacks the camera with that text, as if the battery went. Press
   again to come back. The app does the same on its own when it loses your
   face for more than a moment.
-- **Quality**: 480p makes the picture look like an ordinary webcam and
+- **Menu → Quality**: 480p makes the picture look like an ordinary webcam and
   hides small defects; 360p looks like a poor line.
-- **That looked wrong**: press it *during* anything that looks wrong. It
+- **Menu → That looked wrong**: choose it *during* anything that looks wrong. It
   saves the last ten seconds of tracking (numbers, no picture) plus the
   frame on screen and the camera frame at that instant, under `captures/`,
   so the moment can be studied.
 
 ## Adding an avatar (the owner only)
 
-**Login** takes the owner's passphrase; then **Add avatar** appears. A
+**Menu → Login** takes the owner's passphrase; then **Add avatar** appears in
+the menu. A
 good photograph: one face looking straight at the camera, eyes open, lips
 closed or barely parted (a grin becomes the avatar's resting face), even
 light, no glasses, hair off the forehead, and room below the chin. The app
@@ -66,7 +75,8 @@ itself and keeps the original beside it.
 | The camera is not in the list | a charge-only cable, or Smartphone Connect is on (Sony). |
 | "no virtual camera device" | install OBS Studio once; or OBS is running with its own virtual camera on — stop that one. |
 | "no usable NVIDIA GPU" at start | the photograph avatar is running instead; the neural avatar needs an NVIDIA card. |
-| The avatar's mouth or brows do not follow you | run **Calibrate me** again, sitting where you sit on calls, with the light you use. |
+| The avatar's mouth or brows do not follow you | check **Menu → Person** shows *your* name; if it does, run **Menu → Calibrate me** again, sitting where you sit on calls, with the light you use. |
+| The avatar stays a still picture after Start | it is waiting to centre on you: sit still and look at the camera for a second (the status line counts to 15). Talking, nodding or reading the screen keeps it waiting. |
 | The app says it has been switched off by its owner | the owner's courtesy switch; nothing is wrong with your machine. |
 
 ## Privacy

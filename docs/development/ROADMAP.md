@@ -4853,6 +4853,375 @@ the file dialog, Cancel stops. In English, as asked.
 **Tests: 1135 non-gui, the gui files one per process (main_window 17,
 calibrate 8, block D 2, shell 11); ruff and mypy clean.**
 
+### Day 16, the menu (2026-09-12): the bar that set the window's width
+
+**His report after the day-16 build:** the buttons along the bottom did
+not fit when the window opened, and the window could not be made smaller.
+His instruction: a dropdown menu; build it with tests, he tests later.
+
+**Measured on this machine (2560x1440, Segoe UI 9) before the change:**
+the bar's fifteen controls set a minimum width of **1846 px**, and a
+status message added its own width on top of that (**2342 px** with the
+black screen's line showing) -- a plain QLabel asks for the whole width
+of its text. The window asked for 780 px of height on any screen, and
+Windows does not move a window up to keep its bottom on the screen. So on
+a screen with less than that free the bar was below the edge, and the bar
+would not let the window shrink.
+
+**Built (`sha256.ui.main_window`, `sha256.ui.widgets`):**
+
+- **The bar keeps six controls:** Start, Stop, Camera, Avatar, Virtual
+  camera, the red black-screen button -- what a call needs at one click --
+  then the status line, the fps, and **Menu ▾** at the right end.
+- **The Menu** (a QToolButton with a QMenu, the dark style of the combo
+  lists): View ▸ (Avatar / Tracking (no avatar), exclusive), Dots, Mirror,
+  Quality ▸ (Native / 1080p / 720p / 480p / 360p, exclusive), then That
+  looked wrong, Re-centre, Calibrate me (its entry reads "Stop
+  calibrating" while one runs), then Login / Owner and Add avatar (shown
+  only unlocked). Every entry is a QAction the handlers and the tests
+  drive alike; tooltips show in the menu.
+- **`ElidedLabel`** for the status line: asks for no width of its own,
+  cuts what does not fit with "…", keeps the full text in the tooltip and
+  in `text()`.
+- **The combos ask for 8 characters**, not their longest entry (the list
+  still opens at full width; the chosen name is the tooltip).
+- **`opening_geometry`**: the window opens at 1200x780 when the screen's
+  free area has the room, else at what fits under the frame (40 px of
+  width, 60 of height left for it), centred, never above the title bar's
+  room. A 1080p laptop at 150% (1280x660 free) gets 1200x600.
+
+**Measured after:** minimum width **1846 -> 1033 px**; with the status
+line's longest message **2342 -> 1033** (the line reads "BLACK SCREEN -
+the other…" at the 1200 opening width, the whole in the tooltip). Height
+306 minimum.
+
+**Tests:** main_window 24 (was 17): the bar's composition and the menu's
+entries, the view entries choosing what the preview shows, dots and
+mirror reaching the preview, a long status not widening the window, the
+label's cut and tooltip, the opening geometry on three screens, the
+window built at that size. The calibrate tests follow the action's text.
+The guide names the moved controls as "Menu → …".
+
+**Not yet:** his look at it -- the menu's look on his background, whether
+"Camera battery died" should stay on the bar (it did, on purpose: one
+click in a bad moment), whether 8 characters of a camera's name is
+enough. Uncommitted, on his word.
+
+### Day 16, the first other face (2026-09-12 evening): the anchor that never locked, and a name for each person
+
+**His report:** a friend ran Calibrate me twice; "it did not fit the
+avatar to the face afterwards and did nothing", nothing on screen said
+the calibration had worked, and: is there a select somewhere for whose
+calibration applies? His ask, sent while this was being measured: a name
+field at the end of every calibration, and the name chosen from the menu
+when the person sits down.
+
+**Measured (the two sessions' own recordings, `tracking.npz` frame by
+frame against the anchor gate, then `calibrate_clip.py --session`):**
+
+- The anchor gate took the camera for the person's eye line: `|pitch|
+  <= 4`, `|yaw| <= 4`, `|roll| <= 3` degrees around ZERO. The friend's
+  head reads **pitch -11** sitting still in front of this camera (the
+  owner's reads -3, and passes by a hair); yaw -4. In his 18:56 "sit
+  still" step **0 of 106 frames** passed the gate; in the whole session
+  36 of 1894, in the 19:01 session 3 of 1866. The log agrees: each anchor
+  before the calibrations froze after 889-1195 rejected frames (30-60 s),
+  inside the 18:56 session it froze during the BROWS step (a raise opens
+  the eyes and lifts the head past the gate), inside the 19:01 session
+  never. Every frame before the freeze is unusable to the measurement, so
+  the 18:56 run read talk 0, blink 0, smile 0 frames and wrote a profile
+  of two keys (crop_shift_x kept, gaze_gain 0.77) -- which, being the
+  whole `local.driver.json`, dropped the owner's twelve measured values
+  on the way -- and the 19:01 run wrote "Nothing measured" and left the
+  anchor reset, the avatar a still picture until the friend's face
+  happened to pass the gate: his "did nothing".
+- The pose noise of a head that IS still: over 15 frames, yaw/pitch/roll
+  spread p50 0.1-0.3 deg, p90 0.4-1.4 (the owner's and the friend's alike).
+  Reaching for the mouse (the day-5 case the gate was built for) moves
+  several degrees in that half second.
+- The friend's second "sit still" step was him being told what to do:
+  spread 6-10 deg, roll 10 -- no gate would take it. And his turn ran into
+  the last still step (yaw +44 at the median, the eye ratio reading 1.07):
+  those frames, once the anchor is frozen, were "still" to the
+  measurement and put the jitter at every gate's ceiling.
+
+**Built:**
+
+- **The anchor gate reads stillness** (`_pose_still`, `_ANCHOR_STILL_FRAMES`
+  15, `_ANCHOR_STILL_SPREAD` 3 deg; bounds widened to `|yaw| <= 10`,
+  `|pitch| <= 15`, `|roll| <= 6`): a frame is worth learning from when the
+  pose has held for the last half second at whatever angle this camera
+  sees a resting head from. A move while the anchor is still being learned
+  starts the accumulation over (`_restart_anchor`), so two still poses are
+  never averaged into one anchor. The anchor's own yaw is kept
+  (`rest_yaw`, an anchor scalar like `rest_pitch`) and **the extreme-pose
+  hold measures from the anchor's rest pose**: at rest pitch -11 a nod of
+  nine degrees no longer freezes the avatar. The status line reads "Sit
+  still and look at the camera to centre the avatar (n/15)".
+- **The measurement counts still frames only while facing the camera as
+  the anchor did** (`_anchor_pose`, `_frontal` on both axes relative to
+  the rest pose); the anchor's pitch/yaw are in `frame_readings`.
+- **The still step reads first too** (4 s, spoken), and the anchor is
+  reset when its measured phase starts, not when the instruction appears
+  (`CalibrationSession._enter_phase`). Every "Get ready:" segment maps to
+  the read phase offline. 89 s in all.
+- **Named profiles** (`sha256.calibration.roster`, his ask): Calibrate me
+  asks the person's name at the end; the profile goes to
+  `configs/drivers/<name>.json` (gitignored) and, as a copy, to
+  `local.driver.json` -- still the file the start reads, so the bootstrap
+  is untouched. **Menu → Person** lists Nobody (the avatar's own values)
+  and every name, the one in force checked; choosing one lays it over the
+  engine and reloads the avatar; the status line reads "Profile: name"
+  whenever nothing else needs saying. A `local.driver.json` from before
+  names existed is adopted as "Unnamed (when)". The same person
+  calibrating again keeps, for what the run could not measure, their
+  earlier value -- so "left as it is" in the report is true, and a new
+  person no longer inherits the last one's numbers.
+- **The roster on this machine, seeded:** the owner's 00:42 profile as
+  "Owner (2026-09-12 00:42)", back in force (the friend's two-key file had
+  replaced it); the friend's 18:56 session re-measured under the new gate
+  as "Friend (2026-09-12 18:56)". Both to be re-run under real names.
+
+**Measured after, offline, the same three recordings (`calibrate_clip.py
+--session ... --no-profile`, the avatar's own values as the base):**
+
+| session | live run (old gate) | offline, new gate |
+|---|---|---|
+| friend 18:56 | talk 0, blink 0, brows 67 (r 0.30), gaze 85, smile 0 frames; still 22 | talk 212 (r 0.99), blink 128 (0.98), brows 105 (0.98), gaze 85 (0.98), smile 128 (0.99); still jitter 0.0001 / 0.45%; lip rest 52 frames; leak 4 of 5 rows |
+| friend 19:01 | nothing measured | talk 209 (0.98), blink 128 (0.98), brows 106 (0.98), gaze 85 (0.97), smile 128 (0.99); lip rest 64 frames; leak 4 of 5 |
+| the owner 00:41 | talk 1.20x, blink 0.51x, gaze 1.23x, gates [0.0061, 0.0183] / [0.06, 0.11], lip rest [-0.0003, 0.0023, 0.0132] | talk 1.20x (195), blink 0.49x (117), gaze 1.25x (77), gates [0.0056, 0.0168] / [0.06, 0.11], lip rest [-0.0003, 0.0024, 0.0127]: his own profile again within a few % |
+
+The two friend sessions agree with each other: expression_gain 1.48 /
+1.38, gaze_gain 0.90 / 0.94, eye_gain 1.16 / kept (0.95x), brow_follow
+kept / 1.06, mouth_gate_mar [0.0034, 0.0102] / [0.0033, 0.0099],
+mouth_gate_width [0.044, 0.094] / [0.040, 0.090], lip rest rows within
+0.002, leak rows within 0.02. His smile reads 1.45x / 1.36x (reported,
+not written); his crop_shift_x -9.9 / -12.4 (the avatar's eyes +14 / +18
+px from his at rest -- a per-anchor number, as day 16 found). The
+frontal filter alone took the 18:56 still jitter from 0.047 / 8.7% (every
+gate at its ceiling) to 0.0001 / 0.45%.
+
+**Tests:** 1165 non-gui + 82 gui, ruff clean, mypy the 11 pre-existing
+warp errors. New: the gate's stillness and the friend's pose, the pose
+window, the restart, the hold from the rest pose, the still step's read
+phase and reset, the roster (slug, list, activate, adopt), the Person
+menu, the name at the end, the same person again, a blank name, still
+frames turned away. Uncommitted, on his word.
+
+**Not yet:** his live look (the anchor now locks in about a second on a
+still face; the friend's profile from the recording, his own restored);
+the friend under his real name; whether 3 degrees of spread is right for
+a camera on a shaky desk; the units' floors on a second face (both
+sessions sat at the floors, as the owner's live run did).
+
+### Day 16 evening, the second look (2026-09-12 19:45): "a slightly wider face" that was not, and the crop shift withdrawn
+
+**His report:** the friend (roster name "baska") calibrated under the
+fixed gate -- talk 214 frames (r 0.99), blink 128, brows 106, gaze 80,
+smile 128, 124 still frames, the anchor locked in 6 s -- then pressed
+That looked wrong three times (captures/moment-20260912-1944xx) and sent
+a screenshot: "she has a slightly wider face than mine; analyse and fix".
+
+**Measured:**
+
+- **Width.** Face width over height, the tracker's own points, at rest:
+  jaw 58-288 portrait 0.720 / owner 0.669 / friend 0.709; cheek 234-454
+  0.818 / 0.782 / 0.812; the face oval in crop pixels 191 / 184 / 190.
+  The friend's face is the PORTRAIT's proportions within 1%; the owner's
+  is 4-7% narrower than the portrait. "Wider than mine" is true and is
+  not the defect: the rendered face is sized by face height, and hers
+  matches the portrait's width exactly.
+- **The seam.** The zooms (seen.png beside camera.png, 3x) show the
+  paste's join running down her cheek on the ear side, 13-20 px inside
+  her face contour, with her own cheek showing between it and the ear --
+  the "wider face" -- and the portrait's stubble ending on that line. The
+  mask's own geometry, rebuilt from her landmarks and the portrait's
+  (scratch script, no GPU): at ``crop_shift_x`` 0 the portrait's oval
+  lands on hers within **0-2 px on both sides**, on all three of her
+  captures and both of his (outline shift -0.3..-1.3 crop px). With her
+  profile's -10.0 the whole rendered face moves 13 frame px: the portrait
+  oval 608..851 against her 619..864 -- 11 px into her hair on one side,
+  13 px short of her contour on the ear side. That is the strip.
+- **Where the shift came from.** The calibration turned the avatar's eye
+  offset at rest into the shift (day 16 C2). On her that offset reads
+  +11..+22 px at a resting yaw of -7..-9 degrees; on him +2..+4 at yaw
+  -1..-2 (his session anchor, at -3.7, read +9.8 -> -5.9). The avatar is
+  drawn frontal at rest whatever the head's resting yaw, and the eyes of
+  a turned head sit toward the turn: the offset is the rest yaw against a
+  frontal render, not a misplacement of the face. Aligning the eyes
+  misaligns the outline by the same amount, and the join follows the
+  outline.
+
+**Changed:** ``calibrate`` reports ``avatar_eye_dx`` with the rest yaw
+and never writes ``crop_shift_x`` (the option stays, for a hand value);
+the three roster profiles lost their shifts (-5.9 / -9.9 / -10.0, the
+removal noted in each file). Nothing in the engine.
+
+**Proven** on her capture 19:44:32, replayed with the session's own
+anchor (``scripts/probes/capture_replay.py --sweep crop_shift_x=-10,0``):
+at 0 the pasted face reaches her ear-side contour and the strip of her
+own cheek is gone; a paler band remains along that join -- the portrait's
+cheek against her darker one, the colour correction's residual, a
+smaller matter. Stills: recordings/day16/baska-earside-before-after.png
+and baska-face-before-after.png (her face; delete when looked at).
+
+**What this does not fix, and cannot:** the portrait's stubble on a
+woman's chin and the tone of its skin against hers are the portrait's
+identity -- her own avatar (Add avatar, a photograph with her
+proportions) is the answer the product was built for; and his own look
+at crop_shift_x 0 (the C2 shift is withdrawn on his profile too; a hand
+value can go back into configs/drivers/owner-*.json).
+
+**Tests:** 1164 non-gui + 82 gui; ruff clean; mypy the 11 warp errors.
+Uncommitted, on his word.
+
+### Day 16 evening, the third look (2026-09-12 20:07): the avatar that looked away, and the anchor's yaw in the wrong degrees
+
+**His report:** baska in force (crop shift gone), one That looked wrong
+(captures/moment-20260912-200754): "look at the errors, analyse, fix".
+
+**Measured (the capture's tracking, camera.png against seen.png by the
+tracker, the replay probe with the session's own anchor):**
+
+- Mouth, eyes, width: the avatar within a few % of hers (mar 0.87x,
+  open 0.86x -- both shut; ear 0.333 vs 0.335; width 1.06x). Brows: the
+  avatar's 0.153 vs her 0.209 -- the portrait's own lower brows at rest,
+  not a drive. Pose: the avatar 5 deg more frontal than her on both axes,
+  as a render relative to her anchor is.
+- **The eyes:** the tracker reads her irises at **+0.138** of an eye width
+  to the side and the avatar's at **+0.143** -- the drive is faithful --
+  and the 3x zoom shows her looking to her left, at the SCREEN, not the
+  camera. Over the capture's 15 s her gaze sits at -0.02 (the camera) for
+  6 s, at +0.13..+0.16 (the screen) for 4 s and at the press. Her anchor
+  learned the rest gaze at -0.018 while she looked at the camera as the
+  status line asks; every look at the screen after that became a full
+  sideways glance of the avatar (+0.11 drive, 0.811 gain), for as long as
+  she looked. On the owner it never showed: his anchor happened to catch
+  him looking at the screen.
+- **The anchor's yaw:** the evening's `rest_yaw` was taken from the
+  network's pose average (`pose_d0`), which is in other degrees than the
+  tracker's: her anchor read yaw +3.97 there while the tracker read -8.5
+  (the log's "anchor frozen -- pose 10.7/4.0" is the network's; the
+  tracker's pitch was -12.5). The hold and the calibration measure in
+  the tracker's degrees.
+
+**Built:**
+
+- **The rest gaze follows where the person looks** (`gaze_rest_tracking`,
+  a driver option, default 300 frames as the time constant, 0 off): once
+  the anchor is frozen, on frames with the eyes open and the face not
+  held, the rest moves toward the gaze by 1/300 a frame. A two-second
+  glance moves it 6% of the glance (under the dead band); a look held at
+  the screen becomes the rest and the avatar looks at the viewer again.
+  Simulated on her capture's own trace: the drive at the press +0.116 ->
+  +0.077 after 15 s; a look held at +0.14 from the anchor's rest: drive
+  +0.112 at 0 s, +0.031 at 10 s, 0 at 30 s (the capture ran at ~19 fps,
+  so the constant is 10-16 s of wall time).
+- **The anchor's pose by the tracker** (`pose_samples`, the tracker's
+  (pitch, yaw) on accepted frames, medians at the freeze): `rest_yaw` is
+  the tracker's now, `rest_pitch` too when the crop centre has not set it.
+
+**Tests:** 1169 non-gui + 82 gui; ruff clean; mypy the 11 warp errors.
+New: the tracking's default and bounds, a held look becoming the rest
+and a glance not, no tracking before the anchor / while held / at 0,
+the anchor's pose as the tracker's median. Uncommitted, on his word.
+
+**Not yet:** his live look; whether 300 frames is the right constant on
+a call (the option is in the profile); the brows' rest height
+(the portrait's) against a driver whose brows sit higher -- reported by
+the calibration, not driven.
+
+### Day 16 evening, the fourth look (2026-09-12, the same capture): her brow printed through, and the line at the join
+
+**His report:** "you should have noticed more: her brow shows in the
+photo; don't you see the line between the AI face and the photo? The
+eyes are not the problem." Right on both counts -- the eyes were measured
+and the picture was not looked at.
+
+**Measured (3x zooms of seen.png beside camera.png; the replay of the
+same capture with ``edge_match`` 0 and 1; the correction's own cells):**
+
+- **Her brow shows:** a dark band above the avatar's thin brows, where
+  her thick, arched brows are. With ``edge_match`` 0 (the plane alone)
+  the forehead is clean; with 1 the band is there. The day-13 leak,
+  back: the brow zone cut out of the residual was the hull of the brows'
+  LOWER row of landmarks (plus one inner upper point) dilated 4 cells,
+  16 px -- his thin brows, not the upper two thirds of hers -- so what
+  was left of them went into the residual as "the skin's difference at
+  the edge" and was printed above the avatar's brows.
+- **The line at the join:** with ``edge_match`` 1 a dark band ran along
+  the avatar's cheek on the ear side and a smear sat at the temples; with
+  0 both were gone and a plain tone step remained. Her long hair lies
+  down both cheeks; the mask's feathered edge lies over it, and the match
+  took the hair for the room's light. Per correction cell (quarter scale)
+  against the face's own median lightness: hair under the edge 0.30-0.35
+  at p10, her brow cells 0.25-0.35 at p10 (0.62-0.69 at p50 -- a 4-px
+  cell mixes hair and skin), the darkest skin of the core (the eye
+  sockets, the shadow under the jaw) 0.49-0.64 at p5, on her three
+  captures and his two alike.
+
+**Built (`_face_colour_correction`):**
+
+- **The brow zone is the whole brow**: both rows of the brow landmarks
+  (`_BROWS_UPPER` added to `_EDGE_FEATURES`), then the 4-cell dilation
+  as before.
+- **The match is made on skin** (`_dark_cells`, `_EDGE_DARK_RATIO` 0.55):
+  a cell whose scene is darker than 0.55 of the face's core median
+  (hair under the edge, a brow's core, lashes, nostrils) is unknown to
+  the lighting plane AND to the edge residual, and the residual there is
+  filled from the skin around it, as the feature zone already was.
+
+**Proven** on the same capture, replayed with the session's own anchor
+(recordings/day16/baska-brows-before-after.png, baska-left-edge-…,
+baska-right-edge-…, baska-face-20-07-before-after.png -- her face,
+delete when looked at): the band above the brows gone, the dark band
+along the ear-side cheek gone, the temple smear gone. What remains is a
+light tone step at the temples where the avatar's matte skin meets her
+shadowed, shiny skin at the hairline -- smaller, and the next lever is
+the residual's reach (`_EDGE_REACH`) or her own avatar.
+
+**Tests:** 1172 non-gui + 82 gui; ruff clean. New: the brow zone takes
+both rows, dark cells are hair and a brow's core and not shadowed skin,
+hair under the edge no longer darkens the cheek beside it nor tilts the
+plane. Uncommitted, on his word.
+
+### Day 16 evening, the fifth look (2026-09-12 22:43, the new avatar): the teeth that grow on a strong smile
+
+**His report:** a new avatar added from a photograph (woman_person, the
+importer's checks passed: face 450 px, pose -2.4/-0.4/+1.0); "when I
+smile strongly the teeth grow in height" -- the day-14 complaint on the
+old avatar, back on a new one; one capture (captures/moment-20260912-
+224332), a medium smile then a strong one, the press on the strong one.
+
+**Measured (the capture's trace, the replay with the session's own
+anchor, ``--sweep mouth_opening_gain=1.0,0.7,0.5``):** his mouth over
+the capture: width +16% and opening 0.07 on the strong smile, +11% /
+0.05 at the press (his talk sits at 0.06). The avatar at the press
+frame: width 1.17x his, **lips parted 1.36x his** on the frame he saw
+and **1.62x** on the replay (mar 1.29x) -- the teeth a tall band where his
+are a thin line. ``mouth_opening_gain`` 0.7 -> 1.34x, **0.5 -> 1.00x**
+(width 1.16x, unchanged). But that gain weights talking the same way
+(day 15: linear on smiles and talk alike) and would leave speech half
+as open.
+
+**Built:** ``mouth_smile_opening`` (a portrait option, default 1.0,
+bit-exact): the opening gate is multiplied by ``1 - (1 - g) * widening``
+where ``widening`` is the width gate alone (``_mouth_widening``, factored
+out of ``_mouth_gate``) -- nothing while he talks with the mouth at its
+resting width, the full reduction on a wide smile, the width itself
+untouched. ``woman_person`` runs with 0.5 (measured on this frame);
+``my_avatar_neural`` is left at 1.0 -- his day-15 verdict on that one
+was "a little", and it is one line in its metadata if he wants it.
+
+**Proven:** the replay of the same capture with the option at 1.0 and
+0.5 (recordings/day16/smile-teeth-before-after.png, his own face): the
+parting at 0.5 reads 1.0x his, the width the same at both.
+
+**Tests:** 1175 non-gui + 82 gui; ruff clean; mypy the 11 warp errors.
+New: the option's bounds, the width gate alone, a wide smile parting the
+lips half as much while talking at the resting width is unchanged.
+Uncommitted, on his word.
+
 ## Honest odds
 
 - **The picture:** high. LivePortrait is proven and it fits this GPU; what is not
