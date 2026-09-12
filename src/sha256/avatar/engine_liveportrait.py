@@ -183,6 +183,7 @@ DRIVER_OPTION_KEYS: frozenset[str] = frozenset(
         "eye_scale",
         "gaze_gain",
         "gaze_down_relief",
+        "gaze_rest_tracking",
         "brow_gain",
         "brow_follow",
         "brow_deadband",
@@ -255,6 +256,7 @@ _ANCHOR_SCALARS = (
     "z_rest",
     "centre_offset",
     "rest_pitch",
+    "rest_yaw",
 )
 
 # What counts as a frame worth learning the anchor from (day 5, 2026-09-05).
@@ -265,9 +267,29 @@ _ANCHOR_SCALARS = (
 # and the mouth sat open a crack it should not have (MAR 0.05-0.16 against
 # his 0.002). A gated anchor waits for frames that are actually frontal,
 # open-eyed and closed-mouthed instead of freezing on whatever arrived first.
-_ANCHOR_MAX_YAW = 4.0
-_ANCHOR_MAX_PITCH = 4.0
-_ANCHOR_MAX_ROLL = 3.0
+#
+# Day 16 evening (2026-09-12), the first other face: the bounds were
+# +-4/+-4/+-3 degrees around zero, which took the camera for the person's
+# own eye line. The friend's head read pitch -11 sitting still in front of
+# this camera (the tracker reads the owner's at -3), so every one of his
+# still frames was rejected, the anchor froze only when a brow raise
+# happened to pass the gate a minute later, and two calibrations measured
+# nothing (recordings/calibration-20260912-185642 and -190114: 0 and 3
+# frames passed in 1900 each). The pose bounds are now wide enough for a
+# laptop camera below the eye line or a monitor camera above it, and what
+# says "sitting still, looking at the camera" is STILLNESS: the spread of
+# the pose (max - min on each axis) over the last _ANCHOR_STILL_FRAMES
+# frames under _ANCHOR_STILL_SPREAD degrees. Measured on the sessions: the
+# owner's still frames spread 0.1-1.3 degrees (p50-p90 over 15 frames),
+# the friend's 0.2-1.4; reaching for the mouse (the day-5 case) moves
+# several degrees in that half second and is refused as before. The
+# anchor's rotation is relative to what it learns (R_d0), so a rest at
+# pitch -11 draws the portrait frontal there.
+_ANCHOR_MAX_YAW = 10.0
+_ANCHOR_MAX_PITCH = 15.0
+_ANCHOR_MAX_ROLL = 6.0
+_ANCHOR_STILL_FRAMES = 15
+_ANCHOR_STILL_SPREAD = 3.0
 # A blink reads under 0.15; his own open eyes measured 0.29-0.38.
 _ANCHOR_MIN_EAR = 0.20
 _ANCHOR_MAX_MAR = 0.03
@@ -837,14 +859,17 @@ def _brow_ratio(points: np.ndarray) -> float:
     return lift / ((float(points[_CHIN, 1]) - mid_y) or 1e-6)
 
 
-def _anchor_frame_ok(pose: HeadPose | None, ear: float, mar: float) -> bool:
+def _anchor_frame_ok(pose: HeadPose | None, ear: float, mar: float, *, still: bool = True) -> bool:
     """Whether this frame is worth learning the driver's rest from.
 
-    Frontal, open-eyed, closed-mouthed -- see the constants' own comment for
-    why. ``pose is None`` (no head pose this frame) is rejected outright: an
-    anchor needs to know it was actually looking at the camera, not assume it.
+    Facing the camera, holding still, open-eyed, closed-mouthed -- see the
+    constants' own comment for why. ``pose is None`` (no head pose this
+    frame) is rejected outright: an anchor needs to know it was actually
+    looking at the camera, not assume it. ``still`` is :func:`_pose_still`'s
+    word on the last half second (day 16): a pose that is not moving, at
+    whatever angle this camera sees a resting head from.
     """
-    if pose is None:
+    if pose is None or not still:
         return False
     return (
         abs(pose.yaw) <= _ANCHOR_MAX_YAW
@@ -853,6 +878,26 @@ def _anchor_frame_ok(pose: HeadPose | None, ear: float, mar: float) -> bool:
         and ear >= _ANCHOR_MIN_EAR
         and mar <= _ANCHOR_MAX_MAR
     )
+
+
+def _pose_still(recent: deque[tuple[float, float, float]], pose: HeadPose | None) -> bool:
+    """Record this frame's pose in ``recent`` (a window of
+    :data:`_ANCHOR_STILL_FRAMES`) and say whether the head has held still
+    over it: the window full, and yaw, pitch and roll each spread (max -
+    min) no more than :data:`_ANCHOR_STILL_SPREAD` degrees. A frame without
+    a pose empties the window -- nothing is known about the half second
+    around a lost face."""
+    if pose is None:
+        recent.clear()
+        return False
+    recent.append((float(pose.yaw), float(pose.pitch), float(pose.roll)))
+    if len(recent) < recent.maxlen:  # type: ignore[operator]
+        return False
+    for axis in range(3):
+        values = [p[axis] for p in recent]
+        if max(values) - min(values) > _ANCHOR_STILL_SPREAD:
+            return False
+    return True
 
 
 # How far past his own rest the eye target may ask the avatar to open. 1.0:
@@ -1111,11 +1156,33 @@ _EDGE_BLUR = 3
 _EDGE_EXCLUDE_DILATE = 4
 _EDGE_EXCLUDE_SOFTEN = 10
 _EDGE_FILL_BLUR = 30
+# Day 16 evening (the first other face, captures/moment-20260912-200754):
+# her brows are thick and arched, and the brow zone was the hull of the
+# brows' LOWER row of landmarks (plus one inner upper point) dilated by 4
+# cells -- 16 px -- which covered his thin brows and not the upper two
+# thirds of hers. What was left of them went into the residual and came out
+# as a dark band above the avatar's own brows ("her brow shows"), printed
+# from the difference between her brow hair and the portrait's forehead
+# skin. The zone now takes both rows of the brow landmarks, the whole brow.
+_BROWS_UPPER = (70, 63, 105, 66, 107, 300, 293, 334, 296, 336)
 _EDGE_FEATURES = (
-    _BROWS[:6] + _LEFT_EYE_CORNERS + (159, 145),
-    _BROWS[6:] + _RIGHT_EYE_CORNERS + (386, 374),
+    _BROWS[:6] + _BROWS_UPPER[:5] + _LEFT_EYE_CORNERS + (159, 145),
+    _BROWS[6:] + _BROWS_UPPER[5:] + _RIGHT_EYE_CORNERS + (386, 374),
     (61, 291, 0, 17, 13, 14),
 )
+# Same evening, the same capture: the mask's feathered edge lies over her
+# hair on both sides (long hair down the cheeks) and the match took that
+# hair for the room's light -- a dark band along the avatar's cheeks, and
+# a smear at the temples. The plane and the residual are matched on SKIN:
+# a cell whose scene is darker than this fraction of the face's own median
+# (its core, alpha over 0.9) is hair, a brow core, a lash line or a
+# nostril, not skin, and counts as unknown like the feature zone. Measured
+# on her three captures and his two (scratch, 2026-09-12 evening): hair
+# under the edge reads 0.30-0.35 of the median at p10, her brow cells
+# 0.25-0.35, the darkest skin of the core (shadow under the jaw, the eye
+# sockets) 0.49-0.64 at p5 -- and what falls under 0.55 in the core is the
+# eyes, the nostrils and the hair that the oval covers at the sides.
+_EDGE_DARK_RATIO = 0.55
 
 
 def _feature_exclusion(
@@ -2737,6 +2804,33 @@ def _gaze_gain(options: dict[str, Any]) -> float:
     return g
 
 
+# Day 16 evening (2026-09-12, the first other face's capture of 20:07):
+# the anchor learned her rest gaze while she looked at the CAMERA, as the
+# status line asks; on the call she looked at the SCREEN -- the tracker read
+# her irises +0.14 of an eye width to the side (the far end of her own
+# left-right glance in the calibration, 0.27 wide) -- and the avatar looked
+# away from the camera by the same amount, faithfully, for as long as she
+# did. On the owner it never showed: his anchor happened to catch him
+# looking at the screen, so "rest" WAS the screen. A resting gaze is where
+# a person looks most of the time, not where they looked for the anchor's
+# half second, so the rest now follows the gaze by a slow EMA -- this many
+# frames as the time constant, ten seconds at 30 fps: a glance of two
+# seconds moves it by 6% of the glance (under the dead band), a look held
+# at the screen becomes the rest in half a minute and the avatar looks at
+# the viewer again. 0 is off: the rest as the anchor learned it.
+_GAZE_REST_TRACKING = 300.0
+
+
+def _gaze_rest_tracking(options: dict[str, Any]) -> float:
+    """``gaze_rest_tracking`` in frames, default :data:`_GAZE_REST_TRACKING`
+    -- the time constant the rest gaze follows his gaze with; 0 is off."""
+    frames = float(options.get("gaze_rest_tracking", _GAZE_REST_TRACKING))
+    if not (0.0 <= frames <= 10000.0):
+        msg = f"gaze_rest_tracking must be in [0, 10000] frames, got {frames}"
+        raise ValueError(msg)
+    return frames
+
+
 def _brow_follow(options: dict[str, Any]) -> float:
     g = float(options.get("brow_follow", 0.0))
     if not (0.0 <= g <= 3.0):
@@ -2863,11 +2957,41 @@ def _mouth_gate(
     if rest_mar is None or rest_width is None:
         return 1.0
     gate_mar = _MOUTH_GATE_MAR if thresholds is None else thresholds.mouth_gate_mar
+    widening = _mouth_widening(width, rest_width, pose, thresholds)
+    return max(_soft_gate(mar - rest_mar, gate_mar), widening)
+
+
+def _mouth_widening(
+    width: float,
+    rest_width: float,
+    pose: HeadPose | None = None,
+    thresholds: _GateThresholds | None = None,
+) -> float:
+    """The width gate alone: how far his mouth is wider than at rest, 0..1
+    over ``mouth_gate_width``, faded with yaw -- "he is smiling"."""
     gate_width = _MOUTH_GATE_WIDTH if thresholds is None else thresholds.mouth_gate_width
     widening = _soft_gate(width / (rest_width or 1e-6) - 1.0, gate_width)
     if pose is not None:
         widening *= _fade(pose.yaw, _MOUTH_GATE_YAW)
-    return max(_soft_gate(mar - rest_mar, gate_mar), widening)
+    return widening
+
+
+# Day 16 evening (his capture of 22:43 on the new avatar woman_person, a
+# toothy smile): the avatar parted its lips 1.36x his on the frame he saw
+# and 1.62x on its replay, at the smile's width 1.17x -- the teeth a tall
+# band where his are a thin line. ``mouth_opening_gain`` 0.5 brought the
+# parting to 1.00x on that frame, but it weights talking the same way and
+# would leave speech half as open. So the reduction rides on the width
+# gate: the opening gate is multiplied by ``1 - (1 - mouth_smile_opening)
+# * widening`` -- nothing while he talks with the mouth at its resting
+# width, the full reduction on a wide smile, the width itself untouched.
+# A property of the portrait (how its mouth opens on a smile), so it lives
+# in the avatar's metadata; 1.0 is bit-exact with before.
+def _mouth_smile_opening(options: dict[str, Any]) -> float:
+    g = float(options.get("mouth_smile_opening", 1.0))
+    if not (0.0 <= g <= 1.0):
+        raise ValueError(f"mouth_smile_opening must be in [0, 1], got {g}")
+    return g
 
 
 def _mouth_activity(
@@ -2970,13 +3094,17 @@ def _should_hold(loaded: _Portrait, head_pose: HeadPose | None) -> bool:
     if head_pose is None:
         return loaded.holding
     hold_pitch, hold_yaw = _hold_thresholds(loaded.options)
+    # Day 16: measured from the anchor's own rest pose once it is known --
+    # the avatar's rotation is driven relative to it, so that is the pose
+    # the frontal portrait is redrawn from. The friend's head rests at
+    # pitch -11 in front of this camera; measured from zero, a nod of nine
+    # degrees froze his avatar. Before the anchor, from zero as before.
+    pitch = abs(head_pose.pitch - (loaded.rest_pitch or 0.0))
+    yaw = abs(head_pose.yaw - (loaded.rest_yaw or 0.0))
     if loaded.holding:
-        holding = (
-            abs(head_pose.pitch) > hold_pitch * _HOLD_RELEASE_RATIO
-            or abs(head_pose.yaw) > hold_yaw * _HOLD_RELEASE_RATIO
-        )
+        holding = pitch > hold_pitch * _HOLD_RELEASE_RATIO or yaw > hold_yaw * _HOLD_RELEASE_RATIO
     else:
-        holding = abs(head_pose.pitch) > hold_pitch or abs(head_pose.yaw) > hold_yaw
+        holding = pitch > hold_pitch or yaw > hold_yaw
     if holding != loaded.holding:
         _LOG.info(
             "Avatar %s: %s at pose %.1f/%.1f (pitch/yaw)",
@@ -2987,6 +3115,28 @@ def _should_hold(loaded: _Portrait, head_pose: HeadPose | None) -> bool:
         )
     loaded.holding = holding
     return holding
+
+
+def _dark_cells(
+    region: np.ndarray, alpha3: np.ndarray, coverage: np.ndarray, small: tuple[int, int]
+) -> np.ndarray:
+    """The correction's cells whose scene is not skin: darker than
+    :data:`_EDGE_DARK_RATIO` of the face's own median lightness (the
+    median over the cells the mask covers whole), as 1.0 / 0.0 per cell.
+    All zeros when the mask covers too few cells whole to say what the
+    face's lightness is."""
+    import cv2
+
+    scene = cv2.resize(cv2.multiply(region, alpha3), small, interpolation=cv2.INTER_AREA)
+    lightness = scene.mean(axis=2) / np.maximum(coverage, 1e-3)
+    core = coverage > 0.9
+    if int(core.sum()) < 16:
+        return np.zeros(coverage.shape, dtype=np.float32)
+    median = float(np.median(lightness[core]))
+    dark: np.ndarray = ((lightness < _EDGE_DARK_RATIO * median) & (coverage > 0.05)).astype(
+        np.float32
+    )
+    return dark
 
 
 def _face_colour_correction(
@@ -3036,15 +3186,20 @@ def _face_colour_correction(
         cv2.multiply(cv2.subtract(region, face), alpha3), small, interpolation=cv2.INTER_AREA
     )
     coverage = cv2.resize(weight, small, interpolation=cv2.INTER_AREA)
-    field = _fit_lighting_plane(difference, coverage)
+    # Day 16 evening: cells that are not skin -- hair under the edge, a
+    # brow's core, lashes -- are unknown to the plane and the residual
+    # alike (see _EDGE_DARK_RATIO).
+    dark = _dark_cells(region, alpha3, coverage, small)
+    keep = 1.0 - dark
+    field = _fit_lighting_plane(difference * keep[:, :, None], coverage * keep)
     # Day 13: the plane's residual matched at the mask's edge -- see
     # _edge_residual and the forehead-line comment above it.
     edge = _edge_match(loaded.options)
     if edge > 0.0:
-        exclude = None
+        exclude = dark
         if features is not None:
             cells = features / (width / small[0], height / small[1])
-            exclude = _feature_exclusion(cells.astype(np.float32), coverage.shape)
+            exclude = np.maximum(dark, _feature_exclusion(cells.astype(np.float32), coverage.shape))
         field = field + _edge_residual(difference, coverage, field, exclude=exclude) * edge
 
     previous = loaded.correction
@@ -3127,6 +3282,8 @@ class _Portrait:
         "pivot",
         "pose_d0",
         "pose_prev",
+        "pose_recent",
+        "pose_samples",
         "ratios",
         "rel_mask",
         "rest_brow",
@@ -3136,6 +3293,7 @@ class _Portrait:
         "rest_mar",
         "rest_mouth_width",
         "rest_pitch",
+        "rest_yaw",
         "scale_d0",
         "scale_gain",
         "scale_prev",
@@ -3297,6 +3455,20 @@ class _Portrait:
         self.centre_samples: list[tuple[float, float]] = []
         self.centre_offset: float | None = None
         self.rest_pitch: float | None = None
+        # Day 16: the anchor's own yaw, frozen with it -- the extreme-pose
+        # hold measures from here and from rest_pitch (see _should_hold);
+        # and the pose window the anchor gate reads stillness from (see
+        # _pose_still), kept across a re-centre: it is about the last half
+        # second, whichever anchor is being learned.
+        self.rest_yaw: float | None = None
+        self.pose_recent: deque[tuple[float, float, float]] = deque(maxlen=_ANCHOR_STILL_FRAMES)
+        # The TRACKER's (pitch, yaw) on accepted anchor frames, their medians
+        # frozen as rest_pitch (when the crop centre does not set it) and
+        # rest_yaw. The network's own pose average (pose_d0) is in other
+        # degrees: on the first other face it read the anchor at yaw +4.0
+        # where the tracker, which the hold and the calibration measure in,
+        # read -8.5.
+        self.pose_samples: list[tuple[float, float]] = []
         # The portrait's own keypoint state and appearance feature, and the
         # driver's anchor, all set once in load_avatar and read every frame
         # by _drive. Declared here, not there, so their type is known before
@@ -3553,6 +3725,7 @@ class LivePortraitEngine:
         _mask_jaw_shrink(loaded.options)
         _chin_follow(loaded.options)
         _edge_match(loaded.options)
+        _mouth_smile_opening(loaded.options)
         if _mouth_rest(loaded.options) == "driver" and loaded.lip_rest_rows is None:
             _LOG.warning(
                 "Avatar %s: mouth_rest is 'driver' but no lip_rest_rows are set -- "
@@ -3826,8 +3999,10 @@ class LivePortraitEngine:
             loaded.face_height_rest = None
             loaded.z_rest = None
             loaded.centre_samples = []
+            loaded.pose_samples = []
             loaded.centre_offset = None
             loaded.rest_pitch = None
+            loaded.rest_yaw = None
             loaded.holding = False
             loaded.lip_rest_run = 0
             loaded.lip_rest_steps = 0
@@ -3842,7 +4017,7 @@ class LivePortraitEngine:
         if loaded is None or loaded.anchor_seen >= loaded.anchor_wanted:
             return None
         return (
-            "Look straight at the camera to centre the avatar "
+            "Sit still and look at the camera to centre the avatar "
             f"({loaded.anchor_seen}/{loaded.anchor_wanted})"
         )
 
@@ -3925,6 +4100,7 @@ class LivePortraitEngine:
         loaded.open_hold = 0
         loaded.size_samples = []
         loaded.centre_samples = []
+        loaded.pose_samples = []
         loaded.holding = False
         loaded.lip_rest_run = 0
         loaded.lip_rest_steps = 0
@@ -3965,6 +4141,8 @@ class LivePortraitEngine:
             "rest_mar",
             "rest_mouth_width",
             "rest_brow",
+            "rest_pitch",
+            "rest_yaw",
             "face_height_rest",
             "z_rest",
         ):
@@ -4120,6 +4298,13 @@ class LivePortraitEngine:
                     _hairline_fraction(_luminance(scene, bgr=bgr), target)
                 )
             chin_drop = 0.0
+            # Day 16: the anchor gate's word on stillness, read every frame
+            # (held or not) so the window is always the last half second;
+            # a move while the anchor is still being learned starts the
+            # learning over (see _restart_anchor).
+            still = _pose_still(loaded.pose_recent, tracking.head_pose)
+            if not still:
+                self._restart_anchor(loaded)
             if _should_hold(loaded, tracking.head_pose) and loaded.last is not None:
                 face, _, _ = loaded.last
                 # Whatever his mouth does while held is not seen; the first
@@ -4135,7 +4320,7 @@ class LivePortraitEngine:
                 c_d_width = _mouth_width_ratio(target)
                 c_d_brow = _brow_ratio(target)
                 c_d_chin = _nose_chin(crop_points)
-                anchor_ok = _anchor_frame_ok(tracking.head_pose, c_d_eye, c_d_lip)
+                anchor_ok = _anchor_frame_ok(tracking.head_pose, c_d_eye, c_d_lip, still=still)
                 # Day 12: with gaze_down_relief on, a slow glance down keeps
                 # the avatar's eyes at rest (his call, see _relieved_ear);
                 # the anchor and the gaze hold below still read c_d_eye.
@@ -4155,10 +4340,15 @@ class LivePortraitEngine:
                 lip_target = _lip_target(c_d_lip, loaded.c_s_lip)
                 size_sample = None
                 centre_sample = None
+                pose_sample = None
                 if anchor_ok and tracking.head_pose is not None:
                     z = abs(float(tracking.head_pose.translation[2]))
                     if z > 1e-6:
                         size_sample = (_face_height(target), z)
+                    pose_sample = (
+                        float(tracking.head_pose.pitch),
+                        float(tracking.head_pose.yaw),
+                    )
                     if _crop_centre(loaded.options) == "eyeline":
                         centre_sample = (
                             _centre_offset(target, scale=scale, vy_ratio=vy),
@@ -4186,6 +4376,7 @@ class LivePortraitEngine:
                     gaze=gaze,
                     centre_sample=centre_sample,
                     chin_sample=c_d_chin,
+                    pose_sample=pose_sample,
                 )
                 face = cv2.cvtColor(face_rgb, cv2.COLOR_RGB2BGR) if bgr else face_rgb
                 rendered = now()
@@ -4319,6 +4510,12 @@ class LivePortraitEngine:
         mouth = _release(mouth, loaded.gate_mouth_prev)
         opening = _release(opening, loaded.gate_open_prev)
         brow_gate = _release(brow_gate, loaded.gate_brow_prev)
+        # Day 16 evening: on a smile the lips part less (see
+        # _mouth_smile_opening); the width gate says how much of a smile.
+        smile_opening = _mouth_smile_opening(loaded.options)
+        if smile_opening < 1.0 and loaded.rest_mouth_width is not None:
+            widening = _mouth_widening(width, loaded.rest_mouth_width, pose, thresholds)
+            opening *= 1.0 - (1.0 - smile_opening) * widening
         loaded.gate_mouth_prev = mouth
         loaded.gate_open_prev = opening
         loaded.gate_brow_prev = brow_gate
@@ -4361,6 +4558,7 @@ class LivePortraitEngine:
         gaze: tuple[float, float] | None = None,
         centre_sample: tuple[float, float] | None = None,
         chin_sample: float | None = None,
+        pose_sample: tuple[float, float] | None = None,
     ) -> np.ndarray:
         """The portrait's face with this driver's expression, 512x512 RGB.
 
@@ -4403,6 +4601,7 @@ class LivePortraitEngine:
                         gaze_sample=gaze,
                         centre_sample=centre_sample,
                         chin_sample=chin_sample,
+                        pose_sample=pose_sample,
                     )
                 else:
                     loaded.anchor_rejected += 1
@@ -4434,6 +4633,22 @@ class LivePortraitEngine:
             out = loaded.static_out[0].permute(1, 2, 0).float().clamp_(0.0, 1.0).mul_(255.0)
             face: np.ndarray = out.to(torch.uint8).cpu().numpy()
         return face
+
+    @staticmethod
+    def _restart_anchor(loaded: _Portrait) -> None:
+        """The head moved while the anchor was still being learned: the
+        frames accepted so far were at a pose the person has left, and
+        averaging them with the next still pose would put the anchor
+        between the two. The accumulation starts over; nothing else (the
+        hold, the gates, the smoothing state) is touched, and a frozen
+        anchor is never restarted -- see :meth:`reset_anchor` for that."""
+        if loaded.anchor_seen == 0 or loaded.anchor_seen >= loaded.anchor_wanted:
+            return
+        loaded.anchor_seen = 0
+        loaded.anchor_sum = {}
+        loaded.size_samples = []
+        loaded.centre_samples = []
+        loaded.pose_samples = []
 
     @staticmethod
     def _track_lip_rest(loaded: _Portrait, gates: tuple[float, float, float]) -> None:
@@ -4483,7 +4698,12 @@ class LivePortraitEngine:
         tracker's iris estimate has nothing to see then and jumps, and a
         jump on keypoint 15's x opens the lids a little -- measured as a
         shallower blink (driving.mkv blink gain 0.85 -> 0.77) before this
-        hold existed."""
+        hold existed.
+
+        Once the anchor is frozen the rest itself follows his gaze by
+        :func:`_gaze_rest_tracking` (day 16 evening): where he looks most
+        of the time is his rest, and the avatar looks at the viewer while
+        he looks at the screen; a glance still passes through."""
         gain = _gaze_gain(loaded.options)
         if gaze is None or loaded.rest_gaze is None or gain == 0.0:
             loaded.gaze_prev = 0.0
@@ -4491,6 +4711,11 @@ class LivePortraitEngine:
         rest_ear = loaded.rest_ear
         if ear is not None and rest_ear is not None and ear < _GAZE_BLINK_HOLD * rest_ear:
             return gain * loaded.gaze_prev
+        frames = _gaze_rest_tracking(loaded.options)
+        if frames > 0.0 and loaded.anchor_seen >= loaded.anchor_wanted and not loaded.holding:
+            alpha = 1.0 / frames
+            rx, ry = loaded.rest_gaze
+            loaded.rest_gaze = (rx + (gaze[0] - rx) * alpha, ry + (gaze[1] - ry) * alpha)
         dx = gaze[0] - loaded.rest_gaze[0]
         dx = math.copysign(max(abs(dx) - _GAZE_DEADBAND, 0.0), dx)
         a = _GAZE_SMOOTHING
@@ -4508,6 +4733,7 @@ class LivePortraitEngine:
         gaze_sample: tuple[float, float] | None = None,
         centre_sample: tuple[float, float] | None = None,
         chin_sample: float | None = None,
+        pose_sample: tuple[float, float] | None = None,
     ) -> None:
         """Average the driver's first *accepted* frames into the anchor, then
         freeze it -- see :func:`_anchor_frame_ok` for what "accepted" means.
@@ -4560,6 +4786,8 @@ class LivePortraitEngine:
             loaded.size_samples.append(size_sample)
         if centre_sample is not None:
             loaded.centre_samples.append(centre_sample)
+        if pose_sample is not None:
+            loaded.pose_samples.append(pose_sample)
         loaded.anchor_seen += 1
         n = float(loaded.anchor_seen)
         loaded.exp_d0.copy_(sums["exp"] / n)
@@ -4607,6 +4835,12 @@ class LivePortraitEngine:
                 # pitch learned here (see _centre_weight).
                 loaded.centre_offset = float(statistics.median(o for o, _ in loaded.centre_samples))
                 loaded.rest_pitch = float(statistics.median(p for _, p in loaded.centre_samples))
+            # Day 16: the anchor's own pose by the TRACKER, for the hold and
+            # the calibration to measure from (see pose_samples).
+            if loaded.pose_samples:
+                loaded.rest_yaw = float(statistics.median(y for _, y in loaded.pose_samples))
+                if loaded.rest_pitch is None:
+                    loaded.rest_pitch = float(statistics.median(p for p, _ in loaded.pose_samples))
             _LOG.info(
                 "Avatar %s: anchor frozen over %d frames (%d rejected) -- "
                 "pose %.1f/%.1f/%.1f (pitch/yaw/roll), rest EAR %.3f, rest MAR %.3f, "

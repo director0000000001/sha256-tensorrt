@@ -12,6 +12,7 @@ the real weights or a GPU is marked ``requires_gpu`` and skipped without them.
 from __future__ import annotations
 
 import math
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -19,12 +20,15 @@ import numpy as np
 import pytest
 
 from sha256.avatar.engine_liveportrait import (
+    _ANCHOR_STILL_FRAMES,
+    _ANCHOR_STILL_SPREAD,
     _BROW_DEADBAND,
     _BROW_GATE,
     _BROW_GATE_PITCH,
     _BROW_GATE_YAW,
     _BROW_LIFT_Y,
     _BROW_MOUTH_LEAK,
+    _BROWS_UPPER,
     _CROP_CENTRES,
     _DEFAULT_CROP_SMOOTHING_HZ,
     _DEFAULT_FRAME_DT,
@@ -70,6 +74,7 @@ from sha256.avatar.engine_liveportrait import (
     _crop_centre,
     _crop_filters,
     _crop_geometry,
+    _dark_cells,
     _edge_match,
     _edge_residual,
     _ema_,
@@ -80,6 +85,7 @@ from sha256.avatar.engine_liveportrait import (
     _eye_ratios,
     _eye_scale,
     _eye_target,
+    _face_colour_correction,
     _face_height,
     _fade,
     _feature_exclusion,
@@ -90,6 +96,7 @@ from sha256.avatar.engine_liveportrait import (
     _gaze_down_relief,
     _gaze_gain,
     _gaze_offset,
+    _gaze_rest_tracking,
     _hold_thresholds,
     _lip_ratio,
     _lip_rest_tracking,
@@ -103,13 +110,16 @@ from sha256.avatar.engine_liveportrait import (
     _mouth_gate,
     _mouth_open_ratio,
     _mouth_rest,
+    _mouth_smile_opening,
     _mouth_tilt_trim,
+    _mouth_widening,
     _mouth_width_ratio,
     _nose_chin,
     _OneEuro,
     _oval_mask,
     _pivot_z,
     _Portrait,
+    _pose_still,
     _region_masks,
     _release,
     _relieved_ear,
@@ -677,6 +687,64 @@ class TestForeheadLine:
         assert plain[6, 12].mean() < cut[6, 12].mean() - 10.0  # the blob no longer prints
         assert abs(cut[6, 12].mean() - cut[6, 25].mean()) < 8.0  # it reads as the skin beside
         assert abs(cut[3, 30].mean() - plain[3, 30].mean()) < 1.0  # the line beside it as before
+
+    def test_the_brow_zone_takes_both_rows_of_the_brow(self):
+        """Day 16 evening: her thick, arched brows reached past the lower
+        row's hull and printed above the avatar's brows."""
+        for point in _BROWS_UPPER:
+            assert any(point in group for group in _EDGE_FEATURES[:2])
+        # A brow whose upper row sits four cells above the lower one: the
+        # cells between are the brow, not the forehead.
+        left = self._features(left=(10.0, 12.0))
+        upper = len(_EDGE_FEATURES[0]) - 4 - 5  # the lower row comes first
+        left[upper : upper + 5, 1] -= 4.0
+        zone = _feature_exclusion(left, (40, 40))
+        assert zone[12, 10] == 1.0 and zone[8, 10] == 1.0 and zone[10, 10] == 1.0
+        assert zone[2, 10] == 0.0
+
+    def test_dark_cells_are_hair_and_a_brows_core_not_skin(self):
+        """Cells under the mask darker than 0.55 of the face's own median:
+        the hair the mask's edge lies over, a brow's core; skin, even in a
+        shadow at 0.7, is kept. Too small a mask says nothing."""
+        cv2 = pytest.importorskip("cv2")
+        region = np.full((160, 160, 3), 150.0, dtype=np.float32)
+        region[:, :12] = 30.0  # hair down the left side
+        region[40:52, 60:100] = 30.0  # a brow's core
+        region[100:160, :] = 105.0  # a shadow over the lower face, 0.7 of the skin
+        alpha = np.zeros((160, 160, 1), dtype=np.float32)
+        alpha[8:152, 4:152] = 1.0
+        alpha3 = np.repeat(alpha, 3, axis=2)
+        coverage = cv2.resize(alpha[:, :, 0], (40, 40), interpolation=cv2.INTER_AREA)
+
+        dark = _dark_cells(region, alpha3, coverage, (40, 40))
+
+        assert dark[20, 1] == 1.0 and dark[11, 20] == 1.0  # the hair, the brow
+        assert dark[20, 20] == 0.0 and dark[30, 20] == 0.0  # skin, shadowed skin
+        assert dark[20, 0] == 0.0  # outside the mask: not asked
+        tiny = np.zeros((40, 40), dtype=np.float32)
+        tiny[20:22, 20:22] = 1.0
+        assert not _dark_cells(region, alpha3, tiny, (40, 40)).any()
+
+    def test_hair_under_the_edge_no_longer_darkens_the_cheek_beside_it(self, tmp_path):
+        """Her capture of 20:07: the mask's feathered edge over her hair,
+        and the match pulling the avatar's cheek toward it. Matched on
+        skin, the cheek beside the hair reads as the skin it is."""
+        loaded = _Portrait(descriptor(tmp_path))
+        loaded.options = {"edge_match": 1.0}
+        face = np.full((160, 160, 3), 150.0, dtype=np.float32)
+        region = np.full((160, 160, 3), 150.0, dtype=np.float32)
+        region[:, :16] = 30.0  # hair, 120 levels darker, inside the mask's left edge
+        alpha = np.zeros((160, 160, 1), dtype=np.float32)
+        alpha[8:152, 4:152] = 1.0
+        alpha3 = np.repeat(alpha, 3, axis=2)
+
+        correction = _face_colour_correction(loaded, face, region, alpha, alpha3, None)
+
+        assert correction is not None
+        cheek = correction[60:100, 24:40].mean()  # just inside the hair, on skin
+        middle = correction[60:100, 70:90].mean()
+        assert abs(cheek) < 10.0  # not pulled toward the hair
+        assert abs(middle) < 3.0  # the plane not tilted by it either
 
 
 class TestChinDrop:
@@ -2388,21 +2456,23 @@ class TestRegionMasks:
 
 
 class TestAnchorFrameOk:
-    """``_anchor_frame_ok``: frontal, open-eyed, closed-mouthed, and a known
-    pose -- see the constants' own comment in the module for the
-    2026-09-05 reproduction that motivated each threshold."""
+    """``_anchor_frame_ok``: facing the camera, holding still, open-eyed,
+    closed-mouthed, and a known pose -- see the constants' own comment in
+    the module for the 2026-09-05 reproduction that motivated the gate and
+    the 2026-09-12 face (resting at pitch -11) that widened it."""
 
     @pytest.mark.parametrize(
         ("yaw", "pitch", "roll", "ear", "mar", "expected"),
         [
             (0.0, 0.0, 0.0, 0.30, 0.01, True),
-            (4.0, 4.0, 3.0, 0.20, 0.03, True),  # exactly at every threshold
-            (4.1, 0.0, 0.0, 0.30, 0.01, False),  # yaw just over
-            (0.0, 4.1, 0.0, 0.30, 0.01, False),  # pitch just over
-            (0.0, 0.0, 3.1, 0.30, 0.01, False),  # roll just over
+            (10.0, 15.0, 6.0, 0.20, 0.03, True),  # exactly at every threshold
+            (10.1, 0.0, 0.0, 0.30, 0.01, False),  # yaw just over
+            (0.0, 15.1, 0.0, 0.30, 0.01, False),  # pitch just over
+            (0.0, 0.0, 6.1, 0.30, 0.01, False),  # roll just over
             (0.0, 0.0, 0.0, 0.19, 0.01, False),  # eyes too narrow (a blink)
             (0.0, 0.0, 0.0, 0.30, 0.031, False),  # mouth too open
-            (-12.0, 0.0, 0.0, 0.30, 0.01, False),  # the reproduction itself
+            (-12.0, 0.0, 0.0, 0.30, 0.01, False),  # the day-5 reproduction: turned away
+            (-4.0, -11.0, -2.0, 0.33, 0.005, True),  # the friend at rest, day 16
         ],
     )
     def test_the_gate(self, yaw, pitch, roll, ear, mar, expected):
@@ -2411,6 +2481,52 @@ class TestAnchorFrameOk:
 
     def test_no_pose_is_rejected(self):
         assert _anchor_frame_ok(None, 0.30, 0.01) is False
+
+    def test_a_moving_head_is_rejected_at_any_angle(self):
+        pose = HeadPose(yaw=0.0, pitch=0.0, roll=0.0)
+        assert _anchor_frame_ok(pose, 0.30, 0.01, still=False) is False
+        assert _anchor_frame_ok(pose, 0.30, 0.01, still=True) is True
+
+
+class TestPoseStill:
+    """``_pose_still``: the anchor gate's word on the last half second --
+    a full window whose yaw, pitch and roll each spread under the bound."""
+
+    @staticmethod
+    def _window() -> deque[tuple[float, float, float]]:
+        return deque(maxlen=_ANCHOR_STILL_FRAMES)
+
+    def test_not_still_until_the_window_is_full(self):
+        recent = self._window()
+        friend = HeadPose(yaw=-4.0, pitch=-11.0, roll=-2.0)
+        for _ in range(_ANCHOR_STILL_FRAMES - 1):
+            assert _pose_still(recent, friend) is False
+        assert _pose_still(recent, friend) is True
+
+    def test_jitter_within_the_spread_is_still_and_a_move_past_it_is_not(self):
+        recent = self._window()
+        for i in range(_ANCHOR_STILL_FRAMES):
+            wobble = (i % 2) * (_ANCHOR_STILL_SPREAD - 0.5)
+            _pose_still(recent, HeadPose(yaw=-4.0 + wobble, pitch=-11.0, roll=0.0))
+        assert _pose_still(recent, HeadPose(yaw=-4.0, pitch=-11.0, roll=0.0)) is True
+        moved = HeadPose(yaw=-4.0 + _ANCHOR_STILL_SPREAD + 0.5, pitch=-11.0, roll=0.0)
+        assert _pose_still(recent, moved) is False
+
+    def test_each_axis_counts(self):
+        recent = self._window()
+        for _ in range(_ANCHOR_STILL_FRAMES):
+            _pose_still(recent, HeadPose(yaw=0.0, pitch=0.0, roll=0.0))
+        assert (
+            _pose_still(recent, HeadPose(yaw=0.0, pitch=0.0, roll=_ANCHOR_STILL_SPREAD + 1))
+            is False
+        )
+
+    def test_a_lost_pose_empties_the_window(self):
+        recent = self._window()
+        for _ in range(_ANCHOR_STILL_FRAMES):
+            _pose_still(recent, HeadPose(yaw=0.0, pitch=0.0, roll=0.0))
+        assert _pose_still(recent, None) is False
+        assert not recent
 
 
 class _FakeGraph:
@@ -2535,13 +2651,42 @@ class TestAnchorGatingInRender:
         assert loaded.rest_ear is None
         assert loaded.rest_mar is None
 
+    def test_a_move_while_learning_starts_the_anchor_over_a_frozen_one_stays(self, tmp_path):
+        torch = pytest.importorskip("torch")
+        engine, loaded = self._engine_and_loaded(tmp_path, torch=torch, anchor_wanted=2)
+        driver_rgb = np.zeros((MODEL_SIZE, MODEL_SIZE, 3), dtype=np.uint8)
+        self._render(engine, loaded, driver_rgb, 0.30, 0.01, anchor_ok=True)
+        assert loaded.anchor_seen == 1
+
+        engine._restart_anchor(loaded)
+
+        assert loaded.anchor_seen == 0 and loaded.anchor_sum == {}
+        self._render(engine, loaded, driver_rgb, 0.30, 0.01, anchor_ok=True)
+        self._render(engine, loaded, driver_rgb, 0.30, 0.01, anchor_ok=True)
+        assert loaded.anchor_seen == 2
+        engine._restart_anchor(loaded)
+        assert loaded.anchor_seen == 2  # frozen: never restarted
+
+    def test_the_anchors_pose_is_the_trackers_median(self, tmp_path):
+        """Day 16 evening: the hold and the calibration measure in the
+        tracker's degrees; the network's own pose average is not those."""
+        torch = pytest.importorskip("torch")
+        engine, loaded = self._engine_and_loaded(tmp_path, torch=torch, anchor_wanted=3)
+        driver_rgb = np.zeros((MODEL_SIZE, MODEL_SIZE, 3), dtype=np.uint8)
+        for pose in ((-12.0, -8.0), (-11.0, -9.5), (-13.0, -7.0)):
+            engine._render(loaded, driver_rgb, 0.3, 0.0, 0.3, 0.0, anchor_ok=True, pose_sample=pose)
+        assert loaded.rest_yaw == pytest.approx(-8.0)
+        assert loaded.rest_pitch == pytest.approx(-12.0)
+        engine.reset_anchor(loaded.descriptor.id)
+        assert loaded.pose_samples == [] and loaded.rest_yaw is None
+
     def test_rest_status_reports_progress_then_none(self, tmp_path):
         torch = pytest.importorskip("torch")
         engine, loaded = self._engine_and_loaded(tmp_path, torch=torch, anchor_wanted=2)
         avatar_id = loaded.descriptor.id
         driver_rgb = np.zeros((MODEL_SIZE, MODEL_SIZE, 3), dtype=np.uint8)
 
-        prefix = "Look straight at the camera to centre the avatar"
+        prefix = "Sit still and look at the camera to centre the avatar"
         assert engine.rest_status(avatar_id) == f"{prefix} (0/2)"
         self._render(engine, loaded, driver_rgb, 0.30, 0.01, anchor_ok=True)
         assert engine.rest_status(avatar_id) == f"{prefix} (1/2)"
@@ -2700,6 +2845,43 @@ class TestAnchorGatingInRender:
         assert LivePortraitEngine().rest_status("absent") is None
 
 
+class TestSmileOpening:
+    """Day 16 evening: on a smile the lips part less (``mouth_smile_opening``),
+    by the width gate's word on how much of a smile it is; talking with the
+    mouth at its resting width is untouched."""
+
+    def test_option_default_and_validation(self):
+        assert _mouth_smile_opening({}) == 1.0
+        assert _mouth_smile_opening({"mouth_smile_opening": 0.5}) == 0.5
+        with pytest.raises(ValueError, match="mouth_smile_opening"):
+            _mouth_smile_opening({"mouth_smile_opening": 1.5})
+
+    def test_widening_is_the_width_gate_alone(self):
+        assert _mouth_widening(0.40, 0.40) == 0.0
+        assert _mouth_widening(0.48, 0.40) == 1.0  # +20%: past the gate's full
+        assert 0.0 < _mouth_widening(0.42, 0.40) < 1.0
+        assert _mouth_gate(0.0, 0.48, 0.0, 0.40) == 1.0  # the mouth gate still reads it
+
+    def _loaded(self, tmp_path, **options):
+        loaded = _Portrait(descriptor(tmp_path))
+        loaded.options.update(options)
+        loaded.rest_mar, loaded.rest_mouth_width, loaded.rest_brow = 0.002, 0.40, 0.22
+        return loaded
+
+    def _settled(self, loaded, mar, width):
+        for _ in range(12):  # past the gate's attack
+            gates = LivePortraitEngine._gates(loaded, mar, width, 0.22, None)
+        return gates[1]
+
+    def test_a_wide_smile_parts_the_lips_less_and_talking_does_not_change(self, tmp_path):
+        plain = self._settled(self._loaded(tmp_path), 0.05, 0.48)
+        smiling = self._settled(self._loaded(tmp_path, mouth_smile_opening=0.5), 0.05, 0.48)
+        talking = self._settled(self._loaded(tmp_path, mouth_smile_opening=0.5), 0.05, 0.40)
+        assert plain == pytest.approx(1.0, abs=1e-2)
+        assert smiling == pytest.approx(0.5, abs=1e-2)
+        assert talking == pytest.approx(1.0, abs=1e-2)
+
+
 class TestShouldHold:
     """``_should_hold``/``_hold_thresholds``: freeze the rendered face past
     a pose a frontal portrait cannot redraw -- day 8, 2026-09-06. Pure
@@ -2754,6 +2936,17 @@ class TestShouldHold:
         assert _should_hold(loaded, HeadPose(pitch=0.0, yaw=36.0)) is True
         assert _should_hold(loaded, HeadPose(pitch=0.0, yaw=27.0)) is True
         assert _should_hold(loaded, HeadPose(pitch=0.0, yaw=25.0)) is False
+
+    def test_measured_from_the_anchors_rest_pose_once_known(self, tmp_path):
+        """Day 16: the friend rests at pitch -11 in front of this camera; a
+        nod to -25 is 14 degrees from his rest, not 25 from zero."""
+        loaded = self._loaded(tmp_path)
+        loaded.rest_pitch, loaded.rest_yaw = -11.0, -4.0
+        assert _should_hold(loaded, HeadPose(pitch=-25.0, yaw=0.0)) is False
+        assert _should_hold(loaded, HeadPose(pitch=-32.0, yaw=0.0)) is True
+        loaded.holding = False
+        assert _should_hold(loaded, HeadPose(pitch=-11.0, yaw=30.0)) is False
+        assert _should_hold(loaded, HeadPose(pitch=-11.0, yaw=-40.0)) is True
 
     def test_no_pose_keeps_the_current_state(self, tmp_path):
         loaded = self._loaded(tmp_path)
@@ -3837,6 +4030,48 @@ class TestGaze:
         for _ in range(30):
             last = LivePortraitEngine._gaze_drive(loaded, (-0.04, -0.09))
         assert last == pytest.approx(-0.20, abs=1e-3)
+
+    def test_gaze_rest_tracking_default_and_validation(self):
+        assert _gaze_rest_tracking({}) == 300.0
+        assert _gaze_rest_tracking({"gaze_rest_tracking": 0}) == 0.0
+        with pytest.raises(ValueError, match="gaze_rest_tracking"):
+            _gaze_rest_tracking({"gaze_rest_tracking": -1})
+
+    def test_the_rest_follows_a_look_held_at_the_screen_once_the_anchor_is_frozen(self, tmp_path):
+        """Day 16 evening: she looked at the screen, the avatar looked away
+        from the camera for as long as she did. A held look becomes the
+        rest; a glance does not."""
+        loaded = self._portrait(tmp_path, {"gaze_gain": 1.0, "gaze_rest_tracking": 100})
+        loaded.rest_gaze = (0.0, 0.0)
+        loaded.anchor_seen = loaded.anchor_wanted
+        first = LivePortraitEngine._gaze_drive(loaded, (0.15, -0.08))
+        assert first > 0.0
+        for _ in range(60):  # a two-second glance
+            LivePortraitEngine._gaze_drive(loaded, (0.15, -0.08))
+        assert loaded.rest_gaze[0] == pytest.approx(0.15 * (1 - (1 - 0.01) ** 61), abs=1e-3)
+        assert loaded.rest_gaze[0] < 0.07
+        for _ in range(600):  # the look held
+            last = LivePortraitEngine._gaze_drive(loaded, (0.15, -0.08))
+        assert loaded.rest_gaze[0] == pytest.approx(0.15, abs=0.001)
+        assert loaded.rest_gaze[1] == pytest.approx(-0.08, abs=0.001)
+        assert last == pytest.approx(0.0, abs=1e-3)
+
+    def test_the_rest_stays_put_before_the_anchor_while_held_and_with_tracking_off(self, tmp_path):
+        loaded = self._portrait(tmp_path, {"gaze_gain": 1.0})
+        loaded.rest_gaze = (0.0, 0.0)
+        for _ in range(50):
+            LivePortraitEngine._gaze_drive(loaded, (0.15, 0.0))
+        assert loaded.rest_gaze == (0.0, 0.0)  # the anchor is not frozen yet
+        loaded.anchor_seen = loaded.anchor_wanted
+        loaded.holding = True
+        for _ in range(50):
+            LivePortraitEngine._gaze_drive(loaded, (0.15, 0.0))
+        assert loaded.rest_gaze == (0.0, 0.0)  # held
+        loaded.holding = False
+        loaded.options = {"gaze_gain": 1.0, "gaze_rest_tracking": 0}
+        for _ in range(50):
+            LivePortraitEngine._gaze_drive(loaded, (0.15, 0.0))
+        assert loaded.rest_gaze == (0.0, 0.0)  # off
 
     def test_the_anchor_learns_his_rest_gaze_and_reset_forgets_it(self, tmp_path):
         torch = pytest.importorskip("torch")
