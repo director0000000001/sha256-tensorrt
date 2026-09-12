@@ -66,6 +66,7 @@ from sha256.pipeline.runner import PipelineRunner
 from sha256.tracking.mediapipe_tracker import DEFAULT_MODEL_RELATIVE_PATH, MediaPipeFaceTracker
 from sha256.ui.background import BackgroundPanel
 from sha256.ui.hotkey import GlobalHotkey
+from sha256.ui.instructions_dialog import InstructionsDialog
 from sha256.ui.panels.debug_panel import DebugPanel
 from sha256.ui.photo_guide_dialog import PhotoGuideDialog
 from sha256.ui.preview import PreviewWidget
@@ -587,6 +588,19 @@ class MainWindow(QMainWindow):
         self._add_avatar_action.setVisible(False)
         menu.addAction(self._add_avatar_action)
 
+        menu.addSeparator()
+
+        # Day 16 night, his ask: the whole of it in text, inside the app --
+        # what the computer and the camera must be, the first run, every
+        # control, the calls (see sha256.app.instructions).
+        self._instructions_action = QAction("Instructions", menu)
+        self._instructions_action.setToolTip(
+            "What you need, the first run, every button, the calls, and what to do "
+            "when something goes wrong."
+        )
+        self._instructions_action.triggered.connect(self._on_instructions)
+        menu.addAction(self._instructions_action)
+
         return button
 
     @staticmethod
@@ -721,6 +735,9 @@ class MainWindow(QMainWindow):
             return self._context.paths.resolve_relative(configured)
         models_root = self._context.paths.resolve_relative(settings.models.root_path)
         return models_root / DEFAULT_MODEL_RELATIVE_PATH
+
+    def _on_instructions(self) -> None:
+        InstructionsDialog(self).exec()
 
     def _on_add_avatar(self) -> None:
         """A photograph in, an avatar in the library out -- checked first.

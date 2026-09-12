@@ -5270,12 +5270,14 @@ other side, the frame rate the call actually gets, and Discord's own
 camera hold (it must be closed before Start today). One page of what
 each app needs, in the guide.
 
-### 4. The requirements, and an Instructions button
+### 4. The requirements, and an Instructions button -- BUILT the same night
 
-What a person's PC and camera must be, written for them, in the app
-(an Instructions entry in the Menu, a dialog like the photo guide) and
-in USER_GUIDE. The draft, from what this machine and the recordings
-measured:
+Menu -> Instructions (`sha256.app.instructions`, `ui/instructions_dialog`):
+eight sections -- what you need, the first time, the bar, the menu, the
+status line, on a call, if something goes wrong, what stays on this
+computer -- every control named as it is on the screen, tested to stay
+so (tests/unit/test_instructions.py). The requirements as written there,
+from what this machine and the recordings measured:
 
 - Windows 10 (64-bit, 21H2 or newer) or Windows 11. Not yet run on a
   Windows 10 machine -- the .exe on a second machine is still his test.

@@ -15,6 +15,8 @@ installed, nothing phones home, nothing leaves your computer.
 | Light | on your face, from the front. A shadow across the face puts the tracker's brows along the shadow. |
 
 Close Discord and anything else that holds the camera before you start.
+All of this page, and every button explained, is inside the app too:
+**Menu → Instructions**.
 
 ## The first time
 

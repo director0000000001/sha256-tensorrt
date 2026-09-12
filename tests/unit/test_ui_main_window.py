@@ -390,6 +390,7 @@ class TestTheBarAndTheMenu:
             "Calibrate me",
             "Login",
             "Add avatar",
+            "Instructions",
         )
         assert not any(text in texts for text in moved)
 
@@ -611,3 +612,21 @@ class TestPerson:
 
         assert warned and "Nobody Here" in warned[0]
         assert window._active_profile is None
+
+
+class TestInstructions:
+    """Menu -> Instructions (day 16 night): the last entry, opening the text."""
+
+    def test_the_entry_opens_the_dialog_with_the_text(self, window, monkeypatch):
+        from sha256.ui import instructions_dialog as module
+
+        opened: list[str] = []
+
+        def fake_exec(self):
+            opened.append(self.text)
+            return 0
+
+        monkeypatch.setattr(module.InstructionsDialog, "exec", fake_exec)
+        window._on_instructions()
+        assert opened and "3. THE BAR" in opened[0] and "Calibrate me" in opened[0]
+        assert window._instructions_action.text() == "Instructions"
