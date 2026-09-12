@@ -180,6 +180,34 @@ class TestReadPhase:
         assert kinds_in_sidecar == ["rest", READY_KIND, "talk"]
         assert sidecar["segments"][1]["instruction"] == "Get ready: TALK"
 
+    def test_the_anchor_is_reset_as_the_still_steps_measured_phase_starts(self, tmp_path):
+        """Not while the instruction is being read: the read phase's frames
+        are the person looking at the screen, not at the camera."""
+        steps = (
+            CalibrationStep("rest", 0.3, "SIT STILL", read_seconds=0.3),
+            CalibrationStep("talk", 0.3, "TALK"),
+        )
+        controller = BiggerController()
+        runner = PipelineRunner(controller)  # type: ignore[arg-type]
+        clock = Clock()
+        engine = FakeEngine()
+        session = CalibrationSession(
+            runner,
+            engine=engine,
+            avatar_id="me",
+            directory=tmp_path / "r",
+            steps=steps,
+            clock=clock,
+        )
+        session.start()
+        run_frames(controller, runner, clock, 5)  # 0.17 s: reading
+        assert engine.resets == []
+        run_frames(controller, runner, clock, 10)  # 0.5 s: the measured phase
+        assert engine.resets == ["me"]
+        run_frames(controller, runner, clock, 10)  # 0.83 s: talking
+        assert engine.resets == ["me"]
+        session.cancel()
+
 
 class TestSession:
     def test_frames_land_in_their_steps_and_the_anchor_is_reset_once(self, parts):

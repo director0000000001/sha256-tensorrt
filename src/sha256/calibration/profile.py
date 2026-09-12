@@ -1,12 +1,14 @@
 """The driver profile file: ``configs/local.driver.json``.
 
-One file per machine -- the person who sits at it -- gitignored with the
-rest of ``configs/local.*``. It carries the driver options "Calibrate me"
-measured (see ``DRIVER_OPTION_KEYS`` in the engine for what a profile may
-set) and, for the record and for the offline measurement, the rest values,
-the jitter and the response fits they came from. The engine reads only
+The profile in force on this machine -- gitignored with the rest of
+``configs/local.*``. It carries the driver options "Calibrate me" measured
+(see ``DRIVER_OPTION_KEYS`` in the engine for what a profile may set) and,
+for the record and for the offline measurement, the rest values, the
+jitter and the response fits they came from. The engine reads only
 ``engine_options``; everything else is for a person or a script reading
-the file.
+the file. Since day 16's evening a profile carries the person's ``name``
+and lives, one file each, in ``configs/drivers/`` (see :mod:`.roster`);
+``local.driver.json`` is a copy of the chosen person's.
 """
 
 from __future__ import annotations
@@ -46,6 +48,9 @@ class DriverProfile(BaseModel):
 
     profile_version: int = PROFILE_VERSION
     measured_at: str = ""
+    # The person, as they typed it at the end of Calibrate me; "" for a
+    # profile from before names existed (see roster.adopt_unnamed).
+    name: str = ""
     avatar: str | None = None
     session: str | None = None
     engine_options: dict[str, Any] = Field(default_factory=dict)
@@ -62,10 +67,12 @@ class DriverProfile(BaseModel):
         avatar: str | None,
         session: str | None,
         measured_at: datetime | None = None,
+        name: str = "",
     ) -> DriverProfile:
         stamp = (measured_at or datetime.now().astimezone()).isoformat(timespec="seconds")
         return cls(
             measured_at=stamp,
+            name=name,
             avatar=avatar,
             session=session,
             engine_options={k: v for k, v in result.options.items() if k in DRIVER_OPTION_KEYS},

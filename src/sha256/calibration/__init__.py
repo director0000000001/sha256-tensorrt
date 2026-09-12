@@ -23,6 +23,8 @@ The parts:
 * :mod:`.measure` -- the samples into thresholds, slopes and gains, with
   the fits' own quality beside each, and the driver options to write.
 * :mod:`.profile` -- the file.
+* :mod:`.roster` -- the people at this camera, one named profile each
+  (``configs/drivers/``), and which one is in force.
 * :mod:`.session` -- the live run in the window: it records its own
   session (the camera frames as a clip, the tracking, the segment map)
   under ``recordings/`` so the same face can be re-measured offline after
@@ -36,6 +38,7 @@ directory on this machine only, with their consent asked in the window,
 and is theirs to delete.
 """
 
+from sha256.calibration import roster
 from sha256.calibration.measure import CalibrationResult, calibrate
 from sha256.calibration.profile import PROFILE_FILENAME, DriverProfile, driver_options_from
 from sha256.calibration.script import STEPS, CalibrationStep, step_at, step_for_instruction
@@ -51,6 +54,7 @@ __all__ = [
     "SessionFiles",
     "calibrate",
     "driver_options_from",
+    "roster",
     "step_at",
     "step_for_instruction",
 ]

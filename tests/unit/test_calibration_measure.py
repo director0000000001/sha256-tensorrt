@@ -305,23 +305,21 @@ class TestGains:
 
 
 class TestSidewaysOffset:
-    def test_the_avatars_eyes_off_his_become_a_crop_shift(self):
+    """Day 16 evening: the eye offset is reported and never turned into a
+    crop shift -- the shift moved the whole face, and on the first other
+    face the paste's join landed 13 px inside her cheek."""
+
+    def test_the_avatars_eyes_off_his_are_reported_not_shifted(self):
         result = calibrate(synthetic_samples(eye_offset_px=7.5), HIS_CURRENT)
         assert result.rest["avatar_eye_dx"] == pytest.approx(7.5, abs=0.1)
-        # 512 crop px over 2.2 face heights of 300 px, the other way.
-        assert result.options["crop_shift_x"] == pytest.approx(-7.5 * 512 / (2.2 * 300), abs=0.1)
-        assert change_of(result, "crop_shift_x") is not None
-
-    def test_a_small_offset_keeps_the_crop_where_it_is(self):
-        result = calibrate(synthetic_samples(eye_offset_px=1.0), HIS_CURRENT)
-        assert result.options["crop_shift_x"] == 0.0
+        assert "crop_shift_x" not in result.options
         assert change_of(result, "crop_shift_x") is None
-        assert any("sideways offset" in n for n in result.notes)
+        assert any("crop_shift_x not touched" in n for n in result.notes)
 
-    def test_an_existing_shift_is_corrected_from(self):
+    def test_an_existing_shift_is_left_alone(self):
         current = dict(HIS_CURRENT, crop_shift_x=-3.0)
         result = calibrate(synthetic_samples(eye_offset_px=4.0), current)
-        assert result.options["crop_shift_x"] == pytest.approx(-3.0 - 4.0 * 512 / 660, abs=0.1)
+        assert "crop_shift_x" not in result.options
 
 
 class TestLeakAndLipRest:
@@ -373,3 +371,56 @@ class TestDescribe:
     def test_a_failed_run_says_so(self):
         result = calibrate([], HIS_CURRENT)
         assert describe(result).startswith("Nothing measured")
+
+
+class TestStillFramesFaceTheCamera:
+    """Day 16 evening: the friend's turn ran into his last still step, and
+    the frames between the turn and the hold (yaw 25-44, the tracker's
+    readings garbage there) put his still jitter at every gate's ceiling.
+    Still frames count only while facing the camera as the anchor did."""
+
+    @staticmethod
+    def _turned_away(samples: list[Sample], count: int) -> list[Sample]:
+        last = samples[-1]
+        turned = []
+        for i in range(count):
+            his = dict(last.his)
+            his.update({"yaw": 40.0 - (i % 2) * 8.0, "opening": 0.1 + (i % 2) * 0.05, "ear": 0.9})
+            turned.append(
+                Sample(
+                    frame_id=last.frame_id + 1 + i,
+                    timestamp=last.timestamp + (1 + i) / 30.0,
+                    step="rest_end",
+                    face=True,
+                    his=his,
+                    engine={
+                        "anchor_frozen": 1.0,
+                        "holding": 0.0,
+                        "rest_pitch": 0.0,
+                        "rest_yaw": 0.0,
+                    },
+                    avatar=None,
+                )
+            )
+        return turned
+
+    def test_turned_away_still_frames_do_not_count(self):
+        clean = calibrate(synthetic_samples(), HIS_CURRENT)
+        dirty = calibrate(
+            synthetic_samples() + self._turned_away(synthetic_samples(), 40), HIS_CURRENT
+        )
+
+        assert dirty.rest["opening"] == pytest.approx(clean.rest["opening"], abs=1e-4)
+        assert dirty.jitter["opening_change_p99"] == pytest.approx(
+            clean.jitter["opening_change_p99"], rel=0.2
+        )
+        assert dirty.options["mouth_gate_mar"] == clean.options["mouth_gate_mar"]
+
+    def test_without_the_anchors_pose_the_first_still_step_is_the_reference(self):
+        samples = synthetic_samples()
+        for s in samples:
+            s.engine.pop("rest_pitch", None)
+            s.engine.pop("rest_yaw", None)
+        dirty = calibrate(samples + self._turned_away(samples, 40), HIS_CURRENT)
+        clean = calibrate(synthetic_samples(), HIS_CURRENT)
+        assert dirty.options["mouth_gate_mar"] == clean.options["mouth_gate_mar"]

@@ -36,6 +36,7 @@ class TestRoundTrip:
             avatar="my_avatar_neural",
             session="recordings/calibration-x",
             measured_at=when,
+            name="Giorgi Beridze",
         )
         path = profile.save(tmp_path / "configs" / "local.driver.json")
 
@@ -43,6 +44,7 @@ class TestRoundTrip:
 
         assert again is not None
         assert again.profile_version == PROFILE_VERSION
+        assert again.name == "Giorgi Beridze"
         assert again.avatar == "my_avatar_neural" and again.session == "recordings/calibration-x"
         assert again.measured_at.startswith("2026-09-12T10:30:00")
         assert again.engine_options["expression_gain"] == 1.64
@@ -81,4 +83,6 @@ class TestRoundTrip:
     def test_unknown_fields_in_the_file_are_ignored(self, tmp_path: Path):
         path = tmp_path / "p.json"
         path.write_text(json.dumps({"engine_options": {}, "someday": 1}), encoding="utf-8")
-        assert DriverProfile.load(path) is not None
+        loaded = DriverProfile.load(path)
+        assert loaded is not None
+        assert loaded.name == ""  # a file from before names existed

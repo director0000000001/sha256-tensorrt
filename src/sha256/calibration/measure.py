@@ -37,10 +37,13 @@ with the rule that produced the hand value written beside it:
   the whole segment) --
   the slope replaces the table's row when the fit is clear, else the row
   keeps the value it had.
-* **The sideways offset** (day 16, C2): the avatar's eyes against his on
-  the still frames, in frame pixels, turned into a constant shift of the
-  driver's crop (``crop_shift_x``, crop pixels: the crop is 2.2 face
-  heights into 512) -- the day-14 "turn lag" was mostly this.
+* **The sideways offset** (day 16, C2; withdrawn the same evening): the
+  avatar's eyes against his on the still frames, in frame pixels, is
+  reported. It was turned into ``crop_shift_x`` until the first other
+  face showed the cost: the shift moves the whole rendered face, outline
+  included, and the paste's join then sits inside the driver's cheek on
+  one side. The two outlines coincide at zero shift; the eye offset is
+  the driver's resting yaw against a frontal render, not a misplacement.
 * **The lip rest** (day 15): the extractor's lip-opening rows while he is
   measurably at rest, so the next session's anchor can start from his
   relaxed mouth rather than the pressed one a session tends to begin with.
@@ -125,11 +128,6 @@ BLINK_MIN_RANGE = 0.08  # eye ratio
 BROW_MIN_RANGE = 0.15  # his rise at p95 -- a real raise is +34..38%
 GAZE_MIN_RANGE = 0.10  # of eye width, p95 - p5 of his glance
 LEAK_MIN_RANGE = 0.04  # brow ratio deviation, p95 - p5
-# The crop's own scale (the engine's CROP_SIZE over CROP_SCALE face
-# heights), and the sideways offset below which the crop is left alone.
-CROP_PX = 512.0
-CROP_FACE_HEIGHTS = 2.2
-SHIFT_DEAD_ZONE_PX = 2.0
 # Frames of a resting mouth wanted for the lip rest rows.
 LIP_REST_MIN_FRAMES = 30
 _GATE_SHUT = 0.02
@@ -263,11 +261,29 @@ def _with_avatar(samples: Iterable[Sample]) -> list[Sample]:
     return [s for s in samples if s.avatar]
 
 
-def _frontal(sample: Sample, rest_pitch: float) -> bool:
+def _anchor_pose(rest: Sequence[Sample], first_kind: str) -> tuple[float, float]:
+    """(pitch, yaw) the still frames are measured against: the anchor's own,
+    as the engine reported it on the last still frame that carried a
+    reading (``rest_pitch``/``rest_yaw``, day 16), else the medians of the
+    first still step's frames; 0.0 for an axis nothing says anything about."""
+    last = next((s.engine for s in reversed(rest) if s.engine), {})
+    pitch, yaw = last.get("rest_pitch", math.nan), last.get("rest_yaw", math.nan)
+    first = [s for s in rest if s.step == first_kind] or list(rest)
+    if not math.isfinite(pitch):
+        pitch = _median(_finite(s.his.get("pitch", math.nan) for s in first))
+    if not math.isfinite(yaw):
+        yaw = _median(_finite(s.his.get("yaw", math.nan) for s in first))
+    return (pitch if math.isfinite(pitch) else 0.0, yaw if math.isfinite(yaw) else 0.0)
+
+
+def _frontal(sample: Sample, rest_pitch: float, rest_yaw: float = 0.0) -> bool:
+    """Facing the camera the way this person does at rest -- both angles
+    measured from their own still pose (day 16: a head that rests at pitch
+    -11 in front of a camera is frontal there)."""
     pitch, yaw = sample.his.get("pitch", math.nan), sample.his.get("yaw", math.nan)
     if not (math.isfinite(pitch) and math.isfinite(yaw)):
         return True
-    return abs(pitch - rest_pitch) < _FRONTAL_PITCH and abs(yaw) < _FRONTAL_YAW
+    return abs(pitch - rest_pitch) < _FRONTAL_PITCH and abs(yaw - rest_yaw) < _FRONTAL_YAW
 
 
 def _per_frame_changes(samples: Sequence[Sample], key: str, *, relative: bool) -> list[float]:
@@ -357,6 +373,14 @@ def calibrate(
     # --- rest --------------------------------------------------------------
     rest_all = _usable(samples, REST_STEPS)
     first_kind = REST_STEPS[0]
+    # Day 16 evening: only frames facing the camera as the anchor did count
+    # as still. The friend's turn ran into his last still step (yaw +44 at
+    # its median, the tracker's eye ratio reading 1.07 there) and the
+    # frames between the turn and the hold put his still jitter at 0.047
+    # per frame -- every gate at its ceiling. The reference is the anchor's
+    # own pose from the engine's readings, else the first still step's.
+    ref_pitch, ref_yaw = _anchor_pose(rest_all, first_kind)
+    rest_all = [s for s in rest_all if _frontal(s, ref_pitch, ref_yaw)]
     warm = [s for s in rest_all if s.step == first_kind][:REST_WARMUP_FRAMES]
     rest = (
         [s for s in rest_all if s not in warm]
@@ -369,14 +393,28 @@ def calibrate(
             "measured; sit still and frontal at the start"
         )
         return result
-    for key in ("ear", "opening", "width", "brow", "gaze_x", "gaze_y", "pitch", "face_height", "z"):
-        result.rest[key] = _median(_finite(s.his[key] for s in rest))
+    for key in (
+        "ear",
+        "opening",
+        "width",
+        "brow",
+        "gaze_x",
+        "gaze_y",
+        "pitch",
+        "yaw",
+        "roll",
+        "face_height",
+        "z",
+    ):
+        result.rest[key] = _median(_finite(s.his.get(key, math.nan) for s in rest))
     last_engine = next((s.engine for s in reversed(rest) if s.engine), {})
     for key in (
         "rest_ear",
         "rest_mar",
         "rest_mouth_width",
         "rest_brow",
+        "rest_pitch",
+        "rest_yaw",
         "face_height_rest",
         "z_rest",
     ):
@@ -389,6 +427,7 @@ def calibrate(
         result.rest["brow"],
     )
     rest_pitch = result.rest["pitch"] if math.isfinite(result.rest["pitch"]) else 0.0
+    rest_yaw = result.rest["yaw"] if math.isfinite(result.rest["yaw"]) else 0.0
 
     # --- jitter -> the gates' thresholds -------------------------------------
     thresholds = _gate_thresholds(current)
@@ -468,7 +507,7 @@ def calibrate(
             f"only {len(d_open)} consecutive still frames -- the gates' thresholds kept"
         )
 
-    confound = [s for s in _usable(samples, CONFOUND_STEPS) if _frontal(s, rest_pitch)]
+    confound = [s for s in _usable(samples, CONFOUND_STEPS) if _frontal(s, rest_pitch, rest_yaw)]
     brow_dev = [abs(s.his["brow"] / (rest_brow or 1e-6) - 1.0) for s in confound]
     result.jitter["brow_confound_p90"] = _p(brow_dev, BROW_CONFOUND_PERCENTILE)
     if len(brow_dev) >= CONFOUND_MIN_FRAMES:
@@ -497,7 +536,16 @@ def calibrate(
             f"the avatar's face was read on {len(rest_av)} still frames -- no gains measured"
         )
     else:
-        # The static sideways offset of the avatar's eyes against his, at rest.
+        # The sideways offset of the avatar's eyes against his, at rest --
+        # reported, not corrected (day 16 evening). It used to set
+        # crop_shift_x, and on the first other face that put the paste's
+        # join 13 px inside her cheek: the avatar is drawn frontal at rest
+        # whatever the head's own resting yaw, so on a head resting at yaw
+        # -7 the eyes sit 11-22 px toward the turn from a frontal face's
+        # while the two face OUTLINES coincide within 1 crop px (measured
+        # on her three captures and his two, scratch script of 2026-09-12
+        # evening; on his own head, yaw -2, the eyes read +2..+4). The
+        # join follows the outline, so the outline is what stays aligned.
         dx = _median(
             _finite(
                 s.avatar["eye_x"] - s.his["eye_x"]
@@ -505,27 +553,14 @@ def calibrate(
                 if s.avatar and "eye_x" in s.avatar and "eye_x" in s.his
             )
         )
-        face_h = result.rest.get("face_height", math.nan)
-        if math.isfinite(dx) and math.isfinite(face_h) and face_h > 0:
+        if math.isfinite(dx):
             result.rest["avatar_eye_dx"] = dx
-            crop_px_per_frame_px = CROP_PX / (CROP_FACE_HEIGHTS * face_h)
-            before = float(current.get("crop_shift_x", 0.0))
-            after = round(_clamp(before - dx * crop_px_per_frame_px, -40.0, 40.0), 1)
-            if abs(dx) >= SHIFT_DEAD_ZONE_PX:
-                result.options["crop_shift_x"] = after
-                result.changes.append(
-                    Change(
-                        "crop_shift_x",
-                        before,
-                        after,
-                        f"the avatar's eyes sat {dx:+.1f} px from his at rest",
-                    )
-                )
-            else:
-                result.options["crop_shift_x"] = before
-                result.notes.append(
-                    f"sideways offset {dx:+.1f} px at rest, within {SHIFT_DEAD_ZONE_PX:.0f} -- kept"
-                )
+            yaw = result.rest.get("yaw", math.nan)
+            result.notes.append(
+                f"the avatar's eyes sat {dx:+.1f} px from his at rest (his head at yaw "
+                f"{yaw:+.1f}) -- a frontal face on a turned head; the outline is aligned, "
+                "crop_shift_x not touched"
+            )
         av_rest = {
             key: _median(_finite(s.avatar[key] for s in rest_av if s.avatar))
             for key in ("ear", "opening", "width", "brow", "gaze_x")

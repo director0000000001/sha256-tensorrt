@@ -30,10 +30,11 @@ class TestSteps:
         ):
             assert needed in kinds
         assert not LEAD_IN.measured and all(s.measured for s in STEPS[1:])
-        # Every movement step opens with a read phase; the lead-in and the
-        # first still step do not (the anchor wants those frames at once).
-        assert STEPS[0].read_seconds == 0.0 and STEPS[1].read_seconds == 0.0
-        assert all(s.read_seconds == READ_SECONDS for s in STEPS[2:])
+        # Every measured step opens with a read phase -- the still step too,
+        # since day 16's evening (the anchor is reset as its measured phase
+        # starts); the lead-in does not.
+        assert STEPS[0].read_seconds == 0.0
+        assert all(s.read_seconds == READ_SECONDS for s in STEPS[1:])
         assert 75.0 <= total_seconds(STEPS) <= 95.0
 
     def test_step_at_walks_the_clock_through_the_read_phases(self):
@@ -45,7 +46,10 @@ class TestSteps:
             STEPS[0].seconds,
             False,
         )
-        rest = step_at(STEPS, LEAD_IN.seconds + 0.5)
+        reading_rest = step_at(STEPS, LEAD_IN.seconds + 0.5)
+        assert reading_rest is not None and reading_rest.step.kind == "rest"
+        assert reading_rest.reading
+        rest = step_at(STEPS, LEAD_IN.seconds + READ_SECONDS + 0.5)
         assert rest is not None and (rest.step_index, rest.step.kind, rest.reading) == (
             1,
             "rest",
@@ -53,7 +57,7 @@ class TestSteps:
         )
         assert rest.remaining == pytest.approx(STEPS[1].seconds - 0.5)
         # The blink step: first its read phase, then the movement.
-        blink_start = LEAD_IN.seconds + STEPS[1].seconds
+        blink_start = LEAD_IN.seconds + STEPS[1].total
         reading = step_at(STEPS, blink_start + 1.0)
         assert reading is not None and reading.step.kind == "blink" and reading.reading
         assert reading.remaining == pytest.approx(READ_SECONDS - 1.0)
@@ -86,6 +90,8 @@ class TestInstructions:
             ("Smile, then relax.", "smile_closed"),
             ("Get ready: sit straight, face the camera, relax.", "lead"),
             ("Get ready: Blink normally, several times.", "lead"),
+            ("Get ready: SIT STILL. Look straight at the camera. Relax your face.", "lead"),
+            ("Get ready: SIT STILL again. Relax.", "lead"),
         ],
     )
     def test_the_recorders_scripts_find_their_steps(self, instruction, kind):

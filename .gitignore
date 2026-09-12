@@ -34,6 +34,8 @@ coverage.xml
 .env.*
 !.env.example
 configs/local.*
+# The people at this camera, one measured profile each (day 16): personal.
+configs/drivers/
 *.pem
 *.key
 credentials.json

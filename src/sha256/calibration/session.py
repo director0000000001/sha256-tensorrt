@@ -238,6 +238,7 @@ class CalibrationSession:
         self._segments: dict[str, dict[str, Any]] = {}
         self._started: float | None = None
         self._step_index = -1
+        self._phase: tuple[int, bool] | None = None
         self._writer: _ClipWriter | None = None
         self._reader: _OutputReader | None = None
         self._tracker: FaceTracker | None = None
@@ -306,14 +307,18 @@ class CalibrationSession:
             self._directory,
         )
 
-    def _enter_step(self, index: int, step: CalibrationStep) -> None:
-        self._step_index = index
-        if step.kind == "rest":
-            # The anchor is learned from these frames and nothing earlier.
+    def _enter_phase(self, index: int, step: CalibrationStep, reading: bool) -> None:
+        """The clock moved into a new phase: a step's read phase or its
+        measured one. The anchor is learned from the still step's measured
+        frames and nothing earlier -- reset as they start, so the read
+        phase (the person looking at the instruction) is not in it."""
+        if index != self._step_index:
+            self._step_index = index
+            _LOG.info("Calibration step %d/%d: %s", index + 1, len(self._steps), step.instruction)
+        if step.kind == "rest" and not reading:
             reset = getattr(self._engine, "reset_anchor", None)
             if reset is not None:
                 reset(self._avatar_id)
-        _LOG.info("Calibration step %d/%d: %s", index + 1, len(self._steps), step.instruction)
 
     def _observe(self, snapshot: PipelineSnapshot) -> None:
         """On the pipeline thread, once per published frame."""
@@ -324,8 +329,9 @@ class CalibrationSession:
             self._done = True
             return
         index, step, _, reading = placed
-        if index != self._step_index:
-            self._enter_step(index, step)
+        if (index, reading) != self._phase:
+            self._phase = (index, reading)
+            self._enter_phase(index, step, reading)
         # The read phase: the instruction is on screen, nothing measured --
         # its frames carry their own kind, and the sidecar its own segment.
         kind = READY_KIND if reading else step.kind

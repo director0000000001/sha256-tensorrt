@@ -72,12 +72,21 @@ LEAD_IN = CalibrationStep(
     "lead", 3.0, "Get ready: sit straight, face the camera, relax.", measured=False
 )
 
-# About 85 seconds with the read phases. The still step is longest: the
-# anchor takes about a second of frontal frames and the jitter wants three
+# About 89 seconds with the read phases. The still step is longest: the
+# anchor takes about a second of still frames and the jitter wants three
 # more; the brows step is long enough for the leak's thirty shut-lips frames.
+# Day 16 evening: the still step reads first as well -- the friend's second
+# session had him being told what to do during it (his head spread 6-10
+# degrees over the "still" frames) -- and the anchor is reset when its
+# measured phase starts, not when the instruction appears.
 STEPS: tuple[CalibrationStep, ...] = (
     LEAD_IN,
-    CalibrationStep("rest", 5.0, "SIT STILL. Look straight at the camera. Relax your face."),
+    CalibrationStep(
+        "rest",
+        5.0,
+        "SIT STILL. Look straight at the camera. Relax your face.",
+        read_seconds=READ_SECONDS,
+    ),
     CalibrationStep("blink", 3.0, "Blink normally, several times.", read_seconds=READ_SECONDS),
     CalibrationStep(
         "eyes_shut", 3.0, "Close your eyes for two seconds, then open.", read_seconds=READ_SECONDS
@@ -113,14 +122,15 @@ STEPS: tuple[CalibrationStep, ...] = (
 )
 
 # In order: the first keyword found in the instruction (lower-cased) names
-# the step, so "sit still again" must come before "sit still" and "teeth"
+# the step, so "get ready" (a read phase, nothing measured) must come before
+# every movement it names, "sit still again" before "sit still" and "teeth"
 # before "smile". Covers this script, the recorder's "full" and "natural"
 # scripts, and their older spellings.
 _KEYWORDS: tuple[tuple[str, str], ...] = (
+    ("get ready", "lead"),
     ("sit still again", "rest_end"),
     ("still again", "rest_end"),
     ("sit still", "rest"),
-    ("get ready", "lead"),
     ("close your eyes", "eyes_shut"),
     ("blink", "blink"),
     ("mouth wide", "open"),
