@@ -5222,6 +5222,98 @@ New: the option's bounds, the width gate alone, a wide smile parting the
 lips half as much while talking at the resting width is unchanged.
 Uncommitted, on his word.
 
+## What is left, in his order (written 2026-09-12 night, after the push)
+
+Everything above is on origin/main at c5eda18. What he wants next, in
+the order he gave it, then what the code side sees.
+
+### 1. Tomorrow: the whole forehead filled, and the hair (block C1, again)
+
+What exists: `mask_forehead_reach` up to 1.6 and the "hairline" mode
+(the portrait's hairline at load, the driver's on frontal frames, the
+lower of the two), measured on four captures with no gain on the
+forehead band -- default left at 0.85. What was never built: the hair
+switch (C1b): the avatar's own hair drawn over the driver's, or the
+driver's hair kept and the forehead joined under it. Start by measuring
+on his and on baska's captures where the forehead join sits and what is
+above it (his short hair, her long hair parted in the middle); the answer
+may differ per driver.
+
+### 2. The brows dip on a blink (his report, 2026-09-12 night)
+
+"When I blink or just close my eyes the brows go down too, and come
+back up when I open them -- not easy to notice, but not natural." Two
+candidate mechanisms, both measurable on the calibration sessions
+already recorded (their `blink` and `eyes_shut` steps carry his brow and
+the avatar's per frame):
+
+- the eye retargeting network: its 63 outputs are not confined to the
+  lids (day 6's finding); the delta was confined to `EYE_KEYPOINTS` on
+  day 8 -- check that the brow keypoints are outside that set on a
+  full shut, not only on a widening;
+- the brow drive: MediaPipe's brow ratio drops on a blink (the lids'
+  landmarks move with the eye), so `_brow_lift` reads a lowering; the
+  dead band was set from exactly this confound (his live 0.173, at the
+  band's cap; baska's 0.055, where a blink's 5.5% is at the edge).
+
+Split them with the replay probe: `--sweep brow_follow=1,0` on a shut
+frame; whichever drops the avatar's brow is the one. The likely fix is
+to hold the brow drive while the eye ratio is under the blink hold
+(`_GAZE_BLINK_HOLD` already does this for the gaze).
+
+### 3. Then: the virtual camera on real calls
+
+Google Meet, Discord, Zoom, Teams, one after the other, on this machine
+first: the OBS Virtual Camera chosen in each, the picture's orientation
+(mirrored in the preview only), the black screen's text readable on the
+other side, the frame rate the call actually gets, and Discord's own
+camera hold (it must be closed before Start today). One page of what
+each app needs, in the guide.
+
+### 4. The requirements, and an Instructions button
+
+What a person's PC and camera must be, written for them, in the app
+(an Instructions entry in the Menu, a dialog like the photo guide) and
+in USER_GUIDE. The draft, from what this machine and the recordings
+measured:
+
+- Windows 10 (64-bit, 21H2 or newer) or Windows 11. Not yet run on a
+  Windows 10 machine -- the .exe on a second machine is still his test.
+- An NVIDIA card with 6 GB of memory free: RTX 3060 at the least; this
+  machine's RTX 5070 Ti runs 19-25 fps live at 720p, so an RTX 4060 or
+  better is what "comfortable" means. Without an NVIDIA card the plain
+  photograph avatar runs instead -- a weaker picture.
+- A processor of the last four years with six cores or more (the face
+  tracker runs on the CPU), 16 GB of memory, 6 GB of disk for the
+  package.
+- A camera at 720p 30 fps at the least (1080p 30 is fine): a Sony ZV-E10
+  over USB Streaming, or a good webcam of the Logitech C920 class. At
+  eye height, the face a third of the picture's height (300-450 px tall
+  at 720p is what every good session had), soft light from the front,
+  no window behind. Sit still and look at the camera for the first
+  second.
+- OBS Studio installed once, for its virtual camera device. No internet
+  needed for a call.
+
+### 5. What the code side sees, besides his list
+
+- The join's remaining tone step at the temples on baska (the residual's
+  reach, `_EDGE_REACH`), measured on her captures.
+- `mouth_smile_opening` measured by Calibrate me from the toothy-smile
+  step, per avatar, instead of set by hand.
+- Calibrate me asking the name FIRST and starting a new name from
+  Nobody, so a new person's gains are corrected from the avatar's own
+  values and not from whoever was in force.
+- The pipeline's frame rate under load: the captures of tonight ran at
+  19-22 fps (300 frames in 13.5-15.4 s) against the 30 the camera gives;
+  where the time goes (the tracker on the CPU, the correction, the
+  paste) has not been measured since day 11.
+- The instructions, the calibration's voice and the dialogs are English;
+  the five are not. Georgian text in the dialogs is a day's work; a
+  Georgian voice is not there in SAPI.
+- The kill switch is unconfigured (inert) -- his decision, before the
+  five get the package.
+
 ## Honest odds
 
 - **The picture:** high. LivePortrait is proven and it fits this GPU; what is not
