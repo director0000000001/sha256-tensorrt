@@ -15,7 +15,13 @@ import numpy as np
 import pytest
 
 from sha256.core.enums import PixelFormat
-from sha256.core.types import FaceTrackingResult, FrameMetadata, LandmarkSet, RenderedFrame
+from sha256.core.types import (
+    FaceTrackingResult,
+    FrameMetadata,
+    LandmarkSet,
+    RenderedFrame,
+    VideoFrame,
+)
 from sha256.pipeline.runner import PipelineSnapshot
 
 pytestmark = pytest.mark.gui
@@ -26,14 +32,23 @@ pytest.importorskip("PySide6.QtWidgets", reason="PySide6 is required for UI test
 class StillRunner:
     """A runner standing still on one snapshot, so the status can be read off it."""
 
-    def __init__(self, tracking: FaceTrackingResult) -> None:
+    def __init__(self, tracking: FaceTrackingResult, *, with_source: bool = False) -> None:
         metadata = tracking.metadata
         frame = RenderedFrame(
             data=np.zeros((4, 4, 3), dtype=np.uint8),
             pixel_format=PixelFormat.BGR24,
             metadata=metadata,
         )
-        self._snapshot = PipelineSnapshot(frame, None, tracking, metadata.frame_id)
+        source = (
+            VideoFrame(
+                data=np.zeros((4, 4, 3), dtype=np.uint8),
+                pixel_format=PixelFormat.BGR24,
+                metadata=metadata,
+            )
+            if with_source
+            else None
+        )
+        self._snapshot = PipelineSnapshot(frame, source, tracking, metadata.frame_id)
 
     is_running = True
     last_error = None
@@ -116,15 +131,18 @@ class TestOutputControls:
     controller's conditioner, and the status line says when the other side
     is looking at a black screen."""
 
-    def test_the_quality_combo_sets_the_published_quality(self, window):
+    def test_the_quality_entries_set_the_published_quality(self, window):
         conditioner = window._context.controller.components.conditioner
-        assert window._quality_combo.currentText() == "Native"
+        assert window._quality_actions["native"].isChecked()
+        assert window._quality_actions["native"].text() == "Native"
         assert conditioner.quality == "native"
 
-        window._quality_combo.setCurrentText("480p")
+        window._quality_actions["480p"].trigger()
 
         assert conditioner.quality == "480p"
-        window._quality_combo.setCurrentText("Native")
+        assert window._quality_actions["480p"].isChecked()
+        assert not window._quality_actions["native"].isChecked()
+        window._quality_actions["native"].trigger()
         assert conditioner.quality == "native"
 
     def test_the_button_switches_the_black_screen_and_the_line_says_so(self, window):
@@ -209,8 +227,8 @@ class TestOwnerAndAddAvatar:
     def test_add_avatar_is_hidden_until_the_owner_logs_in(self, window, monkeypatch):
         from sha256.ui import main_window as module
 
-        assert not window._add_avatar_button.isVisible() or window._add_avatar_button.isHidden()
-        assert window._login_button.text() == "Login"
+        assert not window._add_avatar_action.isVisible()
+        assert window._login_action.text() == "Login"
         assert not window._owner.is_configured
 
         answers = iter([("open sesame", True), ("open sesame", True)])
@@ -220,8 +238,8 @@ class TestOwnerAndAddAvatar:
         window._on_login()
 
         assert window._owner.is_configured and window._owner.is_unlocked
-        assert window._login_button.text() == "Owner" and not window._login_button.isEnabled()
-        assert not window._add_avatar_button.isHidden()
+        assert window._login_action.text() == "Owner" and not window._login_action.isEnabled()
+        assert window._add_avatar_action.isVisible()
 
     def test_a_wrong_passphrase_unlocks_nothing(self, window, monkeypatch):
         from sha256.ui import main_window as module
@@ -235,7 +253,7 @@ class TestOwnerAndAddAvatar:
 
         window._on_login()
 
-        assert not window._owner.is_unlocked and window._add_avatar_button.isHidden()
+        assert not window._owner.is_unlocked and not window._add_avatar_action.isVisible()
         assert warned and "not the passphrase" in warned[0]
 
     def test_the_guide_can_be_declined(self, window, monkeypatch):
@@ -337,3 +355,259 @@ class TestOwnerAndAddAvatar:
         monkeypatch.setattr(module.QFileDialog, "getOpenFileName", lambda *a, **k: opened.append(1))
         window._on_add_avatar()
         assert not opened
+
+
+class TestTheBarAndTheMenu:
+    """Day 16, his report: fifteen controls in a row set a minimum width
+    wider than the screen, so the window opened with its bar below the
+    bottom edge and could not be dragged smaller. The bar keeps the six a
+    call needs; the rest live in the Menu; the status line takes what is
+    left and cuts what does not fit; the window opens inside the screen."""
+
+    @staticmethod
+    def _bar_texts(window) -> list[str]:
+        layout = window._primary_button.parentWidget().layout()
+        texts: list[str] = []
+        for i in range(layout.count()):
+            widget = layout.itemAt(i).widget()
+            if widget is not None:
+                texts.append(widget.text() if hasattr(widget, "text") else widget.currentText())
+        return texts
+
+    def test_the_bar_holds_six_controls_and_the_menu(self, window):
+        from sha256.pipeline.conditioning import QUALITY_NAMES
+
+        texts = self._bar_texts(window)
+        assert texts[:2] == ["Start", "Stop"]
+        assert "Virtual camera" in texts and "Camera battery died" in texts
+        assert texts[-1].startswith("Menu")
+        moved = (
+            "Dots",
+            "Mirror",
+            "That looked wrong",
+            "Re-centre",
+            "Person",
+            "Calibrate me",
+            "Login",
+            "Add avatar",
+        )
+        assert not any(text in texts for text in moved)
+
+        entries = [action.text() for action in window._menu.actions() if not action.isSeparator()]
+        assert entries == ["View", "Dots", "Mirror", "Quality", *moved[2:]]
+        assert [a.text() for a in window._view_group.actions()] == [
+            "Avatar",
+            "Tracking (no avatar)",
+        ]
+        assert window._view_avatar_action.isChecked()
+        expected = ["Native" if n == "native" else n for n in QUALITY_NAMES]
+        assert [a.text() for a in window._quality_group.actions()] == expected
+        assert window._menu_button.menu() is window._menu
+
+    def test_the_view_entries_choose_what_the_preview_shows(self, window):
+        shown: list[object] = []
+        window._preview.show_frame = lambda data, fmt, tracking=None, **kw: shown.append(tracking)
+        result = tracking(face=True)
+        window._runner = StillRunner(result, with_source=True)
+
+        window._refresh_preview()
+        assert shown[-1] is None  # the avatar view: the composited frame, no dots on it
+
+        window._view_camera_action.trigger()
+        window._refresh_preview()
+        assert shown[-1] is result  # the tracking view: the camera frame with its tracking
+        assert not window._view_avatar_action.isChecked()
+
+    def test_dots_and_mirror_reach_the_preview(self, window):
+        assert window._landmarks_action.isChecked() and window._preview._show_landmarks
+        window._landmarks_action.setChecked(False)
+        assert not window._preview._show_landmarks
+
+        configured = window._context.settings.camera.mirror
+        assert window._mirror_action.isChecked() == configured == window._preview._mirror
+        window._mirror_action.toggle()
+        assert window._preview._mirror == window._mirror_action.isChecked() == (not configured)
+
+    def test_a_long_status_never_widens_the_window(self, window):
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QApplication
+
+        window.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+        window.show()
+        QApplication.processEvents()
+        before = window.minimumSize().width()
+        assert before > 0
+
+        text = "BLACK SCREEN — the other side sees “Camera battery died” (by the button) " * 3
+        window._status_line.setText(text)
+        QApplication.processEvents()
+
+        assert window.minimumSize().width() == before
+        assert window._status_line.text() == text
+        window.close()
+
+    def test_the_status_line_cuts_what_does_not_fit_and_keeps_the_rest_in_the_tooltip(self, qtbot):
+        from PySide6.QtWidgets import QLabel
+
+        from sha256.ui.widgets import ElidedLabel
+
+        label = ElidedLabel()
+        qtbot.addWidget(label)
+        label.show()  # a hidden widget is not told about its resizes
+        label.resize(120, 24)
+        text = "Face not found — holding the avatar, and then some more words"
+        label.setText(text)
+
+        assert label.text() == text
+        painted = QLabel.text(label)
+        assert painted != text and painted.endswith("…")
+        assert label.toolTip() == text
+        assert label.minimumSizeHint().width() == 0
+        assert label.sizeHint().width() > label.fontMetrics().horizontalAdvance(text)
+
+        label.resize(label.sizeHint().width() + 20, 24)
+        assert QLabel.text(label) == text and label.toolTip() == ""
+
+        label.setText("")
+        assert QLabel.text(label) == "" and label.toolTip() == ""
+
+    def test_the_window_opens_inside_the_screen(self):
+        from PySide6.QtCore import QRect
+
+        from sha256.ui.main_window import opening_geometry
+
+        roomy = opening_geometry(QRect(0, 0, 2560, 1392))
+        assert (roomy.width(), roomy.height()) == (1200, 780)
+        assert roomy.x() == (2560 - 1200) // 2 and roomy.y() >= 36
+
+        # A 1080p laptop at 150 %, less the taskbar: 1280 x 660 free.
+        small = opening_geometry(QRect(0, 0, 1280, 660))
+        assert (small.width(), small.height()) == (1200, 600)
+        assert small.y() >= 36 and small.y() + small.height() <= 660 - 20
+
+        # A second screen to the right keeps its offset.
+        second = opening_geometry(QRect(2560, 0, 1280, 660))
+        assert second.x() >= 2560 and second.x() + second.width() <= 2560 + 1280
+
+    def test_the_window_is_built_at_the_opening_size(self, window):
+        from PySide6.QtGui import QGuiApplication
+
+        from sha256.ui.main_window import opening_geometry
+
+        available = QGuiApplication.primaryScreen().availableGeometry()
+        assert window.size() == opening_geometry(available).size()
+
+
+class TestPerson:
+    """Menu → Person (day 16 evening, his ask): the people at this camera by
+    name, the one in force checked, chosen with a click."""
+
+    @staticmethod
+    def _roster(app_context, *names: str):
+        from sha256.calibration import DriverProfile, roster
+
+        for i, name in enumerate(names):
+            profile = DriverProfile(
+                measured_at=f"2026-09-12T1{i}:00:00",
+                name=name,
+                engine_options={"gaze_gain": 0.5 + i},
+            )
+            roster.save_named(profile, app_context.paths.configs)
+
+    @staticmethod
+    def _window(qtbot, app_context):
+        from sha256.ui.main_window import MainWindow
+
+        widget = MainWindow(app_context)
+        qtbot.addWidget(widget)
+        return widget
+
+    def test_the_submenu_lists_nobody_and_the_roster_by_name(self, qtbot, app_context):
+        from sha256.ui.main_window import _NO_PERSON
+
+        self._roster(app_context, "Zura", "ana")
+        window = self._window(qtbot, app_context)
+
+        actions = window._person_group.actions()
+        assert [a.text() for a in actions] == [_NO_PERSON, "ana", "Zura"]
+        assert [a.isChecked() for a in actions] == [True, False, False]
+        assert window._person_menu.title() == "Person"
+        window._refresh_status()
+        assert window._status_line.text() == ""
+
+    def test_choosing_a_person_puts_the_profile_in_force_and_nobody_removes_it(
+        self, qtbot, app_context
+    ):
+        import json
+
+        self._roster(app_context, "Zura", "ana")
+        window = self._window(qtbot, app_context)
+        path = app_context.paths.configs / "local.driver.json"
+
+        window._on_person_chosen("Zura")
+
+        assert json.loads(path.read_text(encoding="utf-8"))["name"] == "Zura"
+        assert window._active_profile is not None and window._active_profile.name == "Zura"
+        assert app_context.driver_profile is window._active_profile
+        checked = [a.text() for a in window._person_group.actions() if a.isChecked()]
+        assert checked == ["Zura"]
+        window._refresh_status()
+        assert window._status_line.text() == "Profile: Zura"
+
+        window._on_person_chosen(None)
+
+        assert not path.exists() and window._active_profile is None
+        checked = [a.text() for a in window._person_group.actions() if a.isChecked()]
+        assert checked[0].startswith("Nobody")
+        window._refresh_status()
+        assert window._status_line.text() == ""
+
+    def test_an_unnamed_profile_in_force_is_adopted_at_start(self, qtbot, app_context):
+        import json
+
+        path = app_context.paths.configs / "local.driver.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps({"measured_at": "2026-09-12T00:42:46+04:00", "engine_options": {}}),
+            encoding="utf-8",
+        )
+
+        window = self._window(qtbot, app_context)
+
+        assert json.loads(path.read_text(encoding="utf-8"))["name"] == "Unnamed (2026-09-12 00:42)"
+        assert (app_context.paths.configs / "drivers" / "unnamed-2026-09-12-00-42.json").is_file()
+        checked = [a.text() for a in window._person_group.actions() if a.isChecked()]
+        assert checked == ["Unnamed (2026-09-12 00:42)"]
+
+    def test_a_chosen_profile_reaches_an_engine_that_takes_one_and_the_avatar_reloads(
+        self, qtbot, app_context
+    ):
+        self._roster(app_context, "Zura")
+        window = self._window(qtbot, app_context)
+        engine = app_context.avatars.engine
+        given: list[dict] = []
+        engine.set_driver_options = given.append
+        app_context.avatars.select("avatar_001")
+        window._on_start()
+        try:
+            window._on_person_chosen("Zura")
+            assert given[-1] == {"gaze_gain": 0.5}
+            assert app_context.avatars.active_id == "avatar_001" and window._runner.is_running
+            window._on_person_chosen(None)
+            assert given[-1] == {}
+        finally:
+            window._on_stop()
+
+    def test_a_missing_roster_file_is_said_and_nothing_changes(
+        self, qtbot, app_context, monkeypatch
+    ):
+        from sha256.ui import main_window as module
+
+        warned: list[str] = []
+        monkeypatch.setattr(module.QMessageBox, "warning", lambda *a, **k: warned.append(a[2]))
+        window = self._window(qtbot, app_context)
+
+        window._on_person_chosen("Nobody Here")
+
+        assert warned and "Nobody Here" in warned[0]
+        assert window._active_profile is None

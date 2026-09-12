@@ -16,17 +16,24 @@ image and a single control bar along the bottom, nothing else. No title, no
 tagline, no centred panel. Running swaps the empty area for the video.
 Diagnostics live behind the developer panel, which appears only when
 ``developer_mode`` is enabled in configuration.
+
+The bar holds what a call needs at one click -- Start, Stop, the camera, the
+avatar, the virtual camera, the black screen -- and a **Menu** with the rest
+(day 16, 2026-09-12, his report: with fifteen controls in a row the bar set
+a minimum width wider than the screen, so the window opened with its bottom
+off the screen and could not be dragged smaller). The bar's minimum is the
+window's minimum: nothing on it may ask for more width than it must.
 """
 
 from __future__ import annotations
 
-import shutil
 import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import QPoint, QRect, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QAction, QActionGroup, QGuiApplication
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -37,17 +44,19 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QStackedWidget,
     QTabWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from sha256.app.owner import OWNER_FILENAME, OwnerAccess
 from sha256.avatar.importer import AvatarImportError, import_portrait, neural_template
-from sha256.calibration import PROFILE_FILENAME, STEPS, CalibrationSession, DriverProfile
+from sha256.calibration import STEPS, CalibrationSession, DriverProfile, roster
 from sha256.calibration.measure import calibrate, describe
 from sha256.calibration.script import total_seconds
 from sha256.core.enums import PipelineState
@@ -61,14 +70,54 @@ from sha256.ui.panels.debug_panel import DebugPanel
 from sha256.ui.photo_guide_dialog import PhotoGuideDialog
 from sha256.ui.preview import PreviewWidget
 from sha256.ui.speech import Speaker
+from sha256.ui.widgets import ElidedLabel
 from sha256.utils.logging import get_logger
 
 if TYPE_CHECKING:
     from sha256.app.bootstrap import ApplicationContext
 
-__all__ = ["MainWindow"]
+__all__ = ["MainWindow", "opening_geometry"]
 
 _LOG = get_logger(__name__)
+
+# The size the window opens at when the screen has the room. When it has
+# not, the window takes what fits less the frame: the title bar above and
+# the border below are the window manager's, not the window's, and Windows
+# does not move a window up to keep its bottom on the screen -- it opened
+# 780 tall on a screen with less than that free, and the bar was below the
+# edge. The taskbar is already outside a screen's availableGeometry.
+_PREFERRED_SIZE = QSize(1200, 780)
+_FRAME_TOP = 36
+_FRAME_MARGIN = QSize(40, 60)
+_SMALLEST_OPENING = QSize(320, 240)
+# A combo asks for room for this many characters, not for its longest
+# entry: a camera called "Sony ZV-E10 (USB Streaming)" widens the list, not
+# the bar.
+_COMBO_CHARS = 8
+
+
+def opening_geometry(available: QRect, preferred: QSize = _PREFERRED_SIZE) -> QRect:
+    """Where the window opens and how large, given the screen's free area:
+    the preferred size when it fits, else as large as fits under the frame;
+    centred either way, and never above the title bar's room."""
+    width = min(preferred.width(), available.width() - _FRAME_MARGIN.width())
+    height = min(preferred.height(), available.height() - _FRAME_MARGIN.height())
+    width = max(width, _SMALLEST_OPENING.width())
+    height = max(height, _SMALLEST_OPENING.height())
+    x = available.x() + max((available.width() - width) // 2, 0)
+    spare = available.height() - height - _FRAME_MARGIN.height()
+    y = available.y() + _FRAME_TOP + max(spare // 2, 0)
+    return QRect(x, y, width, height)
+
+
+def _compact(combo: QComboBox) -> None:
+    """A combo that asks for a fixed width, whatever its longest entry. The
+    list still opens at the entries' full width, and the chosen entry's full
+    name is the tooltip, since the box cuts what does not fit."""
+    combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+    combo.setMinimumContentsLength(_COMBO_CHARS)
+    combo.currentTextChanged.connect(combo.setToolTip)
+
 
 # Painting faster than the pipeline produces frames only repaints the same
 # picture. 33 ms matches a 30 fps source; the preview simply shows whatever the
@@ -77,6 +126,8 @@ _PREVIEW_INTERVAL_MS = 33
 _STATUS_INTERVAL_MS = 500
 # The calibration's instruction and its countdown are redrawn this often.
 _CALIBRATION_TICK_MS = 100
+# The Person menu's entry for no profile at all: the avatar's own values.
+_NO_PERSON = "Nobody (the avatar's own values)"
 
 # The avatar view is first, and therefore the default. The tracking view exists
 # to answer "is it following me"; the avatar view is the product, and defaulting
@@ -86,12 +137,8 @@ _VIEW_CAMERA = "Tracking (no avatar)"
 
 
 def _quality_label(name: str) -> str:
-    """The combo's entry for a conditioner quality name: "Native", "480p"."""
+    """The menu's entry for a conditioner quality name: "Native", "480p"."""
     return "Native" if name == "native" else name
-
-
-def _quality_name(label: str) -> str:
-    return "native" if label == "Native" else label
 
 
 # Everything is translucent so the background photograph stays visible through
@@ -119,16 +166,33 @@ QCheckBox { color: #e2e2ea; background: transparent; }
     border-radius: 12px;
 }
 
-QPushButton {
+QPushButton, QToolButton {
     color: #f2f2f6;
     background-color: rgba(38, 38, 50, 200);
     border: 1px solid rgba(255, 255, 255, 45);
     border-radius: 8px;
-    padding: 8px 20px;
+    padding: 8px 16px;
     font-size: 14px;
 }
-QPushButton:hover { background-color: rgba(58, 58, 76, 225); }
+QPushButton:hover, QToolButton:hover, QToolButton:pressed, QToolButton:open {
+    background-color: rgba(58, 58, 76, 225);
+}
 QPushButton:disabled { color: #74747f; background-color: rgba(30, 30, 38, 110); }
+QToolButton::menu-indicator { image: none; width: 0px; }
+
+QMenu {
+    color: #f2f2f6;
+    background-color: #1b1b24;
+    border: 1px solid rgba(255, 255, 255, 40);
+    padding: 6px 0px;
+    font-size: 14px;
+}
+QMenu::item { padding: 7px 28px 7px 12px; background: transparent; }
+QMenu::item:selected { background-color: #38384a; }
+QMenu::item:disabled { color: #74747f; }
+QMenu::separator { height: 1px; background: rgba(255, 255, 255, 40); margin: 6px 10px; }
+QMenu::indicator { width: 14px; height: 14px; margin-left: 6px; }
+QMenu::right-arrow { margin-right: 8px; }
 
 #BlackoutButton:checked {
     color: #fff1f1;
@@ -178,9 +242,23 @@ class MainWindow(QMainWindow):
         self._runner = PipelineRunner(context.controller)
         # Day 15: his passphrase, and what it unlocks (see sha256.app.owner).
         self._owner = OwnerAccess(context.paths.configs / OWNER_FILENAME)
+        # Day 16 evening, his ask: the people at this camera, by name (see
+        # sha256.calibration.roster). The file in force is the truth --
+        # the start laid it over the engine -- and one from before names
+        # existed is adopted into the roster so the menu can show it.
+        configs = context.paths.configs
+        self._active_profile: DriverProfile | None = roster.adopt_unnamed(
+            configs
+        ) or roster.active_profile(configs)
 
         self.setWindowTitle("sha256")
-        self.resize(1120, 780)
+        screen = QGuiApplication.primaryScreen()
+        available = (
+            screen.availableGeometry()
+            if screen is not None
+            else QRect(QPoint(0, 0), _PREFERRED_SIZE + _FRAME_MARGIN)
+        )
+        self.setGeometry(opening_geometry(available))
 
         self._preview = PreviewWidget()
         self._debug_panel = DebugPanel(context)
@@ -297,7 +375,7 @@ class MainWindow(QMainWindow):
 
         layout = QHBoxLayout(bar)
         layout.setContentsMargins(16, 12, 16, 12)
-        layout.setSpacing(10)
+        layout.setSpacing(8)
 
         # Start and Stop first, at the bottom left, because that is where the
         # eye goes and they are the only two controls that always matter.
@@ -315,36 +393,16 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(QLabel("Camera"))
         self._camera_combo = QComboBox()
-        self._camera_combo.setMinimumWidth(130)
+        _compact(self._camera_combo)
         layout.addWidget(self._camera_combo)
 
-        layout.addSpacing(10)
+        layout.addSpacing(6)
 
         layout.addWidget(QLabel("Avatar"))
         self._avatar_combo = QComboBox()
-        self._avatar_combo.setMinimumWidth(130)
+        _compact(self._avatar_combo)
         self._avatar_combo.currentIndexChanged.connect(self._on_avatar_changed)
         layout.addWidget(self._avatar_combo)
-
-        layout.addSpacing(10)
-
-        # No label: the two entries name themselves.
-        self._view_combo = QComboBox()
-        self._view_combo.addItems([_VIEW_OUTPUT, _VIEW_CAMERA])
-        layout.addWidget(self._view_combo)
-
-        self._landmarks_check = QCheckBox("Dots")
-        self._landmarks_check.setToolTip("Draw the tracked landmarks. Tracking view only.")
-        self._landmarks_check.setChecked(True)
-        self._landmarks_check.toggled.connect(self._preview.set_show_landmarks)
-        layout.addWidget(self._landmarks_check)
-
-        self._mirror_check = QCheckBox("Mirror")
-        self._mirror_check.setChecked(self._context.settings.camera.mirror)
-        self._mirror_check.setToolTip("Affects this preview only, not the published output.")
-        self._mirror_check.toggled.connect(self._preview.set_mirror)
-        self._preview.set_mirror(self._mirror_check.isChecked())
-        layout.addWidget(self._mirror_check)
 
         layout.addSpacing(10)
 
@@ -357,25 +415,12 @@ class MainWindow(QMainWindow):
         self._publish_check.toggled.connect(self._on_publish_toggled)
         layout.addWidget(self._publish_check)
 
-        # Day 15, his ask: the published picture scaled down and back up, so
-        # the other side sees a cheaper webcam rather than the avatar's small
-        # defects. Native is the camera's own size; the stream's format never
-        # changes whatever is chosen (see sha256.pipeline.conditioning).
-        self._quality_combo = QComboBox()
-        self._quality_combo.addItems([_quality_label(name) for name in QUALITY_NAMES])
-        self._quality_combo.setCurrentText(_quality_label(self._conditioner.quality))
-        self._quality_combo.setToolTip(
-            "Quality of the published picture. Lower hides small defects of the "
-            "avatar, like a cheaper webcam would. Native is the camera's own size."
-        )
-        self._quality_combo.currentTextChanged.connect(self._on_quality_changed)
-        layout.addWidget(self._quality_combo)
-
         # Day 15, his ask: the black screen. Pressed, the virtual camera shows
         # a black frame with the failure text instead of the avatar -- as if
         # the camera's battery died -- until pressed again. The pipeline also
         # switches it on by itself when it cannot work (see the conditioner);
-        # the status line says which.
+        # the status line says which. On the bar, not in the menu: it is the
+        # one control that must be a single click away in a bad moment.
         self._blackout_button = QPushButton(self._conditioner.failure_text)
         self._blackout_button.setObjectName("BlackoutButton")
         self._blackout_button.setCheckable(True)
@@ -383,79 +428,176 @@ class MainWindow(QMainWindow):
         self._blackout_button.toggled.connect(self._on_blackout_toggled)
         layout.addWidget(self._blackout_button)
 
-        layout.addSpacing(10)
+        # Empty unless something went wrong, so the bar stays quiet in normal
+        # use but a failure is never silent. It takes the room that is left
+        # and cuts what does not fit: a long message must never widen the
+        # window (see sha256.ui.widgets).
+        self._status_line = ElidedLabel()
+        self._status_line.setObjectName("StatusLine")
+        layout.addWidget(self._status_line, 1)
+
+        self._fps_label = QLabel()
+        self._fps_label.setObjectName("Fps")
+        layout.addWidget(self._fps_label)
+
+        layout.addSpacing(6)
+        layout.addWidget(self._build_menu_button())
+
+        return bar
+
+    def _build_menu_button(self) -> QToolButton:
+        """The Menu: everything that is not needed at one click on a call.
+
+        Day 16, his ask ("a dropdown menu"): the view, the dots, the mirror,
+        the quality, "That looked wrong", "Re-centre", "Calibrate me", and
+        the owner's Login / Add avatar. Each is a QAction, so the window's
+        handlers and the tests drive the same objects the menu shows.
+        """
+        button = QToolButton()
+        button.setObjectName("MenuButton")
+        button.setText("Menu ▾")
+        button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        menu = QMenu(button)
+        menu.setToolTipsVisible(True)
+        button.setMenu(menu)
+        self._menu_button = button
+        self._menu = menu
+
+        # The view: the avatar (the product) or the camera with its tracking
+        # (the answer to "is it following me"). Exclusive, the avatar first.
+        view = menu.addMenu("View")
+        self._view_group = QActionGroup(view)
+        self._view_group.setExclusive(True)
+        self._view_avatar_action = self._exclusive(view, self._view_group, _VIEW_OUTPUT, "avatar")
+        self._view_camera_action = self._exclusive(view, self._view_group, _VIEW_CAMERA, "camera")
+        self._view_avatar_action.setChecked(True)
+
+        self._landmarks_action = QAction("Dots", menu)
+        self._landmarks_action.setCheckable(True)
+        self._landmarks_action.setChecked(True)
+        self._landmarks_action.setToolTip("Draw the tracked landmarks. Tracking view only.")
+        self._landmarks_action.toggled.connect(self._preview.set_show_landmarks)
+        menu.addAction(self._landmarks_action)
+
+        self._mirror_action = QAction("Mirror", menu)
+        self._mirror_action.setCheckable(True)
+        self._mirror_action.setChecked(self._context.settings.camera.mirror)
+        self._mirror_action.setToolTip("Affects this preview only, not the published output.")
+        self._mirror_action.toggled.connect(self._preview.set_mirror)
+        self._preview.set_mirror(self._mirror_action.isChecked())
+        menu.addAction(self._mirror_action)
+
+        # Day 15, his ask: the published picture scaled down and back up, so
+        # the other side sees a cheaper webcam rather than the avatar's small
+        # defects. Native is the camera's own size; the stream's format never
+        # changes whatever is chosen (see sha256.pipeline.conditioning).
+        quality = menu.addMenu("Quality")
+        quality.setToolTipsVisible(True)
+        quality.menuAction().setToolTip(
+            "Quality of the published picture. Lower hides small defects of the "
+            "avatar, like a cheaper webcam would. Native is the camera's own size."
+        )
+        self._quality_group = QActionGroup(quality)
+        self._quality_group.setExclusive(True)
+        self._quality_actions: dict[str, QAction] = {}
+        for name in QUALITY_NAMES:
+            action = self._exclusive(quality, self._quality_group, _quality_label(name), name)
+            self._quality_actions[name] = action
+        self._quality_actions[self._conditioner.quality].setChecked(True)
+        self._quality_group.triggered.connect(
+            lambda action: self._on_quality_changed(str(action.data()))
+        )
+
+        menu.addSeparator()
 
         # "That looked wrong." Saves the last ten seconds of tracking and the
         # frame on screen, so a complaint about the avatar can be replayed
         # instead of reproduced from a description.
-        self._capture_button = QPushButton("That looked wrong")
-        self._capture_button.setToolTip(
+        self._capture_action = QAction("That looked wrong", menu)
+        self._capture_action.setToolTip(
             "Save the last ten seconds of tracking and the frame on screen, "
             "so the moment can be replayed."
         )
-        self._capture_button.clicked.connect(self._on_capture)
-        layout.addWidget(self._capture_button)
+        self._capture_action.triggered.connect(self._on_capture)
+        menu.addAction(self._capture_action)
 
         # An engine that learns a resting face from the first frames after
         # load gets it wrong if the owner was not sitting still and frontal
         # right then (day 5, 2026-09-05: a call reached for the mouse and the
         # avatar sat visibly off-centre for the rest of the session). This is
         # the one knob that says "measure it again" -- see AvatarEngine.reset_anchor.
-        self._recentre_button = QPushButton("Re-centre")
-        self._recentre_button.setToolTip(
-            "Learn the resting face again — look straight at the camera for a second."
+        self._recentre_action = QAction("Re-centre", menu)
+        self._recentre_action.setToolTip(
+            "Learn the resting face again -- look straight at the camera for a second."
         )
-        self._recentre_button.clicked.connect(self._on_recentre)
-        layout.addWidget(self._recentre_button)
+        self._recentre_action.triggered.connect(self._on_recentre)
+        menu.addAction(self._recentre_action)
 
-        # Day 16: "Calibrate me" -- a guided three-quarters of a minute
-        # measured by the engine's own instruments into a driver profile
-        # (see sha256.calibration), and a recording of the session for the
+        # Day 16 evening, his ask: who is at the camera. One entry per named
+        # profile (Calibrate me asks the name at its end) and one for none
+        # -- the avatar's own values. Choosing one lays it over the engine
+        # and reloads the avatar, as the end of a calibration does.
+        self._person_menu = menu.addMenu("Person")
+        self._person_menu.setToolTipsVisible(True)
+        self._person_menu.menuAction().setToolTip(
+            "Whose profile the avatar follows. Calibrate me adds you to this list; "
+            "choose your name when you sit down."
+        )
+        self._person_group = QActionGroup(self._person_menu)
+        self._person_group.setExclusive(True)
+        self._person_group.triggered.connect(
+            lambda action: self._on_person_chosen(str(action.data()) or None)
+        )
+        self._rebuild_person_menu()
+
+        # Day 16: "Calibrate me" -- a guided minute and a half measured by
+        # the engine's own instruments into a driver profile (see
+        # sha256.calibration), and a recording of the session for the
         # offline measurement. For anyone, not the owner alone: each of the
         # five runs it once at their own camera.
-        self._calibrate_button = QPushButton("Calibrate me")
-        self._calibrate_button.setToolTip(
+        self._calibrate_action = QAction("Calibrate me", menu)
+        self._calibrate_action.setToolTip(
             f"A guided {total_seconds(STEPS):.0f} seconds -- sit still, blink, talk, smile, "
             "raise the brows, glance, turn -- measured into your own profile, so the "
             "avatar follows your face and not the owner's. Records the session on this "
-            "computer; press again to stop."
+            "computer; choose again to stop."
         )
-        self._calibrate_button.clicked.connect(self._on_calibrate)
-        layout.addWidget(self._calibrate_button)
+        self._calibrate_action.triggered.connect(self._on_calibrate)
+        menu.addAction(self._calibrate_action)
 
-        layout.addSpacing(10)
+        menu.addSeparator()
 
         # Day 15, his ask: new faces are added from the app, by him alone.
         # "Login" takes his passphrase (and sets it the first time); only
         # then does "Add avatar" appear -- a photograph in, an avatar out
         # (see sha256.avatar.importer for what is checked on the way).
-        self._login_button = QPushButton("Login")
-        self._login_button.setToolTip("The owner's passphrase; unlocks adding avatars.")
-        self._login_button.clicked.connect(self._on_login)
-        layout.addWidget(self._login_button)
+        self._login_action = QAction("Login", menu)
+        self._login_action.setToolTip("The owner's passphrase; unlocks adding avatars.")
+        self._login_action.triggered.connect(self._on_login)
+        menu.addAction(self._login_action)
 
-        self._add_avatar_button = QPushButton("Add avatar")
-        self._add_avatar_button.setToolTip(
+        self._add_avatar_action = QAction("Add avatar", menu)
+        self._add_avatar_action.setToolTip(
             "Make an avatar from a photograph: one face, looking straight at the "
             "camera, eyes open, lips closed or barely parted, room below the chin."
         )
-        self._add_avatar_button.clicked.connect(self._on_add_avatar)
-        self._add_avatar_button.setVisible(False)
-        layout.addWidget(self._add_avatar_button)
+        self._add_avatar_action.triggered.connect(self._on_add_avatar)
+        self._add_avatar_action.setVisible(False)
+        menu.addAction(self._add_avatar_action)
 
-        layout.addStretch(1)
+        return button
 
-        # Empty unless something went wrong, so the bar stays quiet in normal
-        # use but a failure is never silent.
-        self._status_line = QLabel()
-        self._status_line.setObjectName("StatusLine")
-        layout.addWidget(self._status_line)
-
-        self._fps_label = QLabel()
-        self._fps_label.setObjectName("Fps")
-        layout.addWidget(self._fps_label)
-
-        return bar
+    @staticmethod
+    def _exclusive(menu: QMenu, group: QActionGroup, text: str, data: str) -> QAction:
+        """One checkable entry of an exclusive choice, carrying its value."""
+        action = QAction(text, menu)
+        action.setCheckable(True)
+        action.setData(data)
+        group.addAction(action)
+        menu.addAction(action)
+        return action
 
     # --- population --------------------------------------------------------
 
@@ -532,9 +674,9 @@ class MainWindow(QMainWindow):
 
     def _refresh_owner_state(self) -> None:
         unlocked = self._owner.is_unlocked
-        self._add_avatar_button.setVisible(unlocked)
-        self._login_button.setText("Owner" if unlocked else "Login")
-        self._login_button.setEnabled(not unlocked)
+        self._add_avatar_action.setVisible(unlocked)
+        self._login_action.setText("Owner" if unlocked else "Login")
+        self._login_action.setEnabled(not unlocked)
 
     def _ask_passphrase(self, title: str, prompt: str) -> str | None:
         text, ok = QInputDialog.getText(self, title, prompt, QLineEdit.EchoMode.Password)
@@ -702,7 +844,7 @@ class MainWindow(QMainWindow):
         self._spoken_step = -1
         if self._speaker is None:
             self._speaker = self._speaker_factory()
-        self._calibrate_button.setText("Stop calibrating")
+        self._calibrate_action.setText("Stop calibrating")
         self._instruction.show()
         self._calibration_timer.start()
         self._tick_calibration()
@@ -733,7 +875,7 @@ class MainWindow(QMainWindow):
         if self._speaker is not None:
             self._speaker.stop()
         self._instruction.hide()
-        self._calibrate_button.setText("Calibrate me")
+        self._calibrate_action.setText("Calibrate me")
         self._refresh_status()
 
     def _cancel_calibration(self) -> None:
@@ -789,37 +931,128 @@ class MainWindow(QMainWindow):
                 self, "Calibrate me", f"Nothing could be measured.\n\n{report}\n\n{where}"
             )
             return
-        path = self._context.paths.configs / PROFILE_FILENAME
+        configs = self._context.paths.configs
         try:
             session_name = str(files.directory.relative_to(self._context.paths.root))
         except ValueError:
             session_name = str(files.directory)
-        profile = DriverProfile.from_result(result, avatar=active, session=session_name)
-        if path.is_file():
-            # The last person's profile is kept beside the new one.
-            previous = DriverProfile.load(path)
-            stamp = (previous.measured_at if previous else "").replace(":", "") or "previous"
-            shutil.copy(path, path.with_name(f"local.driver.{stamp}.json"))
-        profile.save(path)
-        profile.save(files.directory / "profile.json")
+        # Day 16 evening, his ask: the profile is the person's, by name.
+        # A file in force from before names existed is kept under a name
+        # of its own; the same person calibrating again keeps, for what
+        # this run could not measure, what their earlier run did.
         self._end_calibration_ui()
-        applied = self._apply_driver_profile(engine, active, profile)
+        name = self._ask_person_name()
+        roster.adopt_unnamed(configs)
+        earlier = roster.find_profile(configs, name)
+        profile = DriverProfile.from_result(result, avatar=active, session=session_name, name=name)
+        if earlier is not None:
+            profile.engine_options = {**earlier.overlay(), **profile.engine_options}
+        path = roster.save_named(profile, configs)
+        profile.save(files.directory / "profile.json")
+        applied = self._use_profile(profile)
         QMessageBox.information(
             self,
             "Calibrate me",
-            f"Your profile is written to {path}\n\n{report}\n\n{where}"
+            f"The profile of {name} is saved ({path}) and in use now -- "
+            f"Menu → Person shows it, choose it when you sit down.\n\n{report}\n\n{where}"
             + ("" if applied else "\n\nIt was not applied; restart to use it."),
         )
 
-    def _apply_driver_profile(self, engine: Any, avatar_id: str, profile: DriverProfile) -> bool:
-        """Lay the profile over the engine and reload the avatar under it --
-        the graph bakes the options at load. The pipeline is stopped for the
-        reload (a frame must not meet an unloaded avatar) and started again."""
+    def _ask_person_name(self) -> str:
+        """Whose profile this is -- typed at the end of a calibration. Left
+        blank or cancelled, the profile is still kept, under the moment."""
+        text, ok = QInputDialog.getText(
+            self,
+            "Calibrate me",
+            "Your name, first and last. The profile is kept under it, and you "
+            "choose it from Menu → Person when you sit down:",
+            QLineEdit.EchoMode.Normal,
+            "",
+        )
+        name = text.strip() if ok else ""
+        return name or f"Person {time.strftime('%Y-%m-%d %H:%M')}"
+
+    # --- Person (day 16 evening) --------------------------------------------
+
+    def _rebuild_person_menu(self) -> None:
+        """The roster into the Person submenu: Nobody, then every named
+        profile, the one in force checked (added even if its roster file
+        is gone, so the check always shows the truth)."""
+        menu, group = self._person_menu, self._person_group
+        for action in list(group.actions()):
+            group.removeAction(action)
+            menu.removeAction(action)
+        active = self._active_profile.name if self._active_profile is not None else ""
+        nobody = self._exclusive(menu, group, _NO_PERSON, "")
+        nobody.setToolTip("No profile: the avatar runs with its own values.")
+        nobody.setChecked(not active)
+        names: list[str] = []
+        for profile in roster.list_profiles(self._context.paths.configs):
+            names.append(profile.name)
+            action = self._exclusive(menu, group, profile.name, profile.name)
+            action.setToolTip(f"Measured {profile.measured_at[:16].replace('T', ' ')}")
+            action.setChecked(profile.name == active)
+        if active and active not in names:
+            action = self._exclusive(menu, group, active, active)
+            action.setChecked(True)
+
+    def _on_person_chosen(self, name: str | None) -> None:
+        """A Person entry chosen: that profile (or none) becomes the one in
+        force, on the engine and in the file the start reads."""
+        if self._calibration is not None:
+            QMessageBox.information(self, "Person", "Finish or stop the calibration first.")
+            self._rebuild_person_menu()
+            return
+        configs = self._context.paths.configs
+        profile = None
+        if name is not None:
+            profile = roster.find_profile(configs, name)
+            if profile is None and self._active_profile is not None:
+                active = self._active_profile
+                profile = active if active.name == name else None
+            if profile is None:
+                QMessageBox.warning(
+                    self,
+                    "Person",
+                    f"The profile of {name} is missing from {roster.drivers_dir(configs)}.",
+                )
+                self._rebuild_person_menu()
+                return
+        self._use_profile(profile)
+
+    def _use_profile(self, profile: DriverProfile | None) -> bool:
+        """Make ``profile`` (or none) the one in force: the file the start
+        reads, the engine, the avatar reloaded under it. ``True`` when the
+        engine took it and the avatar runs with it now."""
+        roster.activate(profile, self._context.paths.configs)
+        self._active_profile = profile
+        self._context.driver_profile = profile
+        self._rebuild_person_menu()
+        engine = self._context.avatars.engine
+        if engine is None or not hasattr(engine, "set_driver_options"):
+            # The photograph engine takes no profile; the file waits for
+            # the neural one.
+            self._refresh_status()
+            return True
+        overlay = {} if profile is None else profile.overlay()
+        return self._apply_driver_overlay(engine, self._context.avatars.active_id, overlay)
+
+    def _apply_driver_overlay(
+        self, engine: Any, avatar_id: str | None, overlay: dict[str, Any]
+    ) -> bool:
+        """Lay the driver options over the engine and reload the avatar
+        under them -- the graph bakes the options at load. The pipeline is
+        stopped for the reload (a frame must not meet an unloaded avatar)
+        and started again. Without an avatar selected, the engine keeps
+        the options for the next load."""
         try:
-            engine.set_driver_options(profile.overlay())
+            engine.set_driver_options(overlay)
         except ValueError as exc:
             _LOG.warning("The profile was refused by the engine: %s", exc)
             return False
+        if avatar_id is None:
+            self._refresh_status()
+            return True
         was_running = self._runner.is_running
         if was_running:
             self._preview_timer.stop()
@@ -831,18 +1064,25 @@ class MainWindow(QMainWindow):
             manager.select(avatar_id)
         except Sha256Error as exc:
             _LOG.warning("The avatar could not be reloaded with the profile: %s", exc)
-            QMessageBox.warning(self, "Calibrate me", f"The avatar did not reload: {exc}")
+            QMessageBox.warning(self, "Person", f"The avatar did not reload: {exc}")
             ok = False
         if was_running:
             try:
                 self._runner.start()
                 self._preview_timer.start()
             except Exception as exc:
-                _LOG.exception("The pipeline did not restart after the calibration")
+                _LOG.exception("The pipeline did not restart under the profile")
                 QMessageBox.critical(self, "Could not start", str(exc))
                 ok = False
         self._refresh_status()
         return ok
+
+    def _profile_note(self) -> str:
+        """What the status line says when nothing else needs saying: whose
+        profile the avatar follows -- his own answer to "did it work"."""
+        if self._active_profile is None or not self._active_profile.name:
+            return ""
+        return f"Profile: {self._active_profile.name}"
 
     def _show_startup_notes(self) -> None:
         QMessageBox.information(self, "sha256", "\n\n".join(self._context.startup_notes))
@@ -872,11 +1112,12 @@ class MainWindow(QMainWindow):
         if engine is not None and active is not None:
             engine.reset_anchor(active)
 
-    def _on_quality_changed(self, label: str) -> None:
+    def _on_quality_changed(self, name: str) -> None:
         try:
-            self._conditioner.set_quality(_quality_name(label))
+            self._conditioner.set_quality(name)
         except ValueError as exc:
             _LOG.warning("Output quality not changed: %s", exc)
+            self._quality_actions[self._conditioner.quality].setChecked(True)
 
     def _on_blackout_toggled(self, on: bool) -> None:
         self._conditioner.set_manual(on)
@@ -964,7 +1205,7 @@ class MainWindow(QMainWindow):
         if snapshot is None:
             return
 
-        if self._view_combo.currentText() == _VIEW_CAMERA and snapshot.source is not None:
+        if self._view_camera_action.isChecked() and snapshot.source is not None:
             self._preview.show_frame(
                 snapshot.source.data, snapshot.source.pixel_format, snapshot.tracking
             )
@@ -1018,7 +1259,7 @@ class MainWindow(QMainWindow):
                 rest = engine.rest_status(active)
             if self._calibration is not None:
                 rest = "Calibrating -- follow the instruction above"
-            self._status_line.setText(rest or "")
+            self._status_line.setText(rest or self._profile_note())
 
         # The black screen outranks the rest of the line: while it is on, the
         # one thing to know is that the other side is not seeing the avatar,

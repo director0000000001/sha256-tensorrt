@@ -95,8 +95,11 @@ class FakeSpeaker:
 
 
 @pytest.fixture
-def calibratable(window):
-    """The null engine, given the neural engine's calibration surface."""
+def calibratable(window, monkeypatch):
+    """The null engine, given the neural engine's calibration surface; the
+    name asked at the end answered "Giorgi Test"."""
+    from sha256.ui import main_window as module
+
     engine = window._context.avatars.engine
     given: list[dict] = []
     engine.frame_readings = lambda avatar_id: {"anchor_frozen": 1.0}
@@ -105,6 +108,7 @@ def calibratable(window):
     window._context.avatars.select("avatar_001")
     FakeSpeaker.instances.clear()
     window._speaker_factory = FakeSpeaker
+    monkeypatch.setattr(module.QInputDialog, "getText", lambda *a, **k: ("Giorgi Test", True))
     return given
 
 
@@ -169,7 +173,7 @@ class TestTheRun:
             assert (
                 "recordings" in str(session.directory) and "calibration-" in session.directory.name
             )
-            assert window._calibrate_button.text() == "Stop calibrating"
+            assert window._calibrate_action.text() == "Stop calibrating"
             assert not window._instruction.isHidden()
             assert STEPS[2].instruction in window._instruction.text()
             assert "Get ready" in window._instruction.text()
@@ -194,7 +198,7 @@ class TestTheRun:
 
         assert session.cancelled and not session.directory.exists()
         assert FakeSpeaker.instances[-1].stopped
-        assert window._calibration is None and window._calibrate_button.text() == "Calibrate me"
+        assert window._calibration is None and window._calibrate_action.text() == "Calibrate me"
         assert window._instruction.isHidden()
         window._on_stop()
 
@@ -211,9 +215,17 @@ class TestTheRun:
         window._tick_calibration()
 
         assert session.finish_calls == 1
-        path = window._context.paths.configs / "local.driver.json"
+        configs = window._context.paths.configs
+        path = configs / "local.driver.json"
         assert path.is_file()
         written = json.loads(path.read_text(encoding="utf-8"))
+        assert written["name"] == "Giorgi Test"
+        # The roster holds the same profile under the person's name.
+        named = configs / "drivers" / "giorgi-test.json"
+        assert named.is_file() and json.loads(named.read_text(encoding="utf-8")) == written
+        assert window._active_profile is not None and window._active_profile.name == "Giorgi Test"
+        checked = [a.text() for a in window._person_group.actions() if a.isChecked()]
+        assert checked == ["Giorgi Test"]
         assert written["avatar"] == "avatar_001"
         assert written["engine_options"]["expression_gain"] == pytest.approx(1.25, abs=0.05)
         assert written["session"] == str(session.directory.relative_to(window._context.paths.root))
@@ -226,11 +238,13 @@ class TestTheRun:
         # Reloaded under the profile, and running again.
         assert window._context.avatars.active_id == "avatar_001"
         assert window._runner.is_running and window._calibration is None
-        assert window._calibrate_button.text() == "Calibrate me" and window._instruction.isHidden()
-        assert told and "local.driver.json" in told[-1] and "expression_gain" in told[-1]
+        assert window._calibrate_action.text() == "Calibrate me" and window._instruction.isHidden()
+        assert told and "Giorgi Test" in told[-1] and "expression_gain" in told[-1]
+        window._refresh_status()
+        assert window._status_line.text() == "Profile: Giorgi Test"
         window._on_stop()
 
-    def test_an_earlier_profile_is_kept_beside_the_new_one(self, window, calibratable, monkeypatch):
+    def test_an_earlier_unnamed_profile_joins_the_roster(self, window, calibratable, monkeypatch):
         from sha256.ui import main_window as module
 
         monkeypatch.setattr(module.QMessageBox, "information", lambda *a, **k: None)
@@ -245,10 +259,56 @@ class TestTheRun:
 
         window._tick_calibration()
 
-        kept = path.with_name("local.driver.2026-09-11T090000.json")
+        kept = path.parent / "drivers" / "unnamed-2026-09-11-09-00.json"
         assert kept.is_file()
-        assert json.loads(kept.read_text(encoding="utf-8"))["engine_options"] == {"eye_gain": 0.5}
-        assert json.loads(path.read_text(encoding="utf-8"))["measured_at"] != "2026-09-11T09:00:00"
+        earlier = json.loads(kept.read_text(encoding="utf-8"))
+        assert earlier["engine_options"] == {"eye_gain": 0.5}
+        assert earlier["name"] == "Unnamed (2026-09-11 09:00)"
+        assert json.loads(path.read_text(encoding="utf-8"))["name"] == "Giorgi Test"
+        names = [a.text() for a in window._person_group.actions()]
+        assert names[1:] == ["Giorgi Test", "Unnamed (2026-09-11 09:00)"]
+        window._on_stop()
+
+    def test_the_same_person_again_keeps_what_this_run_did_not_measure(
+        self, window, calibratable, monkeypatch
+    ):
+        from sha256.calibration import roster
+        from sha256.ui import main_window as module
+
+        monkeypatch.setattr(module.QMessageBox, "information", lambda *a, **k: None)
+        configs = window._context.paths.configs
+        earlier = module.DriverProfile(
+            measured_at="2026-09-11T09:00:00",
+            name="Giorgi Test",
+            engine_options={"gaze_gain": 0.7, "expression_gain": 9.0},
+        )
+        roster.save_named(earlier, configs)
+        session = self._start(window, monkeypatch)
+        session.finished_flag = True
+
+        window._tick_calibration()
+
+        written = json.loads((configs / "local.driver.json").read_text(encoding="utf-8"))
+        assert written["engine_options"]["gaze_gain"] == 0.7  # not measured by this run: kept
+        assert written["engine_options"]["expression_gain"] != 9.0  # measured: replaced
+        window._on_stop()
+
+    def test_a_blank_name_still_keeps_the_profile_under_the_moment(
+        self, window, calibratable, monkeypatch
+    ):
+        from sha256.ui import main_window as module
+
+        monkeypatch.setattr(module.QMessageBox, "information", lambda *a, **k: None)
+        monkeypatch.setattr(module.QInputDialog, "getText", lambda *a, **k: ("", False))
+        session = self._start(window, monkeypatch)
+        session.finished_flag = True
+
+        window._tick_calibration()
+
+        written = json.loads(
+            (window._context.paths.configs / "local.driver.json").read_text(encoding="utf-8")
+        )
+        assert written["name"].startswith("Person 20")
         window._on_stop()
 
     def test_closing_the_window_cancels_a_run(self, window, calibratable, monkeypatch):
