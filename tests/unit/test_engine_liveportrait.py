@@ -587,7 +587,7 @@ class TestForeheadLine:
         assert _forehead_reach({}) == 0.85
         assert _forehead_reach({"mask_forehead_reach": 0.6}) == 0.6
         with pytest.raises(ValueError, match="mask_forehead_reach"):
-            _forehead_reach({"mask_forehead_reach": 2.0})  # day 16: up to 1.6, the hairline
+            _forehead_reach({"mask_forehead_reach": 3.5})  # day 17: up to 3.0, the hairline
         with pytest.raises(ValueError, match="mask_forehead_reach"):
             _forehead_reach({"mask_forehead_reach": 0.1})
 
@@ -2889,11 +2889,14 @@ class TestShouldHold:
 
     def _loaded(self, tmp_path: Path, **options):
         loaded = _Portrait(descriptor(tmp_path))
-        loaded.options.update(options)
+        # Day 17: the hold is the option (the clamp the default) and the
+        # thresholds moved to 30/45; these tests pin the day-8 numbers.
+        loaded.options.update({"hold_pitch_degrees": 20.0, "hold_yaw_degrees": 35.0, **options})
+        loaded.steep_clamp = False
         return loaded
 
     def test_default_thresholds(self):
-        assert _hold_thresholds({}) == (20.0, 35.0)
+        assert _hold_thresholds({}) == (30.0, 45.0)  # pitch 30, yaw 45 since day 17
 
     def test_reads_the_options(self):
         assert _hold_thresholds({"hold_pitch_degrees": 10.0, "hold_yaw_degrees": 15.0}) == (
@@ -3004,6 +3007,8 @@ class TestExtremePoseHold:
         }
 
         loaded = _Portrait(descriptor(tmp_path))
+        loaded.steep_clamp = False  # day 17: this class tests the hold itself
+        loaded.options.update({"hold_pitch_degrees": 20.0, "hold_yaw_degrees": 35.0})
         loaded.exp_s = torch.zeros(1, NUM_KP, 3)
         loaded.exp_d0 = torch.zeros(1, NUM_KP, 3)
         loaded.exp_prev = torch.zeros(1, NUM_KP, 3)

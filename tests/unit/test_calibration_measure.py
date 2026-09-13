@@ -424,3 +424,34 @@ class TestStillFramesFaceTheCamera:
         dirty = calibrate(samples + self._turned_away(samples, 40), HIS_CURRENT)
         clean = calibrate(synthetic_samples(), HIS_CURRENT)
         assert dirty.options["mouth_gate_mar"] == clean.options["mouth_gate_mar"]
+
+
+class TestDriverHairline:
+    """Day 17: the engine reads his hairline on the still frames
+    (frame_readings["hairline"]); the median becomes the profile's
+    driver_hairline, so the forehead join lands under HIS hair."""
+
+    def test_the_still_frames_hairline_is_the_profiles(self):
+        samples = synthetic_samples()
+        for s in samples:
+            if s.step == "rest" and s.engine:
+                s.engine["hairline"] = 1.65
+        result = calibrate(samples, {})
+        assert result.options["driver_hairline"] == 1.65
+        assert result.rest["hairline"] == 1.65
+        assert any(c.key == "driver_hairline" for c in result.changes)
+
+    def test_without_readings_nothing_is_set(self):
+        samples = synthetic_samples()
+        result = calibrate(samples, {})
+        assert "driver_hairline" not in result.options
+        assert any("driver_hairline" in n for n in result.notes)
+
+    def test_the_same_value_is_no_change(self):
+        samples = synthetic_samples()
+        for s in samples:
+            if s.step == "rest" and s.engine:
+                s.engine["hairline"] = 1.65
+        result = calibrate(samples, {"driver_hairline": 1.65})
+        assert result.options["driver_hairline"] == 1.65
+        assert not any(c.key == "driver_hairline" for c in result.changes)

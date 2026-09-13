@@ -490,6 +490,20 @@ class MainWindow(QMainWindow):
         self._preview.set_mirror(self._mirror_action.isChecked())
         menu.addAction(self._mirror_action)
 
+        # Day 17 (C1b), his ask: the avatar's own hair over yours, a switch.
+        # Live, no reload; remembered per avatar while the app runs. What
+        # it costs and where it can look worse is in the Instructions.
+        self._hair_action = QAction("Avatar's hair", menu)
+        self._hair_action.setCheckable(True)
+        self._hair_action.setChecked(False)
+        self._hair_action.setToolTip(
+            "Paste the avatar's own hair over your head, not only its face. "
+            "Your own hair that reaches past the avatar's stays yours."
+        )
+        self._hair_action.toggled.connect(self._on_hair_toggled)
+        self._hair_wish: bool | None = None
+        menu.addAction(self._hair_action)
+
         # Day 15, his ask: the published picture scaled down and back up, so
         # the other side sees a cheaper webcam rather than the avatar's small
         # defects. Native is the camera's own size; the stream's format never
@@ -658,6 +672,73 @@ class MainWindow(QMainWindow):
             _LOG.warning("Could not select avatar %s: %s", avatar_id, exc)
             QMessageBox.warning(self, "Avatar unavailable", str(exc))
             self._avatar_combo.setCurrentIndex(0)
+            return
+        self._sync_hair_action()
+
+    def _on_hair_toggled(self, on: bool) -> None:
+        """Day 17: the avatar's hair on or off, for whichever avatar is
+        active -- live. Before an avatar is active the wish is kept and
+        applied when one is. If the engine cannot (no segmenter model, or
+        an engine without hair), the switch goes back and says so."""
+        engine = self._context.avatars.engine
+        active = self._context.avatars.active_id
+        set_hair = getattr(engine, "set_hair", None)
+        if set_hair is None:
+            if on:
+                self._set_hair_checked(False)
+                QMessageBox.information(
+                    self,
+                    "Avatar's hair",
+                    "This engine draws the face only; the avatar's hair needs the "
+                    "neural engine (an NVIDIA card).",
+                )
+            return
+        if active is None:
+            self._hair_wish = on
+            return
+        self._hair_wish = None
+        try:
+            now = bool(set_hair(active, on))
+        except Exception as exc:
+            _LOG.warning("The avatar's hair not changed: %s", exc)
+            now = False
+        if now != on:
+            self._set_hair_checked(now)
+            if on:
+                QMessageBox.information(
+                    self,
+                    "Avatar's hair",
+                    "The avatar's hair could not be switched on. The hair model is "
+                    "missing beside the face model (models/downloads/"
+                    "selfie_multiclass_256x256.tflite) -- see the log.",
+                )
+
+    def _set_hair_checked(self, on: bool) -> None:
+        """The switch's state without its handler firing."""
+        self._hair_action.blockSignals(True)
+        try:
+            self._hair_action.setChecked(on)
+        finally:
+            self._hair_action.blockSignals(False)
+
+    def _sync_hair_action(self) -> None:
+        """The switch to what the active avatar actually does -- after a
+        select: a wish made before is applied first; an engine without
+        hair leaves the switch off."""
+        engine = self._context.avatars.engine
+        active = self._context.avatars.active_id
+        set_hair = getattr(engine, "set_hair", None)
+        enabled = getattr(engine, "hair_enabled", None)
+        if active is None or set_hair is None or enabled is None:
+            self._set_hair_checked(False)
+            return
+        if self._hair_wish is not None:
+            wish, self._hair_wish = self._hair_wish, None
+            try:
+                set_hair(active, wish)
+            except Exception as exc:
+                _LOG.warning("The avatar's hair not changed: %s", exc)
+        self._set_hair_checked(bool(enabled(active)))
 
     def _on_capture(self) -> None:
         """Save the moment that looked wrong, and say where it went.

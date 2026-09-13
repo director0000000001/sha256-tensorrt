@@ -18,6 +18,7 @@ CONTROLS = (
     "Tracking (no avatar)",
     "Dots",
     "Mirror",
+    "Avatar's hair",
     "Quality",
     "That looked wrong",
     "Re-centre",

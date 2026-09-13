@@ -122,6 +122,10 @@ STILL_PERCENTILE = 95
 REST_MIN_FRAMES = 20
 JITTER_MIN_FRAMES = 40
 CONFOUND_MIN_FRAMES = 60
+# Day 17: still frames on which the engine read a hairline, for the
+# profile's driver_hairline (the engine reads one frame in six once the
+# anchor has settled the reach).
+HAIRLINE_MIN_FRAMES = 5
 # His readings that count as a real movement on the step made for it.
 TALK_MIN_RANGE = 0.02  # opening over jaw width, p95 - p5
 BLINK_MIN_RANGE = 0.08  # eye ratio
@@ -428,6 +432,27 @@ def calibrate(
     )
     rest_pitch = result.rest["pitch"] if math.isfinite(result.rest["pitch"]) else 0.0
     rest_yaw = result.rest["yaw"] if math.isfinite(result.rest["yaw"]) else 0.0
+
+    # Day 17: his hairline, as the engine read it off the still frames
+    # (frame_readings["hairline"], a fraction of the forehead height) --
+    # the profile's driver_hairline, so the forehead join lands under HIS
+    # hair whatever the portrait's, from the first frame of every session.
+    hairline = _finite(s.engine.get("hairline", math.nan) for s in rest if s.engine)
+    if len(hairline) >= HAIRLINE_MIN_FRAMES:
+        result.rest["hairline"] = _median(hairline)
+        after = round(result.rest["hairline"], 3)
+        before = current.get("driver_hairline")
+        result.options["driver_hairline"] = after
+        if before != after:
+            result.changes.append(
+                Change(
+                    "driver_hairline", before, after, f"his hairline over {len(hairline)} frames"
+                )
+            )
+    else:
+        result.notes.append(
+            f"only {len(hairline)} still frames read a hairline -- driver_hairline not set"
+        )
 
     # --- jitter -> the gates' thresholds -------------------------------------
     thresholds = _gate_thresholds(current)

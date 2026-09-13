@@ -384,6 +384,7 @@ class TestTheBarAndTheMenu:
         moved = (
             "Dots",
             "Mirror",
+            "Avatar's hair",
             "That looked wrong",
             "Re-centre",
             "Person",
@@ -395,7 +396,7 @@ class TestTheBarAndTheMenu:
         assert not any(text in texts for text in moved)
 
         entries = [action.text() for action in window._menu.actions() if not action.isSeparator()]
-        assert entries == ["View", "Dots", "Mirror", "Quality", *moved[2:]]
+        assert entries == ["View", "Dots", "Mirror", "Avatar's hair", "Quality", *moved[3:]]
         assert [a.text() for a in window._view_group.actions()] == [
             "Avatar",
             "Tracking (no avatar)",

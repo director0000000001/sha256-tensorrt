@@ -378,19 +378,18 @@ class PortraitProfile:
     lips: str
     mouth_ratio: float
 
-    def engine_options(self, default_reach: float = _OVAL_FOREHEAD_REACH) -> dict[str, Any]:
+    def engine_options(self) -> dict[str, Any]:
         """The options the profile sets on a new avatar: the chin reach on
-        auto, and the forehead reach
-        when the hairline is lower than the default reach would paste; the
-        jaw shrink is not set here (the pair decides it -- day 12: 0.08
-        hid a bearded driver's jaw under a bare portrait and put a ledge
-        under a stubbled portrait on a shaved one)."""
+        auto, and the forehead reach on "hairline" -- the engine reads this
+        portrait's hairline itself at load (the same reader as
+        ``hairline`` here) and the driver's at the anchor, and joins the
+        whole forehead under the lower of the two (day 17); the jaw shrink
+        is not set here (the pair decides it -- day 12: 0.08 hid a bearded
+        driver's jaw under a bare portrait and put a ledge under a
+        stubbled portrait on a shaved one)."""
         # The chin reach is the mask's own clearance, resolved by the engine
         # ("auto", day 16 B3 -- his hand 0.04 to a tenth of a pixel).
-        options: dict[str, Any] = {"mask_chin_reach": "auto"}
-        if self.forehead_reach < default_reach - 1e-6:
-            options["mask_forehead_reach"] = round(self.forehead_reach, 3)
-        return options
+        return {"mask_chin_reach": "auto", "mask_forehead_reach": "hairline"}
 
     def describe(self) -> str:
         hair = (

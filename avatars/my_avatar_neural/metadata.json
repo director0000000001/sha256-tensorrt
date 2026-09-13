@@ -59,11 +59,14 @@
     "expression_gain": 1.8,
     "scale_gain": 0.0,
     "chin_follow": 1.0,
-    "mask_forehead_reach": 0.85,
+    "mask_forehead_reach": "hairline",
     "edge_match": 1.0,
     "mouth_rest": "anchor",
     "lip_rest_tracking": 100,
     "mask_chin_reach": 0.04,
-    "brow_mouth_leak": 1.0
+    "brow_mouth_leak": 1.0,
+    "blink_brow_hold": 0.015,
+    "blink_mouth_hold": -0.002,
+    "blink_mouth_lift": 0.01
   }
 }

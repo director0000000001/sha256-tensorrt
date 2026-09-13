@@ -172,9 +172,11 @@ class TestProfile:
         assert profile.hairline is not None and 0.5 < profile.hairline < 0.7
         assert profile.forehead_reach < _OVAL_FOREHEAD_REACH
         assert profile.forehead_reach >= profile.reach_floor
+        # Day 17: the engine measures the hairline itself -- the profile's
+        # number is for the description, the option is the mode.
         assert profile.engine_options() == {
             "mask_chin_reach": "auto",
-            "mask_forehead_reach": round(profile.forehead_reach, 3),
+            "mask_forehead_reach": "hairline",
         }
         assert profile.beard == "bare" and abs(profile.chin_darkness) < 0.05
         assert profile.lips == "closed"
@@ -191,7 +193,10 @@ class TestProfile:
         profile = portrait_profile(image, pts)
         assert profile.beard in ("stubble", "beard") and profile.chin_darkness > 0.08
         assert profile.forehead_reach == _OVAL_FOREHEAD_REACH
-        assert profile.engine_options() == {"mask_chin_reach": "auto"}
+        assert profile.engine_options() == {
+            "mask_chin_reach": "auto",
+            "mask_forehead_reach": "hairline",
+        }
 
 
 class TestImportWithPreparation:

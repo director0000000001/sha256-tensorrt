@@ -105,6 +105,17 @@ _THE_MENU = """\
   Mirror                      Mirror the preview, the way a mirror would.
                               Affects this preview only, never the
                               published picture.
+  Avatar's hair               Draw the avatar's own hair over your head,
+                              not only its face. Off, your own hair stays
+                              and the avatar's face is joined under it at
+                              your hairline (read from your face in the
+                              first second, and from your calibration
+                              once you have one). On, the avatar's hair covers
+                              yours as far as it reaches; your own hair
+                              past its edge stays yours, and hair the
+                              picture cuts (long, or very tall) fades
+                              out. Try it and look; it can look worse
+                              than off on some pairs of faces.
   Quality -> Native / 1080p / 720p / 480p / 360p
                               The quality of the published picture. Lower
                               hides small defects of the avatar, like a
@@ -179,6 +190,11 @@ _ON_A_CALL = """\
   Re-centre if you moved your chair. The red button (or Ctrl+Alt+B) for a
   moment you do not want seen. Quality 480p if the picture looks too
   clean to be a webcam.
+  Turning your head far to the side, or looking well down, the avatar's
+  head stops at the angle a photograph can still be drawn at (about 45
+  degrees sideways, 30 down) while your own goes on; the face keeps
+  blinking and, near the side, calms. If the tracker loses your face
+  altogether, the black screen takes over until it finds you again.
 """
 
 _TROUBLE = """\

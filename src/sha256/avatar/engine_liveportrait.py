@@ -86,6 +86,16 @@ from typing import Any
 
 import numpy as np
 
+from sha256.avatar.hair import (
+    HAIR_MODEL_RELATIVE_PATH,
+    HairMatteWorker,
+    HairSegmenter,
+    hair_alpha,
+    hair_box,
+    head_confidence,
+    skin_weight,
+    union_box,
+)
 from sha256.core.avatar import AvatarDescriptor
 from sha256.core.enums import DeviceKind, PixelFormat
 from sha256.core.errors import AvatarLoadError, EngineError
@@ -187,6 +197,7 @@ DRIVER_OPTION_KEYS: frozenset[str] = frozenset(
         "brow_gain",
         "brow_follow",
         "brow_deadband",
+        "driver_hairline",
         "brow_mouth_leak",
         "brow_mouth_leak_slopes",
         "mouth_smile_gain",
@@ -234,6 +245,15 @@ PORTRAIT_OPTION_KEYS: frozenset[str] = frozenset(
         "edge_match",
         "rotation_pivot",
         "pivot_z",
+        # Day 17: the hair switch and its skin lever, the hairline's
+        # clearance, the steep-pose mode, the blink's counters.
+        "hair",
+        "hair_skin",
+        "hairline_clearance",
+        "steep_pose",
+        "blink_brow_hold",
+        "blink_mouth_hold",
+        "blink_mouth_lift",
     }
 )
 
@@ -1290,13 +1310,51 @@ def _edge_residual(
 _HAIR_CONTRAST = 0.30
 _HAIR_RUN_PX = 6
 _HAIRLINE_STEP_PX = 2.0
-_HAIRLINE_SEARCH = 1.8  # of the forehead height, how far up the walk goes
-_HAIRLINE_CLEARANCE = 0.08  # of the forehead height, kept below the hairline
+# Day 17, his first look: 1.8 was too short. Head down at the 13-15
+# degrees he sits at, his forehead foreshortens and the hairline reads
+# 1.78-1.84 of it (2.06 on the woman's portrait, whose brow sits low) --
+# every live frame read "no hair" and the reach fell to the portrait's
+# alone. 3.0 finds all of them (recordings/day17, the six captures).
+_HAIRLINE_SEARCH = 3.0  # of the forehead height, how far up the walk goes
+# The clearance under the lower hairline, an option since day 17
+# (``hairline_clearance``; his "cover a bit more" -- 0.08 left a tenth of
+# his forehead his own).
+_HAIRLINE_CLEARANCE = 0.04  # of the forehead height, kept below the hairline
+_HAIRLINE_CLEARANCE_MAX = 0.3
 _HAIRLINE_MODE = "hairline"
+# Day 17 (2026-09-13): "hairline" is the default -- the whole forehead is
+# the avatar's, on every avatar that does not say otherwise. Verified by
+# replay on his two captures and baska's (recordings/day17/forehead-row-*):
+# at 0.85 the top third (his) to two thirds (her taller forehead) of the
+# forehead stayed the driver's own skin, shine and all; at "hairline" the
+# join sits just under the hair on both.
+_FOREHEAD_REACH_DEFAULT: str | float = _HAIRLINE_MODE
 _FOREHEAD_REACH_MIN = 0.3
-_FOREHEAD_REACH_MAX = 1.6
-_HAIRLINE_MIN_SAMPLES = 5
-_HAIRLINE_FRONTAL = (12.0, 15.0)  # |pitch|, |yaw| within which a frame is sampled
+# The option's own bound (the hull is lifted linearly, 3 foreheads is 150
+# px in the crop, well inside it); what a measured hairline may reach.
+_FOREHEAD_REACH_MAX = 3.0
+# The reach when neither hairline could be read: the old ceiling, a
+# forehead and a half, not the bound above.
+_HAIRLINE_CEILING = 1.6
+# Fifteen frontal frames, half a second: five settled on the first frames
+# after the freeze, with his head still coming to the camera.
+_HAIRLINE_MIN_SAMPLES = 15
+# Past the settle, the hairline is still read on every Nth frontal frame
+# for the calibration's own instrument (frame_readings["hairline"]).
+_HAIRLINE_READ_EVERY = 6
+# Day 17 (C1b): with the avatar's hair on, the ovals reach this much past
+# the portrait's own hairline, so the face oval overlaps the hair matte and
+# no strip of the driver's forehead shows between the two.
+_HAIR_FOREHEAD_OVERLAP = 0.1
+_HAIR_MODES = ("off", "avatar")
+# The EMA over the hair mattes (see sha256.avatar.hair): half of each new
+# matte, so a flicker of the segmenter is halved and a real move arrives
+# within two mattes.
+_HAIR_INERTIA = 0.5
+# |pitch|, |yaw| within which a frame is sampled. Pitch 20 since his first
+# look: he sits at -13..-15 (the camera above the screen), and the fraction
+# is read along the face's own vertical, which a pitch shortens as a whole.
+_HAIRLINE_FRONTAL = (20.0, 15.0)
 _CHEEKS = (50, 280)
 _FOREHEAD_TOP = 10
 
@@ -1377,15 +1435,49 @@ def _hairline_fraction(lum: np.ndarray, points: np.ndarray) -> float | None:
 
 
 def _hairline_reach(
-    portrait: float | None, driver: float | None, *, ceiling: float = _FOREHEAD_REACH_MAX
+    portrait: float | None,
+    driver: float | None,
+    *,
+    clearance: float = _HAIRLINE_CLEARANCE,
+    unknown: float = _HAIRLINE_CEILING,
 ) -> float:
     """The forehead reach for a pair: the lower of the two hairlines less
-    the clearance, within [_FOREHEAD_REACH_MIN, ceiling]; a side with no
-    hair found within the search does not limit it (a high forehead), so
-    both unknown means the ceiling."""
-    limits = [h - _HAIRLINE_CLEARANCE for h in (portrait, driver) if h is not None]
-    reach = min(limits) if limits else ceiling
-    return float(min(max(reach, _FOREHEAD_REACH_MIN), ceiling))
+    ``clearance``, within [_FOREHEAD_REACH_MIN, _FOREHEAD_REACH_MAX]; a
+    side with no hair found within the search does not limit it (a high
+    forehead), so both unknown means ``unknown`` (:data:`_HAIRLINE_CEILING`)."""
+    limits = [h - clearance for h in (portrait, driver) if h is not None]
+    reach = min(limits) if limits else unknown
+    return float(min(max(reach, _FOREHEAD_REACH_MIN), _FOREHEAD_REACH_MAX))
+
+
+def _hairline_clearance(options: dict[str, Any]) -> float:
+    """``hairline_clearance`` in ``[0, 0.3]``, default
+    :data:`_HAIRLINE_CLEARANCE`: how far under the lower hairline the join
+    stays, as a fraction of the forehead height. Smaller covers more of
+    the forehead; at 0 the feather lies on the first hair."""
+    value = float(options.get("hairline_clearance", _HAIRLINE_CLEARANCE))
+    if not 0.0 <= value <= _HAIRLINE_CLEARANCE_MAX:
+        msg = f"hairline_clearance must be in [0, {_HAIRLINE_CLEARANCE_MAX}], got {value}"
+        raise ValueError(msg)
+    return value
+
+
+def _driver_hairline(options: dict[str, Any]) -> float | None:
+    """``driver_hairline`` -- this person's hairline as a fraction of the
+    forehead height, measured by Calibrate me over the still step (day 17)
+    and laid over from the profile; ``None`` (the default) means the
+    engine reads it live at the anchor. A number in [0.3, 3.0]."""
+    raw = options.get("driver_hairline")
+    if raw is None:
+        return None
+    value = float(raw)
+    if not _FOREHEAD_REACH_MIN <= value <= _FOREHEAD_REACH_MAX:
+        msg = (
+            f"driver_hairline must be in [{_FOREHEAD_REACH_MIN}, {_FOREHEAD_REACH_MAX}], "
+            f"got {value}"
+        )
+        raise ValueError(msg)
+    return value
 
 
 def _hairline_frame_ok(pose: HeadPose | None) -> bool:
@@ -1397,20 +1489,46 @@ def _hairline_frame_ok(pose: HeadPose | None) -> bool:
 
 
 def _forehead_reach_is_hairline(options: dict[str, Any]) -> bool:
-    return bool(options.get("mask_forehead_reach", _OVAL_FOREHEAD_REACH) == _HAIRLINE_MODE)
+    return bool(options.get("mask_forehead_reach", _FOREHEAD_REACH_DEFAULT) == _HAIRLINE_MODE)
+
+
+def _hair_mode(options: dict[str, Any]) -> str:
+    """``hair`` -- ``"off"`` (the default: the face oval alone, as before
+    day 17) or ``"avatar"``: the portrait's own hair pasted over the
+    driver's head from a matte of every rendered crop (see
+    sha256.avatar.hair and :meth:`LivePortraitEngine.set_hair`)."""
+    raw = options.get("hair", "off")
+    if raw is True:
+        return "avatar"
+    if raw is False or raw is None:
+        return "off"
+    mode = str(raw)
+    if mode not in _HAIR_MODES:
+        msg = f"hair must be one of {_HAIR_MODES}, got {raw!r}"
+        raise ValueError(msg)
+    return mode
+
+
+def _hair_skin(options: dict[str, Any]) -> bool:
+    """``hair_skin`` -- whether the render's own face skin above the eyes
+    joins the paste along with the hair (see hair.skin_weight). Default
+    False: tried 2026-09-13 on his two captures, the avatar's paler temple
+    skin came out as a patch over his own hair beside the hairline, worse
+    than the hair showing; kept as a lever to measure against."""
+    return bool(options.get("hair_skin", False))
 
 
 def _forehead_reach(options: dict[str, Any]) -> float:
-    """``mask_forehead_reach`` in ``[0.3, 1.6]``, default
-    ``_OVAL_FOREHEAD_REACH`` (0.85): how far up the forehead the ovals go,
-    as a fraction of the brow-to-mesh-top distance -- 1.0 is the mesh's
-    own top, above it the forehead arc is lifted past it (day 16), lower
-    stops the join further down on bare skin. Day 13's forehead-line
-    lever, swept with scripts/probes/jaw_band.py; both the portrait's oval
-    and the driver's read it. ``"hairline"`` reads as the default here and
-    is settled at the anchor from the two faces' own hairlines (see
-    :func:`_hairline_reach`)."""
-    raw = options.get("mask_forehead_reach", _OVAL_FOREHEAD_REACH)
+    """``mask_forehead_reach`` in ``[0.3, 1.6]`` or ``"hairline"`` (the
+    default since day 17): how far up the forehead the ovals go, as a
+    fraction of the brow-to-mesh-top distance -- 1.0 is the mesh's own
+    top, above it the forehead arc is lifted past it (day 16), lower stops
+    the join further down on bare skin. Day 13's forehead-line lever,
+    swept with scripts/probes/jaw_band.py; both the portrait's oval and
+    the driver's read it. ``"hairline"`` reads as ``_OVAL_FOREHEAD_REACH``
+    (0.85) here and is settled at the anchor from the two faces' own
+    hairlines (see :func:`_hairline_reach`)."""
+    raw = options.get("mask_forehead_reach", _FOREHEAD_REACH_DEFAULT)
     if isinstance(raw, str):
         if raw == _HAIRLINE_MODE:
             return _OVAL_FOREHEAD_REACH
@@ -1772,8 +1890,14 @@ def _frame_mask(
     chin_drop: float = 0.0,
     forehead_reach: float = _OVAL_FOREHEAD_REACH,
     chin_reach: float = 0.0,
+    driver_forehead_reach: float | None = None,
 ) -> np.ndarray:
     """The paste mask for one frame: the portrait's oval **and** the driver's.
+
+    ``driver_forehead_reach`` (day 17) gives the driver's oval its own
+    reach, ``None`` for the same as the portrait's: with the avatar's hair
+    pasted over the driver's, the driver's hairline no longer bounds the
+    join and his oval is let up as far as the portrait's may go.
 
     ``jaw_shrink`` goes to the driver's oval alone (see :func:`_oval_mask`):
     the intersection then follows the driver's pulled-in jaw, and the
@@ -1832,7 +1956,9 @@ def _frame_mask(
             driver_crop_points,
             jaw_shrink=jaw_shrink,
             chin_drop=chin_reach,
-            forehead_reach=forehead_reach,
+            forehead_reach=forehead_reach
+            if driver_forehead_reach is None
+            else driver_forehead_reach,
         ),
     )
     return combined
@@ -2735,6 +2861,106 @@ _BROW_DEADBAND = 0.10
 # / +34% -- the response inside a real frame is weaker than on the still
 # portrait -- so 0.12 (1.4x) is used.
 _BROW_LIFT_Y = {2: -0.12}
+# Day 17, his "when I shut my eyes the brows come down a little and the
+# mouth moves as if smiling" -- measured on his calibration clip's blink
+# and eyes-shut steps (scripts/probes/blink_probe.py, 18 shut frames
+# against 94 open): the avatar's upper brow points sit 4.2 px lower and
+# its mouth corners 1.4 px higher on the shut frames, his own not at all;
+# with the eye retargeting network off (eye_gain 0) both go away (-0.4 /
+# +0.2 px), with the extractor's expression off (expression_gain 0)
+# neither changes, and every gate reads 0.00 on the shut frames. So it is
+# the eye network's own delta on EYE_KEYPOINTS -- the lids pulled shut
+# drag the warp's neighbourhood: the brows down, the mouth corners up.
+# The counter is in the same tensor the brow drive writes: keypoint 2's y
+# lifted by ``blink_brow_hold`` units per unit of blink depth (his eye
+# ratio's shortfall from rest, 0 open, ~0.6 shut), and the smile axis
+# (_MOUTH_SMILE) moved by ``blink_mouth_hold`` the same way. Both are
+# portrait options. Measured at the live configuration (the profile over
+# the metadata, his eye_gain 1.4): his avatar's brows -4.0 px at 0,
+# -1.7 at 0.012, -1.2 at 0.015 (the corners +1.4 -> +0.3, his own +0.4),
+# the zero near 0.02; the woman's -3.1 at 0, -0.2 at 0.013. Keypoint 2
+# moves the corners a little with the brows, so the one lever settles
+# both at the medians -- but by depth the shut end still smiled (see the
+# curves below), so the mouth lever takes the shut end: -0.002 (a
+# negative value lowers the corners). With the curves, his avatar by
+# depth: brows -0.6 / -0.1 / +0.4 / +0.1 px, corners -0.8 / -0.5 / -0.5 /
+# +0.2 (were -1.7 / -3.1 / -4.1 / -4.8 and +0.4 / +1.0 / +1.4 / +2.0).
+# Each avatar's metadata says its own; these are his.
+_BLINK_BROW_HOLD = 0.015
+_BLINK_MOUTH_HOLD = -0.002
+_BLINK_MOUTH_LIFT = 0.01
+_BLINK_HOLD_MAX = 0.1
+
+
+def _blink_brow_hold(options: dict[str, Any]) -> float:
+    """``blink_brow_hold`` in ``[0, 0.1]``: keypoint 2's y lifted per unit
+    of blink depth, against the eye network's pull on the brows."""
+    value = float(options.get("blink_brow_hold", _BLINK_BROW_HOLD))
+    if not 0.0 <= value <= _BLINK_HOLD_MAX:
+        raise ValueError(f"blink_brow_hold must be in [0, {_BLINK_HOLD_MAX}], got {value}")
+    return value
+
+
+def _blink_mouth_hold(options: dict[str, Any]) -> float:
+    """``blink_mouth_hold`` in ``[-0.1, 0.1]``: the smile axis moved per
+    unit of blink depth, against the eye network's pull on the corners."""
+    value = float(options.get("blink_mouth_hold", _BLINK_MOUTH_HOLD))
+    if not -_BLINK_HOLD_MAX <= value <= _BLINK_HOLD_MAX:
+        msg = f"blink_mouth_hold must be in [-{_BLINK_HOLD_MAX}, {_BLINK_HOLD_MAX}], got {value}"
+        raise ValueError(msg)
+    return value
+
+
+def _blink_depth(ear: float, rest_ear: float | None) -> float:
+    """How far his lids are shut: the eye ratio's shortfall from rest as a
+    fraction of it, 0 open (or before the anchor), about 0.6 shut."""
+    if rest_ear is None or rest_ear <= 1e-6:
+        return 0.0
+    return float(min(max(1.0 - ear / rest_ear, 0.0), 1.0))
+
+
+# The pull is not linear in the depth (measured by depth bins on the same
+# frames, brow hold 0): brows -1.7 px at a fifth shut, -3.1 at two fifths,
+# -4.1 at three, -4.8 shut -- steep at first, then flattening -- and a
+# linear counter set for the shut frames left the fast phases of a blink
+# under-countered and the shut frames over (his second look: "now the
+# brows go UP when I blink"). So the brow counter follows d(2 - d), the
+# same saturating shape (0.36 / 0.64 / 0.84 / 0.98 at those depths).
+# The corners' pull grows to the shut frames (+0.4 / +1.0 / +1.4 / +2.0)
+# and keypoint 2's own pull on them saturates early, so what the brow
+# lever leaves is at the shut end: the mouth counter comes in from half
+# shut and is whole at 0.85.
+def _blink_brow_curve(depth: float) -> float:
+    return float(depth * (2.0 - depth))
+
+
+def _blink_mouth_curve(depth: float) -> float:
+    return float(min(max((depth - 0.5) / 0.35, 0.0), 1.0))
+
+
+# His third look (the same session, by depth with his own beside): with
+# the two counters the brows sit within 0.7 px at every depth, the
+# corners match his at the shut end -- and sit 0.7-1.0 px UNDER his own
+# (+0.3, his mouth eases as the lids shut) through the fast phases: the
+# brow lever's own pull on the corners, largest where the lids are only
+# starting to shut. ``blink_mouth_lift`` lifts the corners there, by a
+# bump that is 0 open, largest around a third shut and gone at 0.85.
+_BLINK_LIFT_END = 0.85
+
+
+def _blink_lift_curve(depth: float) -> float:
+    return float(max(depth * (1.0 - depth / _BLINK_LIFT_END), 0.0))
+
+
+def _blink_mouth_lift(options: dict[str, Any]) -> float:
+    """``blink_mouth_lift`` in ``[0, 0.1]``: the smile axis lifted through
+    the blink's fast phases (see :func:`_blink_lift_curve`)."""
+    value = float(options.get("blink_mouth_lift", _BLINK_MOUTH_LIFT))
+    if not 0.0 <= value <= _BLINK_HOLD_MAX:
+        raise ValueError(f"blink_mouth_lift must be in [0, {_BLINK_HOLD_MAX}], got {value}")
+    return value
+
+
 # Day 11 (2026-09-06), his "when I raise my brows the avatar lowers its
 # eyes and looks down": measured on the portrait alone (the nudge probe
 # with gaze read back per eye), keypoint 2 lifting the brow also drops the
@@ -3048,8 +3274,15 @@ def _release(gate: float, previous: float) -> float:
 # slightly down" instruction reached pitch -32 degrees, far past anything a
 # frontal portrait can be redrawn convincingly at; frames 560/620 show the
 # face smearing, the crop's own forehead band showing.
-_DEFAULT_HOLD_PITCH = 20.0
-_DEFAULT_HOLD_YAW = 35.0
+_DEFAULT_HOLD_PITCH = 30.0
+_DEFAULT_HOLD_YAW = 45.0
+# Pitch 30 and yaw 45 since day 17 (were 20 / 35): under the clamp the
+# network drew his -30 and -33 tilts cleanly at a cap of 30
+# (recordings/day17/tiltcap-*), the eyes following his look up from under
+# the brows, and his -48 turn at caps of 45 and 55 alike
+# (recordings/day17/drivecap-*) -- the head plausibly turned, what went
+# wrong there was the expression, which _steep_fade now calms. The day-8
+# smear was the full -32 with no cap at all.
 # How far below the enter threshold the pose must fall before the hold
 # releases -- lower than the threshold that started it, so a pose sitting
 # right at the edge does not flicker between held and rendered every other
@@ -3069,9 +3302,73 @@ def _hold_thresholds(options: dict[str, Any]) -> tuple[float, float]:
     return pitch, yaw
 
 
+_STEEP_POSE_MODES = ("hold", "clamp")
+# "clamp" since day 17 (his "head down, looking to the side, the face must
+# not get lost"): on natural.mkv's tilt step the hold froze 165 of 296
+# frames, the avatar's eyes left down while he looked up at the camera;
+# the clamp draws every frame. "hold" stays as the option, and as what
+# the tests of the hold itself set.
+_DEFAULT_STEEP_POSE = "clamp"
+# Past the yaw cap the expression fades to rest over this many degrees
+# (steep_pose = "clamp"): at a near profile the far half of the face is
+# hidden and the tracker's mouth, gaze and brow readings are noise --
+# measured on driving.mkv 1592 (yaw -48): a wall-eyed gaze and a smeared
+# mouth corner with the expression left on. The head is still drawn at
+# the cap; the blink stays (the near eye reads).
+_STEEP_FADE_DEGREES = 15.0
+
+
+def _steep_fade(loaded: _Portrait, head_pose: HeadPose | None) -> float:
+    """How much of the expression drives this frame under the clamp: 1.0
+    within the yaw cap, 0.0 :data:`_STEEP_FADE_DEGREES` past it, linear
+    between; 1.0 always with ``steep_pose = "hold"`` or no pose."""
+    if not loaded.steep_clamp or head_pose is None:
+        return 1.0
+    _, hold_yaw = _hold_thresholds(loaded.options)
+    yaw = abs(head_pose.yaw - (loaded.rest_yaw or 0.0))
+    return float(1.0 - min(max((yaw - hold_yaw) / _STEEP_FADE_DEGREES, 0.0), 1.0))
+
+
+# The gaze fades earlier than the rest of the expression under the clamp:
+# the iris offset is read against the eye corners, and past 30 degrees of
+# yaw the far eye's corners crowd together and the reading over-shoots --
+# a wall-eyed avatar on driving.mkv 1498/1592 (yaw +38 / -48) with the
+# fade starting only at the cap. From 30 to 45 degrees the gaze goes to
+# rest; the blink (a ratio of one eye) is not touched.
+_GAZE_YAW_FADE = (30.0, 45.0)
+
+
+def _gaze_yaw_fade(loaded: _Portrait, head_pose: HeadPose | None) -> float:
+    """How much of the gaze drive reaches the eyes this frame under the
+    clamp: 1.0 up to :data:`_GAZE_YAW_FADE`'s start, 0.0 from its end;
+    1.0 always with ``steep_pose = "hold"`` or no pose."""
+    if not loaded.steep_clamp or head_pose is None:
+        return 1.0
+    yaw = abs(head_pose.yaw - (loaded.rest_yaw or 0.0))
+    return float(1.0 - _soft_gate(yaw, _GAZE_YAW_FADE))
+
+
+def _steep_pose(options: dict[str, Any]) -> str:
+    """``steep_pose`` -- what happens past ``hold_pitch_degrees`` /
+    ``hold_yaw_degrees``: ``"hold"`` (day 8: the last rendered face is
+    frozen and only follows him) or ``"clamp"`` (day 17, the default, his
+    "looking sideways, head down": the network keeps drawing every frame,
+    the head's turn applied to the portrait is capped at the threshold,
+    the expression -- mouth, eyes, brows -- goes on and fades to rest past
+    the yaw cap, see :func:`_steep_fade`)."""
+    mode = str(options.get("steep_pose", _DEFAULT_STEEP_POSE))
+    if mode not in _STEEP_POSE_MODES:
+        msg = f"steep_pose must be one of {_STEEP_POSE_MODES}, got {mode!r}"
+        raise ValueError(msg)
+    return mode
+
+
 def _should_hold(loaded: _Portrait, head_pose: HeadPose | None) -> bool:
     """Whether this frame should reuse the last rendered face rather than
     ask the network to draw a pose a frontal portrait cannot hold.
+
+    Never with ``steep_pose = "clamp"`` (day 17): the network draws every
+    frame and :meth:`LivePortraitEngine._drive` caps the turn instead.
 
     Hysteresis: enters the hold above ``hold_pitch_degrees``/
     ``hold_yaw_degrees`` (:func:`_hold_thresholds`, default 20.0/35.0),
@@ -3091,6 +3388,8 @@ def _should_hold(loaded: _Portrait, head_pose: HeadPose | None) -> bool:
     skipped, so the held face still follows him and is still masked/pasted
     at his actual, current position.
     """
+    if loaded.steep_clamp:
+        return False
     if head_pose is None:
         return loaded.holding
     hold_pitch, hold_yaw = _hold_thresholds(loaded.options)
@@ -3228,6 +3527,9 @@ class _Portrait:
         "anchor_seen",
         "anchor_sum",
         "anchor_wanted",
+        "blink_brow_hold",
+        "blink_mouth_hold",
+        "blink_mouth_lift",
         "brow_delta",
         "c_s_eye_mean",
         "c_s_lip",
@@ -3257,6 +3559,14 @@ class _Portrait:
         "gate_open_prev",
         "gaze_prev",
         "graph",
+        "hair_box",
+        "hair_matte",
+        "hair_on",
+        "hair_seq",
+        "hair_skin",
+        "hairline_clearance",
+        "hairline_driver",
+        "hairline_last",
         "hairline_portrait",
         "hairline_samples",
         "hairline_settled",
@@ -3280,7 +3590,9 @@ class _Portrait:
         "open_hold",
         "options",
         "pivot",
+        "portrait_crop",
         "pose_d0",
+        "pose_limit",
         "pose_prev",
         "pose_recent",
         "pose_samples",
@@ -3301,6 +3613,7 @@ class _Portrait:
         "size_samples",
         "static_in",
         "static_out",
+        "steep_clamp",
         "t_d0",
         "t_gain",
         "t_prev",
@@ -3388,6 +3701,30 @@ class _Portrait:
         self.hairline_portrait: float | None = None
         self.hairline_samples: list[float | None] = []
         self.hairline_settled: bool = not _forehead_reach_is_hairline(self.options)
+        # Day 17: the driver's hairline from the profile (Calibrate me), the
+        # last frontal reading (the calibration's instrument), and the
+        # clearance under the lower hairline.
+        self.hairline_driver: float | None = _driver_hairline(self.options)
+        self.hairline_last: float | None = None
+        self.hairline_clearance: float = _hairline_clearance(self.options)
+        # Day 17 (C1b): the avatar's hair. ``hair_on`` is the mode in force
+        # (the ``hair`` option, or set_hair's word); ``hair_matte`` the EMA
+        # of the rendered crop's hair alpha, (512, 512, 1) float32 like
+        # ``mask``, the paste takes the maximum of the two; ``hair_seq``
+        # the worker's sequence number of the last matte folded in;
+        # ``hair_box`` the crop box the hair has reached so far (only ever
+        # grows, so the correction's field stays in one frame of
+        # reference) -- the paste's box is its union with ``mask_bbox``.
+        self.hair_on: bool = _hair_mode(self.options) == "avatar"
+        self.hair_matte: np.ndarray | None = None
+        self.hair_seq: int = 0
+        self.hair_box: tuple[int, int, int, int] | None = None
+        # How much of the render's face skin joins the paste, per row of
+        # the crop -- above the eyes only (see hair.skin_weight).
+        self.hair_skin: np.ndarray | None = None
+        # The portrait's own 512 crop (BGR), kept for the hair's first matte
+        # when the hair is switched on after the load.
+        self.portrait_crop: np.ndarray | None = None
         # Day 11: his resting iris offset (x, y) in units of eye width,
         # learned with the anchor like rest_brow; and the gaze drive's own
         # EMA state -- see the GAZE section and _gaze_drive.
@@ -3591,6 +3928,17 @@ class _Portrait:
         # frontal portrait -- see _should_hold. Starts un-held; reset_anchor
         # also clears it, so a fresh anchor starts un-held too.
         self.holding: bool = False
+        # Day 17: steep_pose = "clamp" -- the turn applied to the portrait
+        # is capped at the hold thresholds instead of the face freezing;
+        # ``pose_limit`` is the (3, 1) static tensor of degrees the graph
+        # clamps against (pitch, yaw, roll -- roll unbounded).
+        self.steep_clamp: bool = _steep_pose(self.options) == "clamp"
+        self.pose_limit: Any = None
+        # Day 17: the blink's counter on the brows and the mouth corners
+        # (see _BLINK_BROW_HOLD), read once at load.
+        self.blink_brow_hold: float = _blink_brow_hold(self.options)
+        self.blink_mouth_hold: float = _blink_mouth_hold(self.options)
+        self.blink_mouth_lift: float = _blink_mouth_lift(self.options)
 
 
 class LivePortraitEngine:
@@ -3602,11 +3950,23 @@ class LivePortraitEngine:
         model_path: Path | str | None = None,
         weights: Path | str | None = None,
         driver_options: Mapping[str, Any] | None = None,
+        hair_model: Path | str | None = None,
     ) -> None:
         # The face-landmark model, to read the portrait's own face at load and
         # to name the driver's crop; the same one the tracker uses.
         self._model_path = Path(model_path) if model_path is not None else None
         self._weights = Path(weights) if weights is not None else None
+        # Day 17 (C1b): the hair segmenter's model, beside the landmarker by
+        # default (see sha256.avatar.hair); started the first time an
+        # avatar's hair is asked for, never before.
+        self._hair_model = Path(hair_model) if hair_model is not None else None
+        self._hair: HairSegmenter | None = None
+        self._hair_worker: HairMatteWorker | None = None
+        self._hair_unavailable = False
+        # set_hair's word per avatar, kept across loads: the Menu's switch
+        # may be thrown before the avatar is loaded, or the avatar reloaded
+        # for a profile, and the hair must not fall back to the file's say.
+        self._hair_wanted: dict[str, bool] = {}
         # Day 16: the driver profile's options, laid over every avatar's own
         # at load -- see set_driver_options.
         self._driver_options: dict[str, Any] = {}
@@ -3663,10 +4023,200 @@ class LivePortraitEngine:
     def stop(self) -> None:
         for avatar_id in list(self._loaded):
             self.unload_avatar(avatar_id)
+        self._stop_hair()
         self._nets = {}
         self._running = False
         if self._torch is not None:
             self._torch.cuda.empty_cache()
+
+    # --- the avatar's hair (day 17, C1b) ------------------------------------
+
+    def _hair_model_path(self) -> Path:
+        if self._hair_model is not None:
+            return self._hair_model
+        if self._model_path is not None:
+            return self._model_path.parent / HAIR_MODEL_RELATIVE_PATH.name
+        return Path("models") / HAIR_MODEL_RELATIVE_PATH
+
+    def _start_hair(self) -> bool:
+        """The segmenter and its thread, started once on first use; False
+        (logged once) when the model is not there or MediaPipe refuses."""
+        if self._hair_worker is not None:
+            return True
+        if self._hair_unavailable:
+            return False
+        try:
+            segmenter = HairSegmenter(self._hair_model_path())
+            segmenter.start()
+        except Exception as exc:
+            self._hair_unavailable = True
+            _LOG.warning("The avatar's hair is not available: %s", exc)
+            return False
+        self._hair = segmenter
+        self._hair_worker = HairMatteWorker(segmenter.segment)
+        _LOG.info("Hair segmenter ready: %s", segmenter.model_path)
+        return True
+
+    def _stop_hair(self) -> None:
+        if self._hair_worker is not None:
+            self._hair_worker.stop()
+        self._hair_worker = None
+        if self._hair is not None:
+            self._hair.stop()
+        self._hair = None
+
+    @property
+    def hair_available(self) -> bool:
+        """Whether the hair segmenter's model is there to be started."""
+        return not self._hair_unavailable and (
+            self._hair_worker is not None or self._hair_model_path().is_file()
+        )
+
+    def hair_enabled(self, avatar_id: str) -> bool:
+        """Whether the avatar's hair is being pasted now (False for an
+        avatar this engine does not hold, or whose hair could not start)."""
+        loaded = self._loaded.get(avatar_id)
+        return bool(loaded is not None and loaded.hair_on)
+
+    def set_hair(self, avatar_id: str, on: bool) -> bool:
+        """Paste the avatar's own hair over the driver's head (``True``), or
+        the face alone (``False``) -- live, no reload: the matte lives
+        outside the graph. Remembered for the avatar across loads. Returns
+        what is in force now for a loaded avatar (``False`` when the
+        segmenter could not start), else the wish as recorded."""
+        self._hair_wanted[avatar_id] = bool(on)
+        loaded = self._loaded.get(avatar_id)
+        if loaded is None:
+            return bool(on)
+        if on and not loaded.hair_on:
+            return self._enable_hair(loaded)
+        if not on and loaded.hair_on:
+            self._disable_hair(loaded)
+        return loaded.hair_on
+
+    @staticmethod
+    def _matte_hairline(hair: np.ndarray, crop_points: np.ndarray) -> float | None:
+        """The avatar's own hairline from its hair matte (day 17, his first
+        look): up from the brow top along the crop's rows at three columns
+        across the forehead, the first row where the hair confidence passes
+        0.5 on two of the three, as a fraction of the forehead height --
+        the segmenter's word, not the luminance walk's. ``None`` when no
+        hair is met above the brows (a bald portrait)."""
+        pts = np.asarray(crop_points, dtype=np.float32)[:FACE_POINTS, :2]
+        brow_top, forehead_h = _forehead_geometry(pts)
+        face_w = max(float(pts[:, 0].max() - pts[:, 0].min()), 1.0)
+        centre_x = float((pts[_CHEEKS[0], 0] + pts[_CHEEKS[1], 0]) / 2.0)
+        plane = hair[:, :, 0] if hair.ndim == 3 else hair
+        height, width = plane.shape
+        columns = [
+            min(max(round(centre_x + dx), 0), width - 1)
+            for dx in (-0.12 * face_w, 0.0, 0.12 * face_w)
+        ]
+        start = min(max(round(float(brow_top[1])), 0), height - 1)
+        for row in range(start, -1, -1):
+            if sum(float(plane[row, c]) > 0.5 for c in columns) >= 2:
+                return float((float(brow_top[1]) - row) / forehead_h)
+        return None
+
+    @staticmethod
+    def _hair_reach(loaded: _Portrait, hair: np.ndarray | None = None) -> float:
+        """The forehead reach with the hair on: the avatar's own hairline --
+        from its hair matte (:meth:`_matte_hairline`) when given, else the
+        portrait's luminance reading, else :data:`_HAIRLINE_CEILING` --
+        plus :data:`_HAIR_FOREHEAD_OVERLAP`, within the reach's bounds."""
+        base = None
+        if hair is not None and loaded.crop_points is not None:
+            base = LivePortraitEngine._matte_hairline(hair, loaded.crop_points)
+        if base is None:
+            base = loaded.hairline_portrait
+        if base is None:
+            base = _HAIRLINE_CEILING
+        reach = base + _HAIR_FOREHEAD_OVERLAP
+        return float(min(max(reach, _FOREHEAD_REACH_MIN), _FOREHEAD_REACH_MAX))
+
+    @staticmethod
+    def _apply_forehead_reach(loaded: _Portrait, reach: float) -> None:
+        """The portrait's mask and its box rebuilt at ``reach``."""
+        if loaded.crop_points is None:
+            return
+        loaded.forehead_reach = reach
+        loaded.mask = _oval_mask(loaded.crop_points, forehead_reach=reach)
+        loaded.mask_bbox = _mask_bbox(
+            loaded.mask, reach_below=int(np.ceil(loaded.chin_drop_max + loaded.chin_reach))
+        )
+
+    def _enable_hair(self, loaded: _Portrait) -> bool:
+        """The hair on for a loaded portrait: the segmenter started, the
+        portrait crop's own matte as the first matte (so the first frame
+        already has hair, before the worker's first word), the ovals
+        raised past the portrait's hairline (see :data:`_HAIR_FOREHEAD_OVERLAP`)."""
+        import cv2
+
+        if loaded.portrait_crop is None or loaded.crop_points is None or not self._start_hair():
+            loaded.hair_on = False
+            return False
+        assert self._hair is not None
+        try:
+            confidence = self._hair.segment(cv2.cvtColor(loaded.portrait_crop, cv2.COLOR_BGR2RGB))
+        except Exception:
+            _LOG.exception("Avatar %s: the portrait's hair could not be read", loaded.descriptor.id)
+            loaded.hair_on = False
+            return False
+        loaded.hair_skin = (
+            skin_weight(loaded.crop_points, CROP_SIZE) if _hair_skin(loaded.options) else None
+        )
+        loaded.hair_matte = hair_alpha(head_confidence(confidence, loaded.hair_skin))
+        loaded.hair_box = hair_box(loaded.hair_matte)
+        loaded.hair_seq = 0
+        loaded.hair_on = True
+        loaded.hairline_samples = []
+        loaded.hairline_settled = True
+        self._apply_forehead_reach(loaded, self._hair_reach(loaded, confidence))
+        _LOG.info(
+            "Avatar %s: the avatar's hair on -- forehead reach %.2f, hair box %s",
+            loaded.descriptor.id,
+            loaded.forehead_reach,
+            loaded.hair_box,
+        )
+        return True
+
+    def _disable_hair(self, loaded: _Portrait) -> None:
+        """The face alone again: the matte dropped, the forehead reach back
+        to the option's own (a "hairline" reach is measured again)."""
+        loaded.hair_on = False
+        loaded.hair_matte = None
+        loaded.hair_box = None
+        loaded.hair_skin = None
+        loaded.hair_seq = 0
+        loaded.hairline_samples = []
+        loaded.hairline_settled = not _forehead_reach_is_hairline(loaded.options)
+        self._apply_forehead_reach(loaded, _forehead_reach(loaded.options))
+        _LOG.info("Avatar %s: the avatar's hair off", loaded.descriptor.id)
+
+    def _update_hair(self, loaded: _Portrait, face_rgb: np.ndarray) -> None:
+        """This frame's render to the worker; the newest matte, if it is
+        new and this avatar's, folded into the EMA and its box grown."""
+        worker = self._hair_worker
+        if worker is None:
+            if not self._start_hair():
+                loaded.hair_on = False
+                return
+            worker = self._hair_worker
+            assert worker is not None
+        worker.submit(loaded.descriptor.id, face_rgb)
+        got = worker.latest()
+        if got is None:
+            return
+        tag, seq, confidence = got
+        if tag != loaded.descriptor.id or seq == loaded.hair_seq:
+            return
+        alpha = hair_alpha(head_confidence(confidence, loaded.hair_skin))
+        if loaded.hair_matte is None:
+            loaded.hair_matte = alpha
+        else:
+            loaded.hair_matte = loaded.hair_matte * _HAIR_INERTIA + alpha * (1.0 - _HAIR_INERTIA)
+        loaded.hair_seq = seq
+        loaded.hair_box = union_box(loaded.hair_box, hair_box(loaded.hair_matte))
 
     # --- the driver's profile (day 16) --------------------------------------
 
@@ -3745,7 +4295,13 @@ class LivePortraitEngine:
         crop_points = (points @ to_crop[:, :2].T + to_crop[:, 2]).astype(np.float32)
         loaded.crop_points = crop_points
         loaded.mask = _oval_mask(crop_points, forehead_reach=forehead_reach)
-        if not loaded.hairline_settled:
+        # Day 17: the crop itself is kept for the hair's own matte (see
+        # _enable_hair), and set_hair's word overrides the file's.
+        loaded.portrait_crop = crop
+        wanted = self._hair_wanted.get(descriptor.id)
+        if wanted is not None:
+            loaded.hair_on = wanted
+        if not loaded.hairline_settled or loaded.hair_on:
             loaded.hairline_portrait = _hairline_fraction(_luminance(portrait), points)
         # Day 13: the box reaches below the portrait's own chin by the
         # most the per-frame mask may let the jaw down (see _chin_drop).
@@ -3785,6 +4341,13 @@ class LivePortraitEngine:
         loaded.mask_bbox = _mask_bbox(
             loaded.mask, reach_below=int(np.ceil(loaded.chin_drop_max + loaded.chin_reach))
         )
+        # Day 17: the hair asked for (the option, or set_hair before the
+        # load) -- the segmenter started and the portrait's own matte read
+        # now, so the first frame has hair; off with a warning if it cannot.
+        if loaded.hair_on and not self._enable_hair(loaded):
+            _LOG.warning(
+                "Avatar %s: the avatar's hair was asked for but is not available", descriptor.id
+            )
         if headroom < _CHIN_DROP_MAX * crop_face_height:
             _LOG.info(
                 "Avatar %s: the crop leaves %.0f usable px below the portrait's chin -- "
@@ -3905,6 +4468,12 @@ class LivePortraitEngine:
             # ``ratios`` still holds exactly the portrait's own targets.
             loaded.gate = torch.ones(1, NUM_KP, 3, device=self._device, dtype=torch.float32)
             loaded.brow_delta = torch.zeros(1, NUM_KP, 3, device=self._device, dtype=torch.float32)
+            # Day 17: the turn's cap for steep_pose = "clamp" -- the hold
+            # thresholds, in the extractor's own degrees (see _drive).
+            hold_pitch, hold_yaw = _hold_thresholds(loaded.options)
+            loaded.pose_limit = torch.tensor(
+                [[hold_pitch], [hold_yaw], [1.0e6]], device=self._device, dtype=torch.float32
+            )
             loaded.mouth_leak = torch.zeros(1, NUM_KP, 3, device=self._device, dtype=torch.float32)
             # The constant mouth tilt trim lives in the same offset tensor
             # (its own component is never written per frame) -- see
@@ -4007,7 +4576,12 @@ class LivePortraitEngine:
             loaded.lip_rest_run = 0
             loaded.lip_rest_steps = 0
             loaded.hairline_samples = []
-            loaded.hairline_settled = not _forehead_reach_is_hairline(loaded.options)
+            # Day 17: with the hair on the reach is the portrait's own
+            # hairline plus the overlap, settled at load -- nothing to
+            # measure again (see _enable_hair).
+            loaded.hairline_settled = loaded.hair_on or not _forehead_reach_is_hairline(
+                loaded.options
+            )
 
     def rest_status(self, avatar_id: str) -> str | None:
         """A line for the UI while the anchor is still being learned, else
@@ -4135,6 +4709,10 @@ class LivePortraitEngine:
             "gate_open": float(loaded.gate_open_prev),
             "gate_brow": float(loaded.gate_brow_prev),
             "chin_drop": float(loaded.chin_drop),
+            "hair": float(loaded.hair_on),
+            # Day 17: his hairline off the last frontal frame read, for the
+            # profile's driver_hairline (NaN: none read, or no hair found).
+            "hairline": math.nan if loaded.hairline_last is None else float(loaded.hairline_last),
         }
         for name in (
             "rest_ear",
@@ -4169,23 +4747,34 @@ class LivePortraitEngine:
         rebuilt with it, and nothing measured again until a re-centre."""
         if loaded.hairline_settled or loaded.crop_points is None:
             return
-        if len(loaded.hairline_samples) < _HAIRLINE_MIN_SAMPLES:
-            return
-        found = [s for s in loaded.hairline_samples if s is not None]
-        driver = float(np.median(found)) if len(found) * 2 >= len(loaded.hairline_samples) else None
-        loaded.forehead_reach = _hairline_reach(loaded.hairline_portrait, driver)
-        loaded.mask = _oval_mask(loaded.crop_points, forehead_reach=loaded.forehead_reach)
-        loaded.mask_bbox = _mask_bbox(
-            loaded.mask, reach_below=int(np.ceil(loaded.chin_drop_max + loaded.chin_reach))
+        # Day 17: the profile's word (Calibrate me) settles at once; else
+        # the live frames, once enough of them.
+        if loaded.hairline_driver is not None:
+            driver: float | None = loaded.hairline_driver
+            source = "the profile"
+        else:
+            if len(loaded.hairline_samples) < _HAIRLINE_MIN_SAMPLES:
+                return
+            found = [s for s in loaded.hairline_samples if s is not None]
+            driver = (
+                float(np.median(found)) if len(found) * 2 >= len(loaded.hairline_samples) else None
+            )
+            source = f"{len(loaded.hairline_samples)} live frames"
+        LivePortraitEngine._apply_forehead_reach(
+            loaded,
+            _hairline_reach(loaded.hairline_portrait, driver, clearance=loaded.hairline_clearance),
         )
         loaded.hairline_settled = True
         loaded.hairline_samples = []
         _LOG.info(
-            "Avatar %s: forehead reach settled at %.2f (portrait hairline %s, his %s)",
+            "Avatar %s: forehead reach settled at %.2f (portrait hairline %s, his %s from %s, "
+            "clearance %.2f)",
             loaded.descriptor.id,
             loaded.forehead_reach,
             "?" if loaded.hairline_portrait is None else f"{loaded.hairline_portrait:.2f}",
             "?" if driver is None else f"{driver:.2f}",
+            source,
+            loaded.hairline_clearance,
         )
 
     @staticmethod
@@ -4292,11 +4881,18 @@ class LivePortraitEngine:
                 np.float32
             )
             # Day 16 (C1): his hairline, on frontal frames, until the anchor
-            # settles the forehead reach from it and the portrait's.
-            if not loaded.hairline_settled and _hairline_frame_ok(tracking.head_pose):
-                loaded.hairline_samples.append(
-                    _hairline_fraction(_luminance(scene, bgr=bgr), target)
-                )
+            # settles the forehead reach from it and the portrait's. Day 17:
+            # read on every Nth frontal frame after that too, for the
+            # calibration (frame_readings["hairline"], the profile's
+            # driver_hairline).
+            if _hairline_frame_ok(tracking.head_pose) and (
+                not loaded.hairline_settled
+                or tracking.metadata.frame_id % _HAIRLINE_READ_EVERY == 0
+            ):
+                reading = _hairline_fraction(_luminance(scene, bgr=bgr), target)
+                loaded.hairline_last = reading
+                if not loaded.hairline_settled:
+                    loaded.hairline_samples.append(reading)
             chin_drop = 0.0
             # Day 16: the anchor gate's word on stillness, read every frame
             # (held or not) so the window is always the last half second;
@@ -4311,6 +4907,7 @@ class LivePortraitEngine:
                 # frame after must not read the jump as speech (_gates).
                 loaded.mar_prev = loaded.width_prev = None
                 rendered = now()
+                haired = None
             else:
                 c_d_eye = sum(_eye_ratios(target)) / 2.0
                 c_d_lip = _lip_ratio(target)
@@ -4358,6 +4955,13 @@ class LivePortraitEngine:
                 brow_lift = _brow_follow(loaded.options) * _brow_lift(
                     c_d_brow, loaded.rest_brow, tracking.head_pose, loaded.thresholds.brow_deadband
                 )
+                # Day 17: under the clamp, past the yaw cap the mouth, the
+                # brows and the gaze fade to rest (see _steep_fade).
+                steep_fade = _steep_fade(loaded, tracking.head_pose)
+                if steep_fade < 1.0:
+                    gates = (gates[0] * steep_fade, gates[1] * steep_fade, gates[2] * steep_fade)
+                    brow_lift *= steep_fade
+                gaze_fade = steep_fade * _gaze_yaw_fade(loaded, tracking.head_pose)
                 face_rgb = self._render(
                     loaded,
                     small,
@@ -4377,9 +4981,15 @@ class LivePortraitEngine:
                     centre_sample=centre_sample,
                     chin_sample=c_d_chin,
                     pose_sample=pose_sample,
+                    steep_fade=gaze_fade,
                 )
                 face = cv2.cvtColor(face_rgb, cv2.COLOR_RGB2BGR) if bgr else face_rgb
                 rendered = now()
+                # Day 17 (C1b): this render to the hair segmenter's thread,
+                # and the newest matte folded in -- see _update_hair.
+                if loaded.hair_on:
+                    self._update_hair(loaded, face_rgb)
+                haired = now()
                 # Day 13: how far his chin has dropped from rest, in crop
                 # pixels -- what the portrait's oval is let down by below
                 # the mouth, so the join follows the avatar's opened jaw
@@ -4405,6 +5015,11 @@ class LivePortraitEngine:
                 chin_drop=chin_drop,
                 forehead_reach=loaded.forehead_reach,
                 chin_reach=loaded.chin_reach,
+                # Day 17, his first look: with the avatar's hair on, his own
+                # oval must not stop the paste at HIS hairline -- a band of
+                # his hair showed between the avatar's forehead and its hair
+                # -- so his oval reaches as high as the portrait's may.
+                driver_forehead_reach=_FOREHEAD_REACH_MAX if loaded.hair_on else None,
             )
             masked = now()
 
@@ -4412,7 +5027,8 @@ class LivePortraitEngine:
             self.last_timings = {
                 "crop_ms": (cropped - started) * 1000.0,
                 "model_ms": (rendered - cropped) * 1000.0,
-                "mask_ms": (masked - rendered) * 1000.0,
+                "hair_ms": 0.0 if haired is None else (haired - rendered) * 1000.0,
+                "mask_ms": (masked - (rendered if haired is None else haired)) * 1000.0,
             }
 
         pasted = now()
@@ -4559,6 +5175,7 @@ class LivePortraitEngine:
         centre_sample: tuple[float, float] | None = None,
         chin_sample: float | None = None,
         pose_sample: tuple[float, float] | None = None,
+        steep_fade: float = 1.0,
     ) -> np.ndarray:
         """The portrait's face with this driver's expression, 512x512 RGB.
 
@@ -4613,8 +5230,17 @@ class LivePortraitEngine:
             for k, axis in _MOUTH_OPENING:
                 loaded.gate[0, k, axis] = gates[1]
             loaded.gate[0, list(BROW_KEYPOINTS), :] = gates[2]
+            # Day 17: the blink's pull on the brows and the mouth corners
+            # countered in the same rows (see _BLINK_BROW_HOLD).
+            depth = _blink_depth(ear, loaded.rest_ear)
+            brow_hold = loaded.blink_brow_hold * _blink_brow_curve(depth)
+            mouth_hold = loaded.blink_mouth_hold * _blink_mouth_curve(
+                depth
+            ) + loaded.blink_mouth_lift * _blink_lift_curve(depth)
             for k, y_per_unit in _BROW_LIFT_Y.items():
-                loaded.brow_delta[0, k, 1] = brow_lift * y_per_unit
+                loaded.brow_delta[0, k, 1] = brow_lift * y_per_unit - brow_hold
+            for k, axis in _MOUTH_SMILE:
+                loaded.brow_delta[0, k, axis] = -mouth_hold
             # Day 15: what his brow deviation leaks into the mouth rows,
             # for _drive to subtract (see _BROW_MOUTH_LEAK). ``brow_deviation``
             # is his brow ratio less the anchor's rest, unscaled and not
@@ -4624,7 +5250,10 @@ class LivePortraitEngine:
             # Day 11: the gaze drive, on the eye keypoints' x rows of the
             # same offset tensor, written fresh every frame (see the GAZE
             # section and _gaze_drive).
-            gaze_x = self._gaze_drive(loaded, gaze, ear)
+            # Day 17: the gaze fades with the turn (``steep_fade`` here is
+            # the expression's fade times the gaze's own earlier one, see
+            # _steep_fade and _gaze_yaw_fade); the drive's own state goes on.
+            gaze_x = self._gaze_drive(loaded, gaze, ear) * steep_fade
             for k, x_per_unit in _GAZE_KP_X.items():
                 loaded.brow_delta[0, k, 0] = gaze_x * x_per_unit
             loaded.static_in.copy_(image)
@@ -4883,6 +5512,16 @@ class LivePortraitEngine:
         a = _motion_smoothing(loaded.options)
         exp_now = _ema_(loaded.exp_prev, exp, a)
         pose_now = _ema_(loaded.pose_prev, pose, a)
+        # Day 17 (his "looking sideways, head down"): with steep_pose =
+        # "clamp" the turn applied to the portrait is capped at the hold
+        # thresholds, relative to the anchor's own pose -- the network keeps
+        # drawing, the expression goes on, and the head is drawn at the
+        # steepest angle a frontal portrait can still carry while his own
+        # goes further. The EMA state above keeps the real reading.
+        if loaded.steep_clamp and loaded.pose_limit is not None:
+            pose_now = loaded.pose_d0 + torch.maximum(
+                torch.minimum(pose_now - loaded.pose_d0, loaded.pose_limit), -loaded.pose_limit
+            )
         # Day 9, later: the extractor's scale and translation are smoothed
         # harder than its expression and pose (size_smoothing, default
         # 0.85 -- a fifth of each frame's fresh reading), the same _ema_
@@ -5126,8 +5765,21 @@ class LivePortraitEngine:
 
         assert loaded.mask_bbox is not None
         height, width = scene.shape[:2]
-        bx0, by0, bx1, by1 = loaded.mask_bbox
-        x0, y0, x1, y1 = _transformed_box(to_frame, loaded.mask_bbox, width, height)
+        # Day 17 (C1b): with the avatar's hair on, the paste covers the face
+        # mask OR the hair matte, in a box grown to the hair's own; the
+        # colour match is still fitted on the FACE mask alone (skin against
+        # skin at the join, as day 13 built it), and its plane -- the room's
+        # light -- is what the hair takes too. Off, every line below is what
+        # it was: one mask, one box.
+        paste: np.ndarray | None = None
+        box = loaded.mask_bbox
+        if loaded.hair_on and loaded.hair_matte is not None:
+            paste = np.maximum(mask, loaded.hair_matte)
+            grown = union_box(box, loaded.hair_box)
+            assert grown is not None
+            box = grown
+        bx0, by0, bx1, by1 = box
+        x0, y0, x1, y1 = _transformed_box(to_frame, box, width, height)
         output = scene.copy()
         if x1 - x0 < 2 or y1 - y0 < 2:
             return output
@@ -5151,9 +5803,15 @@ class LivePortraitEngine:
         mask = cv2.warpAffine(mask_patch, shifted, size, flags=cv2.INTER_LINEAR)[:, :, None]
 
         region = output[y0:y1, x0:x1].astype(np.float32)
-        alpha3 = cv2.merge((mask[:, :, 0], mask[:, :, 0], mask[:, :, 0]))
+        fit3 = cv2.merge((mask[:, :, 0], mask[:, :, 0], mask[:, :, 0]))
+        alpha3 = fit3
+        if paste is not None:
+            blend = cv2.warpAffine(
+                paste[by0:by1, bx0:bx1, 0], shifted, size, flags=cv2.INTER_LINEAR
+            )
+            alpha3 = cv2.merge((blend, blend, blend))
         features = None if loaded.features is None else loaded.features - (x0, y0)
-        correction = _face_colour_correction(loaded, placed, region, mask, alpha3, features)
+        correction = _face_colour_correction(loaded, placed, region, mask, fit3, features)
 
         # Day 11 (fps): one fused blend. region + alpha * (face + correction
         # - region) is the same arithmetic as before -- (1 - alpha) * region
