@@ -47,6 +47,9 @@ from jaw_band import capture_anchor, tracking_at  # noqa: E402
 from measure_follow import anchors, measures  # noqa: E402
 
 from sha256.avatar.engine_liveportrait import (  # noqa: E402
+    _BROWS_UPPER,
+    _MOUTH_CORNERS,
+    _NOSE_TIP,
     DEFAULT_WEIGHTS_RELATIVE_PATH,
     FACE_POINTS,
     LivePortraitEngine,
@@ -116,6 +119,11 @@ def read_face(tracker: MediaPipeFaceTracker, image: np.ndarray) -> dict[str, flo
     m["mouth_x"], m["mouth_y"] = float(a["mouth"][0]), float(a["mouth"][1])
     m["chin_y"] = float(a["chin"][1])
     m["eye_y"] = float(a["eye"][1])
+    # Day 17 (the blink): the upper brow points' and the mouth corners'
+    # height above the nose tip, frame px -- what blink_probe.py reads.
+    nose_y = float(pts[_NOSE_TIP, 1])
+    m["brow_up"] = nose_y - float(pts[list(_BROWS_UPPER), 1].mean())
+    m["corner_up"] = nose_y - float(pts[list(_MOUTH_CORNERS), 1].mean())
     return m
 
 
@@ -125,6 +133,7 @@ def row_of(name: str, m: dict[str, float] | None, his: dict[str, float] | None) 
     line = (
         f"  {name:<28} mar {m['mar']:.3f}  open {m['opening']:.3f}  width {m['mouth_w']:.3f}  "
         f"ear {m['ear']:.3f}  brow {m['brow']:.3f}  lips {m['lip_upper']:.3f}/{m['lip_lower']:.3f}"
+        f"  brow_up {m['brow_up']:.1f}  corner_up {m['corner_up']:.1f}"
     )
     if his is not None and his is not m:
         mar_ratio = m["mar"] / max(his["mar"], 1e-3)
@@ -245,6 +254,8 @@ def main() -> int:
                     else " (NO anchor: portrait rest)"
                 )
             print(row_of(label, read_face(reader, composite), his))
+            timings = ", ".join(f"{k} {v:.1f}" for k, v in sorted(engine.last_timings.items()))
+            print(f"    last frame, ms: {timings}")
             if args.stills:
                 tag = "" if sweep_key is None else f"-{sweep_key}{value}"
                 prefix = args.out_prefix.parent / f"{args.out_prefix.name}-{args.capture.name}{tag}"

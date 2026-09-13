@@ -28,6 +28,9 @@ application.
 | Artifact | Fetch with | Licence |
 |---|---|---|
 | `downloads/face_landmarker.task` | `python scripts/fetch_face_landmarker.py` | Apache-2.0 |
+| `downloads/selfie_multiclass_256x256.tflite` | `python scripts/fetch_selfie_segmenter.py` | Apache-2.0 |
 
 `scripts/fetch_face_landmarker.py --verify` re-checks the local file against the
-recorded checksum.
+recorded checksum; the same for `scripts/fetch_selfie_segmenter.py --verify`. The
+segmenter is the avatar's hair (Menu → Avatar's hair, day 17); without it the
+switch stays off.
