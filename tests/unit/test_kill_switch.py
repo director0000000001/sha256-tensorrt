@@ -145,3 +145,36 @@ class TestSwitch:
         switch.stop()
         assert [s.allowed for s in heard[:3]] == [True, False, True]
         assert switch.state.allowed
+
+
+class TestRequestCheck:
+    """Day 17: every Start asks the switch again, without waiting for the
+    interval; nothing without a URL or a thread."""
+
+    def test_a_request_wakes_the_thread_before_the_interval(self):
+        heard: list[KillSwitchState] = []
+        switch = KillSwitch(
+            "http://example.invalid/switch",
+            interval_seconds=60.0,
+            on_state=heard.append,
+            fetch=lambda url: KillSwitchState(True, "", "on"),
+        )
+        switch.start()
+        deadline = time.monotonic() + 3.0
+        while len(heard) < 1 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert len(heard) == 1
+        switch.request_check()
+        deadline = time.monotonic() + 3.0
+        while len(heard) < 2 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        switch.stop()
+        assert len(heard) >= 2
+
+    def test_no_url_or_no_thread_ignores_the_request(self):
+        switch = KillSwitch("", on_state=None)
+        switch.request_check()
+        assert not switch._nudge.is_set()
+        idle = KillSwitch("http://example.invalid/switch")
+        idle.request_check()  # never started
+        assert not idle._nudge.is_set()

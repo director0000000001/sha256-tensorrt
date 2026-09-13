@@ -55,7 +55,12 @@ from PySide6.QtWidgets import (
 )
 
 from sha256.app.owner import OWNER_FILENAME, OwnerAccess
-from sha256.avatar.importer import AvatarImportError, import_portrait, neural_template
+from sha256.avatar.importer import (
+    AvatarImportError,
+    import_portrait,
+    neural_template,
+    remove_avatar,
+)
 from sha256.calibration import STEPS, CalibrationSession, DriverProfile, roster
 from sha256.calibration.measure import calibrate, describe
 from sha256.calibration.script import total_seconds
@@ -602,6 +607,16 @@ class MainWindow(QMainWindow):
         self._add_avatar_action.setVisible(False)
         menu.addAction(self._add_avatar_action)
 
+        # Day 17, his ask: the owner can remove an avatar too -- the one
+        # chosen in the bar, after a question, with the pipeline stopped.
+        self._delete_avatar_action = QAction("Delete avatar", menu)
+        self._delete_avatar_action.setToolTip(
+            "Remove the avatar chosen in the bar from this computer, for good."
+        )
+        self._delete_avatar_action.triggered.connect(self._on_delete_avatar)
+        self._delete_avatar_action.setVisible(False)
+        menu.addAction(self._delete_avatar_action)
+
         menu.addSeparator()
 
         # Day 16 night, his ask: the whole of it in text, inside the app --
@@ -770,6 +785,7 @@ class MainWindow(QMainWindow):
     def _refresh_owner_state(self) -> None:
         unlocked = self._owner.is_unlocked
         self._add_avatar_action.setVisible(unlocked)
+        self._delete_avatar_action.setVisible(unlocked)
         self._login_action.setText("Owner" if unlocked else "Login")
         self._login_action.setEnabled(not unlocked)
 
@@ -865,6 +881,49 @@ class MainWindow(QMainWindow):
             "Add avatar",
             f"{descriptor.manifest.name} added as {descriptor.root}\n\n{report.describe()}",
         )
+
+    def _on_delete_avatar(self) -> None:
+        """The avatar chosen in the bar removed from this computer (day 17,
+        his ask): the owner only, the pipeline stopped, one question first;
+        the manager lets it go, the library is re-read, the bar refilled."""
+        if not self._owner.is_unlocked:
+            return
+        avatar_id = self._avatar_combo.currentData()
+        if avatar_id is None:
+            QMessageBox.information(self, "Delete avatar", "Choose the avatar in the bar first.")
+            return
+        if self._runner.is_running:
+            QMessageBox.information(self, "Delete avatar", "Stop first, then delete.")
+            return
+        manager = self._context.avatars
+        name = next(
+            (s.name for s in manager.statuses() if s.avatar_id == avatar_id), str(avatar_id)
+        )
+        answer = QMessageBox.question(
+            self,
+            "Delete avatar",
+            f"Remove {name} from this computer?\n\nIts photograph, settings and profile go "
+            "with it, and this cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            manager.unload(avatar_id)
+            removed = remove_avatar(self._context.paths.avatars, avatar_id)
+        except (AvatarImportError, Sha256Error) as exc:
+            _LOG.warning("Avatar not removed: %s", exc)
+            QMessageBox.warning(self, "Delete avatar", str(exc))
+            return
+        except Exception as exc:
+            _LOG.exception("Avatar removal failed")
+            QMessageBox.critical(self, "Delete avatar", f"The avatar could not be removed: {exc}")
+            return
+        manager.refresh()
+        self._populate_avatars()
+        self._refresh_status()
+        QMessageBox.information(self, "Delete avatar", f"{name} removed ({removed}).")
 
     # --- Calibrate me (day 16) ---------------------------------------------
 
@@ -1287,6 +1346,11 @@ class MainWindow(QMainWindow):
         self._stack.setCurrentIndex(1)
         self._refresh_publish_state()
         self._refresh_status()
+        # Day 17, his ask ("we must be able to turn it off at any moment"):
+        # every Start asks the switch again, on its own thread.
+        switch = self._context.kill_switch
+        if switch is not None and switch.configured:
+            switch.request_check()
 
     def _on_stop(self) -> None:
         self._preview_timer.stop()

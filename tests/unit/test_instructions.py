@@ -28,6 +28,7 @@ CONTROLS = (
     "Stop calibrating",
     "Login",
     "Add avatar",
+    "Delete avatar",
     "Instructions",
 )
 

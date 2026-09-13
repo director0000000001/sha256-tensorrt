@@ -110,6 +110,9 @@ class KillSwitch:
         self._on_state = on_state
         self._fetch = fetch or (lambda u: read_switch(u, timeout=self._timeout))
         self._stop = threading.Event()
+        # Day 17: a check asked for now (every Start presses it), without
+        # waiting for the interval -- the thread wakes on this.
+        self._nudge = threading.Event()
         self._thread: threading.Thread | None = None
         self._state = KillSwitchState(True, "", "not checked")
 
@@ -143,12 +146,19 @@ class KillSwitch:
 
     def stop(self) -> None:
         self._stop.set()
+        self._nudge.set()
         thread, self._thread = self._thread, None
         if thread is not None:
             thread.join(timeout=2.0)
 
+    def request_check(self) -> None:
+        """Ask the background thread to check now rather than at the next
+        interval; nothing without a URL or a running thread."""
+        if self._url and self._thread is not None:
+            self._nudge.set()
+
     def _run(self) -> None:
         while not self._stop.is_set():
+            self._nudge.clear()
             self.check_now()
-            if self._stop.wait(self._interval):
-                break
+            self._nudge.wait(self._interval)

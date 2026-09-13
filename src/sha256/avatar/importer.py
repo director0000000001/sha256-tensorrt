@@ -66,6 +66,7 @@ from sha256.avatar.engine_liveportrait import (
     chin_room,
     crop_matrix,
 )
+from sha256.avatar.repository import MANIFEST_FILENAME
 from sha256.core.avatar import AvatarDescriptor, AvatarManifest
 from sha256.core.enums import PixelFormat
 from sha256.core.errors import Sha256Error
@@ -413,6 +414,42 @@ class PortraitProfile:
             "lips": self.lips,
             "mouth_ratio": round(self.mouth_ratio, 4),
         }
+
+
+def remove_avatar(library: Path, avatar_id: str) -> Path:
+    """The owner's delete, the counterpart of :func:`import_portrait` (day
+    17, his ask): the avatar's whole directory under ``library`` -- portrait,
+    manifest, profile -- removed for good. The repository stays read-only
+    (see ``AvatarRepository``); this is the gated path beside it. Refuses
+    an id that is not a plain directory name, a directory that is not
+    inside the library, or one without a manifest naming that id -- so
+    nothing but an avatar of this library can ever be removed. Returns the
+    directory that was removed."""
+    import shutil
+
+    if not avatar_id or avatar_id in (".", "..") or "/" in avatar_id or "\\" in avatar_id:
+        msg = f"not an avatar id: {avatar_id!r}"
+        raise AvatarImportError(msg)
+    root = library.resolve()
+    target = (root / avatar_id).resolve()
+    if target.parent != root or not target.is_dir():
+        msg = f"no avatar {avatar_id!r} in {library}"
+        raise AvatarImportError(msg)
+    manifest = target / MANIFEST_FILENAME
+    if not manifest.is_file():
+        msg = f"{target} has no {MANIFEST_FILENAME}; not removed"
+        raise AvatarImportError(msg)
+    try:
+        named = json.loads(manifest.read_text(encoding="utf-8")).get("id")
+    except (OSError, ValueError) as exc:
+        msg = f"{manifest} could not be read: {exc}"
+        raise AvatarImportError(msg) from exc
+    if named != avatar_id:
+        msg = f"{manifest} names {named!r}, not {avatar_id!r}; not removed"
+        raise AvatarImportError(msg)
+    shutil.rmtree(target)
+    _LOG.info("Avatar %s removed from %s", avatar_id, library)
+    return target
 
 
 def portrait_profile(

@@ -67,8 +67,9 @@ All of this page, and every button explained, is inside the app too:
 
 ## Adding an avatar (the owner only)
 
-**Menu → Login** takes the owner's passphrase; then **Add avatar** appears in
-the menu. A
+**Menu → Login** takes the owner's passphrase; then **Add avatar** and
+**Delete avatar** appear in the menu (Delete removes the avatar chosen in
+the bar from this computer, for good, after a question; stop first). A
 good photograph: one face looking straight at the camera, eyes open, lips
 closed or barely parted (a grin becomes the avatar's resting face), even
 light, no glasses, hair off the forehead, and room below the chin. The app

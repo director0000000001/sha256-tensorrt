@@ -102,7 +102,9 @@ def lay_out(avatars: list[str], switch_url: str | None) -> Path:
     # and the frozen application died on "Cannot declare ('engine',) twice").
     local = SHIPPED_OVERRIDES
     if switch_url:
-        local += f'\n[kill_switch]\nurl = "{switch_url}"\n'
+        # Day 17, his ask: the switch is read every five minutes (and at
+        # every Start), not hourly, so a stop lands within minutes.
+        local += f'\n[kill_switch]\nurl = "{switch_url}"\ncheck_hours = 0.0833\n'
     if avatars:
         local += f'\n[avatars]\ndefault_avatar_id = "{avatars[0]}"\n'
     (configs / "local.toml").write_text(local, encoding="utf-8")

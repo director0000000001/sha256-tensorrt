@@ -145,12 +145,17 @@ _THE_MENU = """\
                               choosing it cancels and deletes the
                               recording.
   Login / Owner               The owner's passphrase (set the first time,
-                              asked for after). Unlocks Add avatar.
+                              asked for after). Unlocks Add avatar and
+                              Delete avatar.
   Add avatar                  The owner only. Makes a new avatar from one
                               photograph: a window first tells what the
                               photograph must be, with prompts for an
                               image generator, then the file is chosen,
                               checked and added to the Avatar list.
+  Delete avatar               The owner only. Removes the avatar chosen
+                              in the bar from this computer, for good --
+                              its photograph, settings and profile. It
+                              asks first; stop the application before.
   Instructions                This text.
 """
 

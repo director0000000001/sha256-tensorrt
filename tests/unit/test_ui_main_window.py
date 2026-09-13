@@ -240,6 +240,54 @@ class TestOwnerAndAddAvatar:
         assert window._owner.is_configured and window._owner.is_unlocked
         assert window._login_action.text() == "Owner" and not window._login_action.isEnabled()
         assert window._add_avatar_action.isVisible()
+        assert window._delete_avatar_action.isVisible()  # day 17
+
+    def test_deleting_an_avatar_asks_removes_and_refills_the_bar(self, window, monkeypatch):
+        """Day 17, his ask: the owner removes the avatar chosen in the bar,
+        after a question, with the pipeline stopped."""
+        from sha256.ui import main_window as module
+
+        window._owner.set_passphrase("open sesame")
+        window._refresh_owner_state()
+        library = window._context.paths.avatars
+        index = window._avatar_combo.findData("avatar_001")
+        assert index >= 0
+        window._avatar_combo.setCurrentIndex(index)
+        assert (library / "avatar_001").is_dir()
+
+        asked: list[str] = []
+        monkeypatch.setattr(
+            module.QMessageBox,
+            "question",
+            lambda *a, **k: (asked.append(a[2]), module.QMessageBox.StandardButton.No)[1],
+        )
+        monkeypatch.setattr(module.QMessageBox, "information", lambda *a, **k: None)
+        window._on_delete_avatar()
+        assert (asked and "avatar_001" in asked[0]) or "Avatar" in asked[0]
+        assert (library / "avatar_001").is_dir()  # No leaves it
+
+        monkeypatch.setattr(
+            module.QMessageBox, "question", lambda *a, **k: module.QMessageBox.StandardButton.Yes
+        )
+        window._on_delete_avatar()
+        assert not (library / "avatar_001").exists()
+        assert window._avatar_combo.findData("avatar_001") < 0
+        assert window._context.avatars.active_id != "avatar_001"
+
+    def test_delete_is_the_owners_and_wants_an_avatar_chosen(self, window, monkeypatch):
+        from sha256.ui import main_window as module
+
+        library = window._context.paths.avatars
+        window._avatar_combo.setCurrentIndex(0)  # none
+        window._on_delete_avatar()  # locked: nothing happens
+        assert (library / "avatar_001").is_dir()
+        window._owner.set_passphrase("open sesame")
+        window._refresh_owner_state()
+        told: list[str] = []
+        monkeypatch.setattr(module.QMessageBox, "information", lambda *a, **k: told.append(a[2]))
+        window._on_delete_avatar()
+        assert told and "Choose" in told[0]
+        assert (library / "avatar_001").is_dir()
 
     def test_a_wrong_passphrase_unlocks_nothing(self, window, monkeypatch):
         from sha256.ui import main_window as module
@@ -391,6 +439,7 @@ class TestTheBarAndTheMenu:
             "Calibrate me",
             "Login",
             "Add avatar",
+            "Delete avatar",
             "Instructions",
         )
         assert not any(text in texts for text in moved)
