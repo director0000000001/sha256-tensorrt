@@ -52,6 +52,12 @@ All of this page, and every button explained, is inside the app too:
   window) blacks the camera with that text, as if the battery went. Press
   again to come back. The app does the same on its own when it loses your
   face for more than a moment.
+- **Menu → Avatar's hair**: the avatar's own hair drawn over your head, not
+  only its face. Off, your hair stays and the avatar's face is joined under it
+  at your hairline -- read from your face in the first second (look at the
+  camera), and from your calibration once you have one, so a shorter forehead
+  gets its join lower. Try it and look: it can look worse than off on some
+  pairs of faces, and your own hair past the avatar's edge stays yours.
 - **Menu → Quality**: 480p makes the picture look like an ordinary webcam and
   hides small defects; 360p looks like a poor line.
 - **Menu → That looked wrong**: choose it *during* anything that looks wrong. It

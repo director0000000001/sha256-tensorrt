@@ -5222,24 +5222,438 @@ New: the option's bounds, the width gate alone, a wide smile parting the
 lips half as much while talking at the resting width is unchanged.
 Uncommitted, on his word.
 
+## Day 17 (2026-09-13): the whole forehead, and the avatar's hair
+
+His word at the start of the day, after the brows-on-a-blink probe had
+begun: "last time we wanted the forehead filled fully and then the AI
+avatar's hair put on too; that was the task -- leave the brows and eyes
+alone." So: block C1, both halves, nothing else.
+
+### C1a, the whole forehead -- measured, then made the default
+
+**Where the join sat**, read off six captures (his face and baska's,
+`camera.png` against `seen.png` along the face's own vertical through
+the brow top; the forehead height is brow top to the mesh's top point):
+
+| capture | driver | forehead height | join above the brows | the hairline |
+|---|---|---|---|---|
+| 20260911-101434 | him | 47 px | 0.64 | (not found in 1.8) |
+| 20260911-105732 | him | 60 px | 0.77 | 1.65 |
+| 20260911-105750 | him | 59 px | 0.63 | 1.59 |
+| 20260912-194432 | baska | 57 px | 0.42 | 1.71 |
+| 20260912-200754 | baska | 84 px | 0.34 | 1.68 |
+| 20260912-224332 | him, woman_person | 55 px | 0.67 | 1.59 |
+
+At the 0.85 default the top third of his forehead and the top two
+thirds of hers stayed the driver's own skin -- on her, with the shine
+the avatar's matte skin does not have (the zooms:
+`recordings/day17/forehead-*.png`, her face and his; delete after).
+
+**Replayed** (`capture_replay --sweep mask_forehead_reach=0.85,hairline,1.6
+--stills`, the session's own anchor) on 105750, 200754 and 224332
+(`recordings/day17/forehead-row-*.png`): at "hairline" the whole
+forehead is the avatar's on all three, the join just under the hair;
+1.6 looks the same (the hairline reads 1.5-1.6 on every portrait, the
+mode lands within 0.08 of it). The mouth, eyes and brows read the same
+to the third decimal across the three values -- the reach touches
+nothing else.
+
+**Kept:** `mask_forehead_reach` defaults to `"hairline"` now
+(`_FOREHEAD_REACH_DEFAULT`), his avatar's and woman_person's metadata say
+so, and the importer writes `"hairline"` on every new avatar instead of
+a number (the engine reads the portrait's hairline itself at load with
+the same reader, and the driver's at the anchor). A plain `_Portrait`
+measures; a number never settles (test_engine_hairline updated).
+
+### C1b, the avatar's hair -- built as a switch
+
+**What it is.** The network draws the whole 512 crop, hair included;
+the face oval hid it. Now, with `hair = "avatar"` (or Menu -> Avatar's
+hair), every rendered crop is segmented by MediaPipe's multiclass selfie
+segmenter (`selfie_multiclass_256x256`, Apache-2.0, fetched by
+`scripts/fetch_selfie_segmenter.py`, recorded in
+`models/metadata/selfie_multiclass.json`; classes background / hair /
+body skin / face skin / clothes / accessories) and the hair class's
+confidence becomes an alpha the paste takes the maximum of with the face
+mask (`sha256/avatar/hair.py`; the engine's `_update_hair`, `_paste`).
+
+**Measured first (2026-09-13, this CPU, the two segmenters on the
+portrait crops and two camera crops):** the multiclass model 65 ms a
+frame (image mode; 170-180 with the replay job loading the CPU beside
+it), the hair-only `hair_segmenter` 34-38 ms. Both far past the frame.
+Quality: the multiclass matte is clean on his portrait's curls and on
+the woman's shoulder-length hair, with a separate face-skin class; the
+hair-only one smears 0.1-0.4 over his beard and sideburns. The
+multiclass one is used, on its own thread (`HairMatteWorker`): the frame
+path submits the latest render and takes whatever matte is newest -- one
+or two frames old at 30 fps, which hair does not show -- and an EMA
+(`_HAIR_INERTIA` 0.5) halves its flicker. The frame path pays the EMA,
+a maximum and a box (`hair_ms`), not the segmenter.
+
+**What shapes the alpha** (`hair_alpha`): the confidence curved between
+0.25 and 0.75 (the beard's "maybe" pastes nothing), a 5-px feather, and
+a fade to nothing over the last 24 px at each crop edge -- the woman's
+hair reaches the crop's bottom row (511) and his curls its row 109, and
+a hairstyle the crop cuts must end in a fade, not a line across the
+driver's picture. The paste's box is the face box grown to the hair's
+(`hair_box`, only ever grows, so the correction's field keeps one frame
+of reference); the colour match is still fitted on the face mask alone
+and its plane -- the room's light -- is what the hair takes too.
+
+**With the hair on, the forehead reach** is the portrait's own hairline
+plus 0.1 (`_HAIR_FOREHEAD_OVERLAP`), so the oval overlaps the matte and
+no strip of the driver's forehead shows between the two; the driver's
+hairline is not read (his hair is under the avatar's). Off again, the
+option's own reach comes back and a "hairline" reach is measured again.
+
+**The switch:** `LivePortraitEngine.set_hair(avatar_id, on)` -- live, no
+reload (the matte lives outside the graph), remembered per avatar
+across loads (`_hair_wanted`), the portrait crop's own matte as the
+first matte so the first frame already has hair. Menu -> Avatar's hair
+(after Mirror; a wish thrown before an avatar is active is applied when
+one is; an engine without hair, or the model missing, puts the switch
+back and says so). Explained in the Instructions and the guide. Off by
+default in every metadata: it is his eye's call, and the ROADMAP said
+from the start this is the one item that can look worse than what it
+replaces.
+
+**What it cannot do:** the driver's own hair past the avatar's edge
+stays the driver's (her long dark hair below the woman's brown; a
+bigger hairstyle than the portrait's); the portrait's hair past the
+crop fades out. Both are what a matte of the render can do, no more.
+
+**Replayed** (`capture_replay --sweep hair=off,avatar --stills`, then
+`--option hair=avatar` on the build below; `recordings/day17/head-row-*`
+and `head-row2-*.png`, his face and hers, delete after his look). On his
+105750 the red curls sit over his head, larger than his own hair, and
+his hair shows only at the temples under the avatar's hairline; on
+224332 (him driving woman_person) her shoulder-length hair over his head
+reads as a head, his own dark hair at the parting and the temples; on
+baska's 200754 the curls sit ON her long dark hair, which continues down
+both sides -- a wig, as the ROADMAP's own warning said, and her own
+avatar is the answer there, not the switch. Mouth, eyes and brows read
+the same with the hair on and off (within the tracker's noise on a
+closed mouth). The frame path: `hair_ms` 0.1; the paste 9.5 -> 17.9 ms
+on his (the box grown to the curls), 17.1 -> 23.4 on hers, 9.1 -> 20.9
+on the woman's -- the segmenter itself never on the frame path.
+
+**Two things the first replay showed, one kept, one not.** A pale rim
+around the curls: the render's own pixels at the hair's edge are hair
+mixed with the portrait's background (white on his, grey on the
+woman's), and a soft alpha over the mix pastes the mix -- so the curved
+alpha is eroded 3 px before the feather (`_ERODE_PX`), inside where the
+render is hair; kept. His own hair between the avatar's hairline and the
+face oval at the temples and the parting: the render's face-skin class
+was let into the paste above the eyes (`skin_weight`, `head_confidence`)
+to cover it -- and the avatar's paler temple skin came out as a patch
+over his hair beside the hairline, plainly worse than the hair showing
+(`head-row2-*.png`, the right tile). Off: the `hair_skin` option (default
+False) keeps it as a lever to measure against.
+
+**Tests:** tests/unit/test_engine_hair.py (the option, the alpha's curve
+/ erosion / feather / border, the skin weight and the head confidence,
+the boxes, the worker thread with a gated fake segmenter, the paste
+under a matte reaching past the face box and byte-identical outside the
+union, the engine's switch and the skin lever on the CPU fixture). The
+whole suite passes (1280 + 2 skipped); ruff and mypy clean on the new
+code. Uncommitted, his word.
+
+### Day 17, his first look (2026-09-14 01:16-01:18, three captures): the band of his own hair, and a hairline the engine never read
+
+He pressed "That looked wrong" three times with woman_person and the
+hair on, head down at the 13-15 degrees he sits at (the camera above the
+screen), and asked for three things: what is wrong in the pictures; "a
+bit more" of the forehead covered; and that a person with a SMALLER
+forehead than his gets the join lower -- "Calibrate will fix that,
+right?"
+
+**What the pictures showed** (`recordings/day17/look-forehead-*.png`,
+`look-head-*.png`; his face, delete after): between the avatar's
+forehead and the woman's hair, a band of HIS black hair. The face oval
+is the portrait's oval AND his -- and his oval stops at HIS hairline
+(reach x his forehead), which is lower than the woman's; above it
+nothing was pasted until the hair matte began. And at the temples his
+hair under the woman's, the limit stated the day before.
+
+**What the log showed:** `forehead reach settled at 1.60 (portrait
+hairline ?, his ?)` -- and for his own avatar `(portrait hairline 1.52,
+his ?)`. His hairline was never read live. The reader walked 1.8
+foreheads up and stopped: head down, his forehead foreshortens along the
+face's vertical and the hairline reads 1.78-1.84 of it (the six
+captures, offline, with the walk let go to 3.0; 1.59-1.68 on the frontal
+ones); the woman's portrait reads 2.06 (her brow sits low). So on every
+live frame the driver read "no hair" and the pair's reach was the
+portrait's alone less the clearance: 1.44 on his avatar, the ceiling 1.6
+on hers. The frontal gate (|pitch| 12) also refused most of his frames.
+
+**Built:**
+
+- The walk goes to 3.0 foreheads (`_HAIRLINE_SEARCH`), the frontal gate
+  takes |pitch| 20 (`_HAIRLINE_FRONTAL`), the settle wants 15 frontal
+  frames (`_HAIRLINE_MIN_SAMPLES`), and the option's bound is 3.0
+  (`_FOREHEAD_REACH_MAX`; the "nothing read" reach stays 1.6,
+  `_HAIRLINE_CEILING`). His hairline now reads on every capture.
+- `hairline_clearance` (portrait option, default 0.04, was the constant
+  0.08): the join sits that much under the lower hairline -- his "a bit
+  more". On his avatar 1.44 -> 1.48 of his forehead, before his own
+  hairline is even counted.
+- **A smaller forehead.** Two ways, both automatic: live, the engine
+  reads the driver's hairline in the first frontal second and takes the
+  lower of the two (that was always the design; it had never worked --
+  see above); and **Calibrate me now measures it** over the still step
+  (`frame_readings["hairline"]`, one frontal frame in six once settled;
+  the median over the still frames -> `driver_hairline` in the profile,
+  a driver key) and the engine settles from the profile's word at the
+  first frame of every session, no live frames needed. So the answer
+  to "Calibrate will fix that?" is yes -- and even without a
+  calibration, Start does it.
+- **With the hair on, no band:** the avatar's own hairline is read off
+  its hair matte (`_matte_hairline`: up from the brow top at three
+  columns, the first row where the hair confidence passes 0.5), the
+  portrait's oval reaches that plus 0.1, and HIS oval is let up to the
+  bound (`_frame_mask(driver_forehead_reach=3.0)`) -- his hairline no
+  longer bounds the join when his hair is under the avatar's.
+
+**Proven by replay** (`recordings/day17/look2-*`, `clear-*`, `small-*`;
+his face, delete after): on all three of his captures the band is gone
+-- the woman's forehead runs up into her hair (`look2-forehead-*`,
+`look2-head-*`, "seen" against "now"); his own hair still shows at the
+temples beside her hair, the limit of a matte. On 105750 (his avatar,
+hair off) the clearance 0.08 -> 0.04 moves the join up by a few pixels
+(`clear-forehead-*`), and `driver_hairline=1.2` -- a person whose hair
+starts a fifth of a forehead lower than the mesh's top -- puts the join
+there, with the skin above it their own (`small-forehead-*`). Mouth,
+eyes and brows read the same on every run. Tests: 1289 + 2 skipped
+(test_engine_hairline 16, test_calibration_measure +3).
+
+**What he will see live:** Start, look at the camera for a second: the
+log says `forehead reach settled at ... (portrait hairline 1.52, his
+1.6x from 15 live frames, clearance 0.04)`. Calibrate me writes
+`driver_hairline`; from then on the reach settles from it at the first
+frame. Menu -> Avatar's hair: the woman's forehead meets her hair; his
+own hair at the temples is what it was.
+
+### Day 17, his second ask (2026-09-14 01:48): "head down and looking to the side, the face must not get lost" -- the hold replaced by a cap
+
+His four captures (014756-014839, my_avatar_neural) were pressed once
+he was back at the camera: every press frame is frontal (yaw within 3,
+pitch -8..-12), the turns and the tilt are in the tracking only (yaw to
++39 / -24, pitch to -27 in the three seconds before). So the movement
+itself was read off his recorded clips through a new probe
+(`scripts/probes/turn_probe.py`: a segment through the app's own tracker
+and engine with the profile laid over, stills at the first crossing of
+each angle and at the farthest turn / deepest tilt, `camera | output`
+head crops with the pose and the hold state written on, and an mp4 of
+the segment; `--sweep` as capture_replay's).
+
+**What happens today (steep_pose = "hold", day 8):** past 20 degrees of
+pitch or 35 of yaw from the anchor's rest the network is skipped and the
+last rendered face is frozen -- it still follows him and is masked at his
+position, but its expression stops. On natural.mkv's tilt step (417-712,
+"tilt your head slightly down, three times") that is **165 of 296 frames
+frozen**: at pitch -25 and -30 the avatar keeps the half-shut, downcast
+eyes of the frame the hold began on, and at -33, where he looks UP at the
+camera from under his brows, the avatar's eyes are still down
+(`recordings/day17/tilt-natural-steep_posehold-sheet.png`, his face,
+delete after). That is the "lost" he sees: not the tracking, the freeze.
+
+**Built: `steep_pose = "clamp"`.** The network draws every frame; what is
+capped is the turn applied to the portrait -- the relative pitch/yaw
+against the anchor's own pose, clamped to `hold_pitch_degrees` /
+`hold_yaw_degrees` inside `_drive` (a static `pose_limit` tensor, so the
+graph carries it) -- and the expression goes on: mouth, eyes, brows. The
+EMA state keeps the real reading. On the same tilt step, 0 frames held:
+at -25 the avatar's eyes are half-shut and down like his, at -33 they are
+open and on the camera like his
+(`tilt-natural-steep_poseclamp-sheet.png`). The head is drawn at the cap
+while his goes further; the paste's oval is his, so the face still sits
+on his head. On the calibration clip's turn step (735-831, only to yaw
++37 / -19) hold and clamp look the same at +37 -- one held frame's worth
+of difference.
+
+**The deeper turns** (driving.mkv 1342-1641, to yaw +38 / -48;
+`drive-*`, `drivecap-*`): under the hold the -48 frame is the face
+frozen at -35 with the eyes where they were when the hold began; under
+the clamp with the expression left on it is worse in another way -- a
+wall-eyed gaze (the tracker's iris at a near profile) and a smeared
+mouth corner (the extractor's expression with half the face hidden).
+The cap itself is not the problem: at caps of 45 and 55 the network
+draws his -48 turn plausibly. So **two more things:** the yaw cap is 45
+(`_DEFAULT_HOLD_YAW`, was 35) and the pitch cap 30 (`_DEFAULT_HOLD_PITCH`,
+was 20; his -30 and -33 tilts drawn cleanly at 30, `tiltcap-*`), and past
+the yaw cap the expression **fades to rest over 15 degrees**
+(`_steep_fade`, `_STEEP_FADE_DEGREES`: the mouth and brow gates and the
+brow lift scaled; the blink stays, the near eye reads; the drive's own
+states go on), and **the gaze fades earlier, from 30 to 45 degrees**
+(`_gaze_yaw_fade`, `_GAZE_YAW_FADE`): the iris is read against the eye
+corners, and past 30 degrees the far eye's corners crowd together and the
+reading over-shoots -- with the gaze faded only from the cap, the -48
+frame was still wall-eyed (`final-driving-sheet.png`). At a full profile
+the face is the head drawn at 45 with a calm face on his outline; when
+the tracker loses him the black screen takes over as before.
+
+**Kept as the default:** `steep_pose = "clamp"` (`_DEFAULT_STEEP_POSE`);
+"hold" stays as the option and as what its own tests set (their
+thresholds pinned at the day-8 20/35). Tests: tests/unit/test_engine_steep.py
+(the option, the fade, never held, the cap in `_drive` against the
+warping net's keypoints -- cos 58.5 becomes cos 35, the reading kept,
+inside the cap bit-identical, relative to the anchor's yaw); the whole
+suite 1296 + 2 skipped.
+
+### Day 17, his third ask (2026-09-14 02:41): the blink -- "the eye shuts beautifully, only the lip must not move and the brow must not come down a little"
+
+Three captures again pressed once back at rest (all three frontal,
+eyes open at the press), so the blink was read off his calibration
+clip's blink and eyes-shut steps (frames 153-269 of
+calibration-20260912-004157) through a new probe
+(`scripts/probes/blink_probe.py`: the segment through tracker, engine and
+profile; on every frame his readings and the avatar's off the composite
+-- the eye ratio, the upper brow points' height above the nose tip, the
+mouth corners' height, the width, the opening -- and the engine's gates;
+the shut frames (his ratio under 0.7 of rest) against the open (over
+0.9), per `--sweep` value; a still of the deepest shut frame).
+
+**Measured (18 shut frames, 94 open):**
+
+| run | brows (avatar / his) | mouth corners (avatar / his) | gates on the shut frames |
+|---|---|---|---|
+| eye network on (eye_gain 1.4) | **-4.2 px** / +0.0 | **+1.4 px** / +0.4 | mouth 0.00, opening 0.00, brow 0.00 |
+| eye network off (eye_gain 0) | -0.4 / +0.0 | +0.2 / +0.4 | all 0.00 |
+| expression off (expression_gain 0) | -2.7 / +0.0 | +1.7 / +0.4 | all 0.00 |
+
+The whole of it is the eye retargeting network: its delta on
+EYE_KEYPOINTS, confined there since day 8, still pulls the warp's
+neighbourhood when the lids shut -- the brows down, the mouth corners
+up. The extractor's expression plays no part (off, nothing changes) and
+every gate reads 0.00 on the shut frames, so neither the brow drive nor
+the mouth gates are the mechanism (what the saved calibration samples had
+already said on day 16's list: `gate_brow` 0 on every shut frame).
+
+**Built: `blink_brow_hold`** (and `blink_mouth_hold`, a lever left at 0):
+in the rows the brow drive already writes each frame (`brow_delta`),
+keypoint 2's y is lifted by the option's units per unit of blink depth
+(`_blink_depth`: his eye ratio's shortfall from the anchor's rest, 0
+open, ~0.6 shut) -- the same channel a raise uses, the opposite way, so
+the network's own pull is met where it starts. Nothing else touched: the
+lids close exactly as before (the eye network's own delta is not
+scaled), the gates, the drive and the anchor are as they were, and with
+the option at 0 every frame is bit-identical. Swept on the same frames:
+0.01 -> brows -1.1 px, corners +0.3 (his +0.4); 0.02 -> +1.1 / -0.6;
+0.03 -> +3.8 / -1.2 -- keypoint 2 moves the corners a little with the
+brows (day 9's nudge table said so), so the one lever settles both, and
+the mouth lever is not needed. The smile axis itself (`_MOUTH_SMILE`,
+keypoint 14's y) was swept too for the record: -0.02 -> corners -3.1 px,
++0.02 -> +7.8 px.
+
+**Verified at the live configuration** (the profile laid over the
+metadata as the app does it -- the first sweeps had let the avatar's own
+driver keys over the profile, fixed in the probe; the eyes then shut
+deeper, avatar ratio 0.125 against 0.20, and the pull is larger):
+
+| `blink_brow_hold` | his avatar: brows / corners | woman_person: brows / corners |
+|---|---|---|
+| 0 | -4.0 px / +1.4 | -3.1 / +1.9 |
+| 0.012 | -1.7 / +0.6 | |
+| 0.013 | | -0.2 / +1.0 |
+| 0.015 | -1.2 / +0.3 | |
+| 0.018 | -0.5 / +0.3 | |
+| 0.02 | **+0.3 / +0.1** | |
+
+(his own on the same frames: brows +0.0, corners +0.4.) 0.02 was kept
+first -- and **his second look said "now the brows go UP when I blink,
+and the lips still smile a little"**. The medians over the shut frames
+had hidden the blink's own fast phases; measured by depth (his ratio
+over rest, bins from open to shut; the probe's `by depth` line):
+
+| depth bin | pull, hold 0: brows / corners | linear 0.02: brows / corners |
+|---|---|---|
+| 0.7-0.9 (a fifth shut) | -1.7 / +0.4 | -0.9 / -0.5 |
+| 0.5-0.7 | -3.1 / +1.0 | -0.6 / -0.4 |
+| 0.3-0.5 | -4.1 / +1.4 | +0.1 / -0.2 |
+| under 0.3 (shut) | -4.8 / +2.0 | +0.7 / +0.8 |
+
+The pull is steep at first and flattens; a linear counter set for the
+shut frames under-counters the fast phases and over-counters the shut
+ones -- the brows up at the bottom of every blink, exactly his words --
+and keypoint 2's pull on the corners saturates early, so the shut end
+keeps its smile. **So the counters have a shape** (`_blink_brow_curve`
+d(2 - d): 0.36 / 0.64 / 0.84 / 0.98 at those depths; `_blink_mouth_curve`
+0 to half shut, whole at 0.85) and the mouth lever is used, -0.002 (a
+negative value lowers the corners):
+
+| depth bin | brow 0.015 shaped, mouth 0 | brow 0.015, mouth -0.002 |
+|---|---|---|
+| 0.7-0.9 | -0.6 / -0.8 | -0.7 / -0.8 |
+| 0.5-0.7 | -0.1 / -0.6 | -0.0 / -0.5 |
+| 0.3-0.5 | +0.4 / -0.1 | +0.4 / -0.5 |
+| under 0.3 | +0.1 / +0.9 | +0.1 / +0.2 |
+
+Everything within a pixel at every depth, the shut frames within 0.2.
+**Kept:** his avatar's metadata `blink_brow_hold` 0.015 and
+`blink_mouth_hold` -0.002, the code defaults the same. The lids shut as
+before (the shut ratio 0.125 -> 0.09 with the lift, deeper if anything).
+
+**woman_person, the same frames (him driving it):** its pull is weaker
+(brows -3.1 px at the median, corners +1.9), and his 0.015 over-shot
+it (+0.8 / +1.4 / +1.9 / +1.7 by depth). At `blink_brow_hold` 0.01 and
+`blink_mouth_hold` -0.004: brows +0.1 / -0.2 / -0.0 / +0.3, corners
+-0.5 / -0.0 / -0.1 / +0.4 -- its metadata says so. The number is the
+portrait's (how the network's lid delta reaches that face), so a new
+avatar starts from his and wants the probe run once
+(`blink_probe.py --avatar <id>`); Calibrate me does not measure it yet.
+**His third look (03:16, capture 031607, pressed a third of the way
+into a blink -- his ratio 0.69 of rest):** "look at shut and open eyes,
+tell me the error, then fix". On that frame the counters lift the
+brows 1.3 px and lower the corners 1.4 px against the same frame with
+them off (`capture_replay --sweep blink_brow_hold=0,0.015`; what he saw
+matches the counters-on replay within 0.5 px). The error against the
+open face, from the session by depth **with his own movement beside**
+(the probe prints it now): brows -0.7 / -0.0 / +0.3 / +0.1 px (his
+0.0 at every depth); corners -0.7 / -0.5 / -0.4 / +0.3 -- **his own
+corners rise +0.3 at every depth** (his mouth eases as the lids shut),
+so the avatar's sat 0.7-1.0 px under his through the fast phases: the
+brow lever's own pull on the corners, largest where the lids only start
+to shut. **`blink_mouth_lift`** (the third and last lever): the smile
+axis lifted by a bump that is 0 open, largest around a third shut and
+gone at 0.85 (`_blink_lift_curve`). Swept: 0.01 -> corners +0.2 / +0.7
+/ +0.3 / +0.3 against his +0.3, brows -0.3 / +0.3 / +0.3 / 0.0; 0.015
+over (+0.9 / +1.1 / +0.9 / +0.4). **Kept 0.01** in his metadata and
+as the default: brows within 0.3 px and corners within 0.4 px of his
+own at every depth of a blink. woman_person's lift measured on its own:
+0.007 (corners +0.1 / +0.8 / +0.4 / +0.4 against his +0.3, brows
+within 0.3; 0.01 over) -- its metadata says 0.01 / -0.004 / 0.007.
+Stills: recordings/day17/blink-before-shut.png,
+blink-after-shut.png, blinkw-after-shut.png (his face; delete after).
+Tests tests/unit/test_engine_blink.py; the whole suite passes.
+Uncommitted, his word.
+
+**His side-look captures (024140, 024155):** pressed once back at the
+camera again (yaw -2 / -3 at the press), so what he saw there is
+unseen; the tracking says 024140 turned to +29 only and 024155 to +46 /
+-50 with 79 frames past the 45 cap. He says "not much better"; what
+that is needs a press IN the pose, or his words.
+
 ## What is left, in his order (written 2026-09-12 night, after the push)
 
 Everything above is on origin/main at c5eda18. What he wants next, in
 the order he gave it, then what the code side sees.
 
-### 1. Tomorrow: the whole forehead filled, and the hair (block C1, again)
+### 1. Tomorrow: the whole forehead filled, and the hair (block C1, again) -- DONE day 17
 
-What exists: `mask_forehead_reach` up to 1.6 and the "hairline" mode
-(the portrait's hairline at load, the driver's on frontal frames, the
-lower of the two), measured on four captures with no gain on the
-forehead band -- default left at 0.85. What was never built: the hair
-switch (C1b): the avatar's own hair drawn over the driver's, or the
-driver's hair kept and the forehead joined under it. Start by measuring
-on his and on baska's captures where the forehead join sits and what is
-above it (his short hair, her long hair parted in the middle); the answer
-may differ per driver.
+Built: "hairline" is the forehead's default and the avatar's hair is a
+switch (see "Day 17" above). What is left of it is his look, live, and
+the two limits stated there.
 
-### 2. The brows dip on a blink (his report, 2026-09-12 night)
+### 2. The brows dip on a blink (his report, 2026-09-12 night) -- DONE day 17
+
+Measured and countered (see "Day 17, his third ask" above): the eye
+network's own pull, three levers per portrait, within half a pixel of
+his own movement at every depth. Also done on day 17, beyond the list:
+the steep poses (the clamp in place of the hold). Added to the list by
+his question of 03:40: **a hand in front of the face** -- a hand matte
+(MediaPipe's hand model on a thread), the paste cut under the hand,
+the covered parts of the face and the pose held; 2-3 days, after the
+calls. What the report said:
 
 "When I blink or just close my eyes the brows go down too, and come
 back up when I open them -- not easy to notice, but not natural." Two
