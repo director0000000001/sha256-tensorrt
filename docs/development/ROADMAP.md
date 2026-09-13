@@ -5633,6 +5633,51 @@ unseen; the tracking says 024140 turned to +29 only and 024155 to +46 /
 -50 with 79 frames past the 45 cap. He says "not much better"; what
 that is needs a press IN the pose, or his words.
 
+### Day 17, the version and the package (2026-09-14 03:45-04:10)
+
+His word: "this detail of the project is good now, this version" --
+committed and pushed (19a3b75 / 8c402fb / 77ce772). Then three asks
+answered and two of them built:
+
+- **"How do we upload the application?"** `scripts/build_exe.py --avatar
+  my_avatar_neural --avatar woman_person --zip` rebuilt the portable
+  folder with today's code and the segmenter model beside the landmarker:
+  `dist/sha256-portable/` and `dist/sha256-portable.zip`, **3.8 GB
+  zipped** (5.3 GB unpacked; the CUDA runtime is most of it). The zip
+  goes on his download site, a drive or a USB stick; the user unpacks
+  it, runs `sha256.exe` past SmartScreen's "More info -> Run anyway"
+  (unsigned by choice, see the delivery context) and installs OBS Studio
+  once. Two of his decisions stay open: the switch URL (`--switch-url`)
+  and which avatars ship (his two, today).
+- **"We must be able to turn it off at any moment, for them too."** The
+  courtesy switch is what there is (D1, the 2026-08-15 decision: no
+  licence server). It stops every copy that carries the same URL, within
+  the check interval. Made quicker: `KillSwitch.request_check` wakes the
+  thread and **every Start asks it**, and the shipped `local.toml` sets
+  `check_hours` to five minutes beside the URL. What it cannot do, said
+  to him plainly: a user who edits `configs/local.toml` (the URL is
+  there) or blocks the host is allowed -- it fails open, so a call
+  without internet still works. If he wants more: the URL baked into the
+  executable (a config edit no longer removes it), per-copy ids in the
+  file (one person switched off, the rest not), or a fail-closed grace
+  (a copy that has not read the file for N days stops) -- each a small
+  piece, each his decision, none built.
+- **"Will a database be needed for adding avatars? We must be able to
+  delete them too."** No database: an avatar is a folder under
+  `avatars/` (the portrait, `metadata.json`, the profile), the library is
+  the folder listing, Add avatar writes one. **Delete avatar built:**
+  `remove_avatar` in the importer (the gated counterpart of the import;
+  the repository stays read-only -- only a directory under the library
+  whose manifest names that id is removed), Menu -> Delete avatar behind
+  the owner's login, the avatar chosen in the bar, one question, the
+  pipeline stopped first; the manager lets it go and the bar is refilled.
+  Tests: tests/unit/test_avatar_remove.py, the window's delete flow, the
+  switch's request; the instructions and the guide name it.
+
+**Google Meet:** the OBS Virtual Camera device is registered on this
+machine (B004 re-run: 1.4 ms a frame to send); the steps are in the
+Instructions (gear -> Video -> Camera -> OBS Virtual Camera). His test.
+
 ## What is left, in his order (written 2026-09-12 night, after the push)
 
 Everything above is on origin/main at c5eda18. What he wants next, in
