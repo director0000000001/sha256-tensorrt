@@ -5678,6 +5678,656 @@ answered and two of them built:
 machine (B004 re-run: 1.4 ms a frame to send); the steps are in the
 Instructions (gear -> Video -> Camera -> OBS Virtual Camera). His test.
 
+## Day 19 (2026-09-17): "the face is lost when the head turns" -- the plan, and its first two steps built
+
+The client's one complaint on day 18's version, and his order of 2026-09-17:
+a plan that certainly holds a turn of 30, better 40 degrees, **and nothing
+of what the face, the eyes, the brows and the mouth do today may break.**
+Day 18's turn views (a second photograph per direction) were reverted in
+full on his word before this; what they measured is kept in the notes
+and is not repeated here.
+
+**The plan, in the order the steps are worth:**
+
+0. *Measure* -- his 39-second turn clip (`--script turn`, restored to the
+   recorder: slow full turns each way, held profiles, quick glances, a
+   half turn held), read by `turn_probe` (which now prints where the
+   tracker let go and where it found the face again) and by the new
+   `redetect_probe`.
+1. *A loss while turned never blacks the call* -- the conditioner holds
+   the last frame that went out.
+2. *The tracker's reach* -- a second look in a crop where the video
+   landmarker finds nothing.
+3. *The picture at 30-45* -- the stills from his clip decide; the front
+   portrait's own render (the cap is 45 since day 17) first, the turned
+   photographs only if the front smears at 40, and then by day 18's rules
+   (a switch only past 30 with a minimum time between switches, each
+   view's offset and scale measured and compensated, the mask following
+   the drawn face).
+4. His live look.
+
+Steps 1 and 2 are built and measured; step 0 waits on his clip; step 3
+waits on what the clip shows. Everything built lives off the drive path:
+the recorder, the probes, the output conditioner, the tracker on frames
+where **no** face was found, the status line and the instructions. On
+every frame the tracker finds a face, its output and the engine's are the
+same bytes as at b5397e7 (the tracker's second landmarker is never
+consulted there; the conditioner passes a face frame through as before).
+
+### Step 1: a face lost while turned away holds the last frame (built, tested)
+
+What happened on his live look of 2026-09-15: the tracker lost his face
+for 143 of 300 frames and the black screen ("Camera battery died") took
+the call for 22 seconds. The loss was not a tracker fault on a face in
+front of the camera; the head was past what a webcam tracker reads. On a
+call that is a look at someone in the room.
+
+`OutputConditioner.condition(turned_away=)`: the controller keeps the
+head's turn (the larger of |yaw| and |pitch|) off the last frame with a
+face; a loss that begins past `TURNED_AWAY_DEGREES` (25) is a turned-away
+loss, decided on the loss's first frame and kept for its length. For such
+a loss the conditioner returns **the last frame that went out with a
+face** -- a copy, in one refilled buffer, because the engine's frame is
+the camera's buffer with the face pasted on and the capture backend may
+reuse it -- for `lost_face_seconds_turned` (**8 s**, schema, default.toml,
+bootstrap) before the black screen (reason "face lost, turned away"),
+and the avatar is back the moment the face is (no minimum black, since no
+black happened). A frontal loss is unchanged: the engine's own frame for
+`lost_face_seconds` 1.5, then black. Day 18's patience showed the engine's
+frame (the last face pasted on the LIVE picture) for those 8 seconds; a
+head that keeps turning would have put his own ear or cheek past the
+mask's edge, so the held frame is the safe form. Status line "Face not
+found -- turned away, the last frame is held for the other side";
+`OutputConditioner.holding`; the instructions and the user guide say it.
+Tests: `TestTurnedAway` in test_conditioning.py (10) and in
+test_pipeline_controller.py (4), the config default.
+
+### Step 2: the second look in a crop (built, measured, tested)
+
+MediaPipe's video landmarker tracks a face it has from frame to frame;
+once it has let go it must *detect* again, and its detector -- a
+short-range one that sees the whole frame scaled to 128 pixels -- finds a
+face turned far round only when the face is large and near the front. So
+a head that went to 60 degrees is found again only near the front, which
+is the "coming round" of his 2026-09-15 log.
+
+`MediaPipeFaceTracker(redetect_in_crop=True)` (settings
+`tracking.redetect_in_crop`, default on; off in the constructor so every
+still reader and every existing test is untouched): a second, IMAGE-mode
+landmarker built at start (detection confidence `redetect_confidence`
+0.3). On a frame the video landmarker finds nothing, the crop --
+`_REDETECT_SCALE` 1.8 times the last face's *height* (a turn narrows a
+face, it does not shorten it), the frame's own aspect ratio so the task's
+camera model still holds, shifted inside the frame, never shrunk; 2.6
+after 30 lost frames -- is read by the second landmarker, and its result
+is mapped back into the frame: the points through the window
+(`_crop_to_frame_points`), the pose by `_pose_from_crop`. The crop
+follows the face it finds. `extras["redetected"]` marks such frames.
+Cost: one landmarker read per lost frame, the same as a tracked frame;
+frames with a face cost nothing more (measured 12.7 ms/frame either way
+on driving.mkv).
+
+**The pose from a crop, measured before it was trusted**
+(`scripts/probes/redetect_probe.py`, his driving.mkv):
+
+- The task's fit is only weakly perspective. The same frame read again
+  moved 160 and 320 px sideways (a ray angle of 15 and 29 degrees at the
+  task's 63-degree camera) moves the fitted yaw by **0.23 of the ray
+  angle** at the median on the full-size face (0.20 frontal, up to 0.69
+  at 50 degrees of yaw), 0.47 on the half-size face; pitch the same. So
+  `_RAY_SHARE` 0.25 of the ray angle is undone, not all of it: a face
+  within 160 px of the frame's centre is read within 3 degrees either
+  way, one at the frame's edge within 13.
+- Depth scales nearly with the picture the face is measured against:
+  `(height / h) ** 0.92` (`_DEPTH_EXPONENT`; a face read at 2.09 times
+  its size came out 2.01 times nearer, at 1.03 times 1.03).
+- The crop's landmarks land on the whole frame's within 0.5-2.4 px at the
+  median (up to 15 px on the far side of a 53-degree turn).
+
+**The reach, measured** (a fresh read of every second frame of the turn
+segments, no tracking state -- what the video landmarker has once it has
+let go):
+
+| his face in the frame | whole frame finds it | the crop finds it |
+|---|---|---|
+| 54% of the height (driving.mkv as recorded) | 100% to -55 | (the crop would be the whole frame) |
+| 27% (the frame shrunk to half: a call distance) | 100% to -50, 70% at -55..-50 | 100% at every angle, -55..-50 included |
+| 19% (shrunk to a third) | nothing, at any angle, frontal included | nothing (no first face) |
+
+The video tracker itself never lost his face on these segments (to -55)
+at full or half size. The third row is a limit of the detector, not of
+the turn: a face under a fifth of the frame's height is not found at all,
+turned or not. **What his 2026-09-15 loss was** -- a turn past 60, a
+small or dark face, a look down -- the clip will say; the tools are ready
+for it.
+
+Tests: `TestSecondLook` (11), `TestRedetectWindow`, `TestCropToFrame` in
+test_tracking_mediapipe.py; the fake landmarks have a `spread` now (a
+face with a size). Whole suite 1345 + 2 skipped; ruff clean; mypy the 11
+pre-existing errors in engine_warp only.
+
+### Step 0, his turn clip (2026-09-17 23:57): where the tracker lets go, and what the picture does
+
+`recordings/driving-turn.mkv`, 1159 frames, 38.6 s, 720p, his face 54% of
+the frame's height (a close seat). Both probes over every segment
+(`redetect_probe` per segment with the second look off and on;
+`turn_probe --yaw-marks 20,30,35,40,45,50,60 --video`, sheets and clips
+in `recordings/day19/turn-{119-472,473-769,770-1068}*` -- his face,
+delete after his look).
+
+**The tracker (the app's settings, the second look off):**
+
+| segment | frames lost | where it let go | where it found the face again |
+|---|---|---|---|
+| slow full turns each way (119-472) | **0** | never (his turn read +45 / -50) | -- |
+| held LEFT profile (473-622) | 64 | after f554/557 at yaw **+57..+65** | f565 at +26 for one bad frame, then lost 57 frames to the segment's end (the profile held) |
+| held RIGHT profile (623-769) | 95 | after f698 at yaw **-58..-60** | f648 at +55 (the left profile of the segment before, 0.8 s); f757 at **-70..-72** after 1.9 s |
+| quick glances (770-889) | 30, all before the first glance | (still in the profile of the segment before) | f801 at **-63..-65**; **not one glance lost** |
+| half turns held (890-1068) | **0** | never (+45 max) | -- |
+
+So on this camera and at this size the face is held to **about 60
+degrees** and let go only at a real profile; found again at 53-72, not
+"near the front" -- the fresh detector finds his face at 100% in every
+bin to +-55 (whole frame and crop alike). The second look found him on
+4-5 frames at -77 / +65 during the profiles and nothing else: at a full
+profile (70-78) neither the whole frame nor the crop reads a face ("lost
+by VIDEO": whole frame 0%, crop 3-9% of 34-35 frames), which is the face
+model's limit, not the detector's. It costs nothing on a tracked frame
+(5.8-6.3 ms either way) and stays on for the cameras that need it (the
+half-size measurement above). The crop's pose held on his frames: yaw
+within 0.2-1.7 degrees of the whole frame's read, depth within 0.3%, the
+ray share 0.23-0.35 again.
+
+**What his 2026-09-15 loss was, then:** a head held past 60 -- a real
+profile, several seconds -- and under the old rule (1.5 s, then black)
+every profile held longer than a moment blacked the call; the held
+profiles here lasted 1.9-2.7 s and would have. Under step 1 the other
+side sees the last frame instead, and the avatar is back at 53-72
+degrees, on the way round.
+
+**The picture (the stills):** at +21..+48 and -20..-51 the avatar follows
+his turn and the face is clean -- both eyes drawn, nothing smeared, the
+quick glance of 543-549 (+23 to +42 in four frames) included. Past the
+cap (his +52..+57, -70) the head is drawn at 45: a three-quarter face
+on a profile head, coherent, with the mask's edge showing on the cheek
+where his stubble goes on past it. At a full profile that is what a
+frontal photograph can give.
+
+**Step 3, decided by the stills: the cap alone.** The front portrait
+draws 40 cleanly; the yaw cap stays 45 (day 17); the turned photographs
+are not needed for 30-40 and are not built. What is left for a fuller
+profile is a second photograph per side, and its price is known from day
+18; not now.
+
+Not touched, on purpose: the paste's edge (the white band of day 18 was
+measured at 117 px worst on the clip with the views off -- invisible --
+and only grew with the views' crossfade), the drive, the render.
+
+### His two screenshots (2026-09-18 00:13): the strip beside the eye on a held turn, the white streak on a fast shake
+
+His live look came back with two pictures: a head turned and held, a
+pale strip ringed on the cheek **beside the eye, on the nose's side**; and
+`fast.png`, a quick shake, a white streak down the same side from the
+temple to the chin -- "the machine cannot keep up and follow my head".
+
+**What it was, measured on his turn clip** (`scripts/probes/band_probe.py`:
+the paste hooked, the render, the mask and the paste as it goes out cut
+out at the mask's box, the near and the far side zoomed; the zooms of
+his face in `recordings/day19/near-before-after-*.png`, delete after):
+
+- The far cheek was covered -- the join there sits on skin against his
+  hair and stubble, as on day 16.
+- **The near side was cut straight through.** The oval is the convex hull
+  of the face's RIM, and at a turn the rim's near points project inside
+  the face: the hull runs straight from the temple to the chin and the
+  nose, the lips and the cheek in front of the eye fall OUTSIDE the paste
+  -- his own skin, lit from the window, shows there, and the avatar's nose
+  is cut off (f452, yaw -47: the hull's edge 10-25 crop px inside the
+  drawn face). That is the strip he ringed. The fast shake is the same
+  cut with motion blur on top (f804, 7 degrees in one frame): the mask
+  where the landmarks are, the near side open.
+- The white in `fast.png` is what the paste shows once the mask does reach
+  past the drawn face: the photograph's own flat background (his avatar's
+  is (243, 243, 237) BGR), day 18's finding.
+
+**Built, off the drive path, provably nothing on a frontal frame:**
+
+1. **The midline in the oval** (`_MIDLINE`: brow ridge, nose bridge and
+   tip, the lips, the chin -- 26 mesh points -- go into the hull with the
+   rim; every statistic of the oval, the rim's top and the mean the jaw
+   shrink pulls toward, stays the rim's own). On a frontal face each of
+   these is inside the rim, so the hull is the same polygon: proven on
+   **his own recorded landmarks** (`TestMidlineOnHisFace`, the calibration
+   session of 2026-09-12, 894 frames, gitignored so it skips elsewhere) --
+   every frame under 12 degrees of yaw gives the identical mask to the
+   byte, and no frame's mask ever shrinks; on his face the nose leaves the
+   rim past about 30 degrees. At a turn the near side follows the profile
+   and the avatar's nose is pasted (f452 / f459 / f804 / f1042 after).
+2. **The background guard** (`background_guard`, default on):
+   `_background_colour` reads the photograph's flat background from its
+   border at load (the top ring and the upper halves of the sides, 3% of
+   the picture; none when the border is not one colour -- a room -- and
+   then nothing changes); `_background_keep` cuts the mask, at every
+   paste, where the render is within 30 of that colour AND joined to the
+   box's border (a highlight on the nose is that colour and is not joined
+   to anything), reaching 2 px into the drawn face's own edge (the render's
+   face-to-background pixels are a mix that reads pale on his cheek) with
+   a 5-px feather. **Keyed to the turn** (`_background_weight`: nothing
+   under 12 degrees of yaw from the rest, all of it from 20): on a frontal
+   frame the mask meets the render's own edge at the jaw for a pixel or
+   two and an ungated guard trimmed those (f30: 810 px changed over 8
+   levels) -- gated, every frontal frame of the clip differs between the
+   guard on and off by the GPU's own run-to-run noise alone (at most 2
+   grey levels, none over 8; f30, 60, 90, 110, 338, 499, 900, 1150),
+   while f1100 at yaw +36 is what the guard is for (3021 px).
+
+After: no near-white pixel is pasted inside the mask on any of the turn
+or fast frames (f298, 452, 459, 802, 804, 805, 1042; f1042 had 8
+before), and the raw hull now reaches 250-1500 px of background at a
+turn that the guard removes.
+
+Tests: `TestMidlineInTheOval`, `TestMidlineOnHisFace`, `TestBackgroundGuard`,
+`TestBackgroundWeight` in test_engine_liveportrait.py (the synthetic face's
+midline is pinned on the midline now, as on a face).
+
+**Next: his live look** -- the held turn and the fast shake again, and a
+held profile on a call with the black screen no longer taking it; then
+commit on his word.
+
+### His look at that build (2026-09-18 ~01:00), and the plan for day 20
+
+His words: turning the head "everything sits well", but the eye on the
+side he turns to "still shows as mine", the nose needs more when he turns
+harder; and a quick turn left-right "zooms the face out" -- the avatar's
+face shrinks on his and the photograph's white background shows as a line
+-- "the AI face cannot follow at the pace needed, it reacts slowly".
+
+**Measured before planning** (his turn clip; the scratch probe of the
+near eye and the fast glance):
+
+- *The near eye at a held turn is covered.* At +38..+46 and -47..-49 the
+  paste mask reads 1.00 at every point of the near eye, the portrait's
+  oval and his own alike; the eye in the paste is the avatar's (its iris,
+  not his) -- but blurred, drawn at the 45 cap while his head is past it,
+  and looking at the camera (the gaze goes to rest from 30 to 45, day 17)
+  while his looks into the turn. Past 50 the mask's edge -- the hull eroded
+  by 4% of the face width (13 px) and feathered -- sits 10-15 px inside
+  the profile, and there a strip of his own face along the profile shows:
+  the outer corner of the near eye, the nose's tip. "More work for the
+  nose when I turn harder" is that strip.
+- *The zoom-out after a fast turn is the DEPTH reading.* The crop's size
+  is his resting face height scaled by the pose's translation z (day 6),
+  filtered at 1 Hz. On the fast glance his z reads 31.0 frontal and
+  **32.3 at -65** (the face model fitted to half a face reads it farther):
+  the crop shrinks 794 vs 821 px, the avatar with it, **3-4% smaller**,
+  and the 1-Hz filter holds that for the frames after he is back --
+  frontal again, the guard off (it is keyed to the turn), his outline
+  wider than the drawn face by 10-14 px, the white line along the far
+  side. On the slow turn the same drift is there (+58: 30.6) and small.
+- *The reaction.* Live the pipeline ran 19.8-23.9 fps on his captures
+  against the camera's 30 (the tracker 6-13 ms and the paste 7 ms on the
+  CPU, the network 26 ms on the GPU, in series); the tracker's landmark
+  filter is a 0.35 EMA (half a frame late by design, day 3); the drawn
+  head sits 15-25 px behind his at a turn (day 4). Together a fast turn's
+  avatar is a frame and a half behind his face.
+
+**The plan, in order of what it buys against what it risks:**
+
+1. **The depth held through a turn** (the zoom-out's root). Past 35
+   degrees of yaw from the rest the crop's size stops following z and
+   keeps the last frontal value (a turn in place does not change the
+   distance), released on the way back; measured on the clip as the
+   avatar's face width against his per frame through the fast glances
+   (a second tracker on the output, as measure_follow reads it) -- the
+   3-4% dip must go, and no frame under 35 degrees may change (the crop
+   is bit-identical there by construction). Off the drive path.
+2. **The guard's grace.** The guard stays on for half a second after the
+   yaw came back under 12 degrees, so whatever the size filter still
+   holds is cut rather than pasted white; steady frontal frames unchanged
+   by construction. Small; belt to (1)'s braces.
+3. **The profile without the erosion.** A midline point that lies outside
+   the rim's own hull (only at a turn) is pushed outward by the erosion's
+   radius before the hull, so after the erosion the mask's edge lands ON
+   the profile, not 13 px inside it; the frontal hull is untouched
+   (nothing is outside the rim there). Measured as the strip's width at
+   the profile on f452/f459 and at his hardest turns. The near eye's
+   outer corner and the nose tip come under the paste. Off the drive path.
+4. **The eyes at the cap** -- his call, on the drive path: past the cap
+   the avatar's gaze could lead into the turn by the degrees the head
+   is short (a person whose head stops turning looks on with the eyes),
+   instead of the rest gaze at the camera; stills first, at 50 and 60.
+5. **The reaction speed**, measured before touched: (a) where the frame's
+   time goes today (capture, tracker, network, hair, mask, paste, sink --
+   `last_timings` and the tracker's own time, on a live run), then the
+   tracker on its own thread one frame ahead of the network (the
+   pipelining the architecture left for later), which alone is the
+   difference between 20 and 30 fps on this machine; (b) the landmark
+   filter: a One Euro on the landmarks in place of the 0.35 EMA follows a
+   fast turn without the half-frame lag and still steadies a resting
+   face -- on the tracked-frame path, so replayed first (rest jitter, fast
+   lag) and only on his word; (c) the drawn head's 15-25 px lag at a turn,
+   measured per yaw with the output tracker and undone in the paste as a
+   shift of the render (the day-18 idea for the views, applied to the
+   front portrait) -- paste-side, off the drive.
+
+What is not in the plan: a second photograph per side (the views); the
+network's own speed (26 ms is the graph, TensorRT would be a week for
+maybe 8 ms).
+
+## Day 20 (2026-09-18): the depth held through a turn -- the plan's step 1, built and measured
+
+His order: the day-20 plan from its first step, and nothing of the face,
+the eyes, the brows and the mouth may break. Step 1 is the zoom-out's
+root: the crop's size follows the pose's translation z every frame, and z
+is a rigid fit of a whole face model that wanders once half the face is
+gone.
+
+### What z does at a turn, measured first (the tracker as the app runs it, his turn clip)
+
+z over the clip's still start (rest yaw -1.6, z 31.9); 1.0 is his seat:
+
+| yaw from rest | frames | z, median (min..max) | so the crop is |
+|---|---|---|---|
+| 0-10 | 561 | 0.995 (0.97..1.08) | his own leans, up to 8% |
+| 10-20 | 56 | 0.989 | trusted |
+| 20-30 | 63 | 0.976 (0.94..1.15) | 2.4% too large |
+| 30-35 | 53 | 0.959 | 4% too large |
+| 35-45 | 173 | 0.976-0.980 (left turns 1.01) | 2% too large; 1% too small to the left |
+| 45-55 | 54 | 0.96-0.98 | |
+| 70-90 (the profiles) | 6 | 0.935 (0.89..0.95) | 7% too large |
+
+Not monotonic and not one-sided: nearer at 20-35, farther at 36-47 on a
+left turn, nearer again at a profile. **The fast glance** (f770-889): the
+face is found again at f801, yaw -63, with z 1.012 -- 4% farther than
+the frames right after (0.971-0.984 on the way in, 0.994 settled) -- and
+the crop's 1-Hz size filter, reset by the loss, starts from that frame:
+the crop 1.8% under its settled size at f801, the avatar with it, then
+1.0-1.5% over for f803-f809 as the return sweep reads "nearer". That is
+what he saw. His real leans move z by at most 1.6% in one frame (p99
+0.8%); the slow turns drift the same way and he did not mind them.
+
+### Built: `depth_hold_yaw` (driver option, default 35; 0 off), off the drive path
+
+`_held_depth` inside `_driver_face_height` -- the one place the crop's
+size reads z. At or under 35 degrees of yaw from the rest the depth is
+the frame's own, as before; past it the crop is sized from **the depth he
+sits at**: the median of the last five z readings on frames within
+`_DEPTH_TRUST_YAW` (20) degrees (`z_recent`, `z_frontal` on the portrait;
+reset with the anchor, kept across a loss, so a face found again at 60
+degrees after a profile is drawn at the size it left with). Released the
+moment the head is back under 35 -- the live z again, so the frames at
+20-35 are what they were. The first version held the *last frame's* z at
+or under 35, and the clip caught it: the second look found a face for
+one frame (f565, yaw +25, pitch +29, z 16% off) and the next profile was
+drawn **15.5% too small for six frames**; hence the median of five within
+20, where the fit is trusted -- one bad frame cannot reach the hold.
+Tests: `TestDepthHold` (10, the poisoning included); suite 1367 + 2
+skipped, ruff and mypy clean.
+
+`scripts/probes/depth_probe.py`: the clip through the tracker and the
+engine as the app runs them; per frame z, the depth used, the crop's raw
+and filtered size, and the avatar's face height against his by a second
+unfiltered tracker on the output and a third on the camera frame;
+`--sweep depth_hold_yaw=0,35` prints every window (the first frame found
+after a loss, each return under 35) against where the size settles, and
+the proof below. Sheets `recordings/day20/depth-driving-turn-*.csv`
+(numbers only).
+
+### Measured, the hold off against on (the crop against its settled size)
+
+| window | hold off | hold on |
+|---|---|---|
+| f801, the fast glance's first frame (-63, after 26 lost) | -1.8%, then +1.0..+1.5% to f809; 1 frame more than 1% small | +0.5% flat to the release at f807; 0 |
+| f757, the left profile found (-70, after 44 lost) | +4.1..+10.8% | 0.0% |
+| f769 (-76, after 5 lost) | +4.9..+5.3% | +0.5% |
+| f648, the right profile found (+55, after 82 lost) | +5.2..+8.0% | -0.0% (the first version: -15.5%) |
+| f654, the return from it (+34 down) | -1.4%, 7 frames small | -0.6%, 0 |
+| f311 / f472 / f1102, the slow turns' returns (all under 35) | +3.4 / +1.4 / +3.2% | +3.0 / +1.1 / +3.2% |
+| every frame past 35 (239) | -1.7..+11.8%, median +1.5 | -0.6..+3.3%, median +0.6 |
+
+The avatar's height against his, read off the output through the glance
+(f803-f805, his head past the cap): -2.4..-2.2% off, -2.0..-2.3% on --
+that is the cap (his head at 52, the avatar drawn at 45), not the size.
+
+**The proof of the untouched face:** the raw crop size is the same bytes
+on every frame at or under 35 degrees (0 of 972 differ); the filtered
+size differs by 0.0001 px past 45 frames after a held one and by nothing
+past 51 (the 1-Hz filter's tail); the outputs of the eight frontal check
+frames (f30, 60, 90, 110, 338, 499, 900, 1150) differ by 0-3 grey levels,
+none over 8 -- the GPU's own run-to-run noise, day 19's rule. The drive
+and the render are not in the change.
+
+**Left as it is, on purpose:** the 20-35 wander (the crop 3-5% large for
+half a second on a slow turn's way back, f654-f658 and f311-f320) is
+under the threshold and is today's behaviour, and it errs large -- the
+avatar inside his own oval, never his skin outside it. Sizing the 20-35
+frames from the remembered depth too would change frames under 35, so it
+is a question for him, not a change.
+
+### His two screenshots (2026-09-18, `new.png` / `new2.png`) and his speed question -- analysed
+
+Turned to each side, ringed: his own black brow's end and eye corner
+beside the avatar's along the profile, and on the other side "the nose
+doubled" -- his nose tip beside the drawn one. Both are the day-19
+measurement: past 50 degrees the eroded and feathered edge of the oval
+sits 10-15 frame px inside his profile, and along that band his own face
+shows; a black brow and a nose tip are what the eye catches. That is step
+3 below. Past ~50 the head is drawn at the 45 cap, so the drawn nose is
+always a little short of his -- the honest limit without the views.
+
+"The AI face cannot keep up with a slightly quick turn -- is it the 20-21
+fps?" Measured on the turn clip (a scratch probe: his yaw by an unfiltered
+tracker on the camera frame, the app's yaw, the avatar's yaw by an
+unfiltered tracker on the output, and each one's nose tip):
+
+| moment | avatar's turn against his | the drawn nose off his |
+|---|---|---|
+| sitting still | -- | 6-7 px |
+| slow turns (f244-330, f355-480) | 0.91-0.95 x, 0-1 frame behind | 5-9 px while moving |
+| the fast return (f801-830, 3 deg/frame) | follows within a frame | **20-32 px** |
+| the same with `size_smoothing` 0.3 instead of 0.85 | 0.96 x, 0 frames | 8 px |
+
+The tracker's 0.35 EMA is one frame; the head's TURN follows within a
+frame; the head's POSITION lags about six frames, and the cause is
+`size_smoothing` 0.85 -- day 9's EMA on the extractor's scale and
+translation against the "breathing" scale while sitting still. The scale
+itself has not been applied since day 13 (`scale_gain` 0), so only the
+translation is left carrying the heavy smoothing. At 20 fps six frames is
+0.3 s of the ~0.4 s a fast turn is behind; the serial pipeline (tracker
+6-13 ms, network 26, paste 7) is the other 50 ms, plus the camera's own.
+So fps matters twice (every frame-counted filter lasts longer in seconds,
+and the pipeline's one frame is 50 ms rather than 33), but the bulk is the
+0.85. It is on the drive path: his call, after the sitting-still jitter is
+measured at 0.85 against 0.3-0.5 on the still clips. Alternatives: a
+speed-aware filter on the translation (steady still, fast when moving);
+the tracker on its own thread for 30 fps (the plan's step 5a).
+
+### Step 3: the profile without the erosion -- built, measured, his eye next
+
+`_push_profile` in `_oval_mask` (`_PROFILE_PUSH` 1.0, erosion radii): a
+midline point that lies outside the rim's own convex hull -- which only a
+turn does; on a frontal face every midline point is inside the rim, proven
+again on his 894 recorded frames (`test_the_profile_push_moves_nothing_on_
+a_frontal_frame`) -- is moved outward along the ray from the rim's centre
+by the erosion's radius before the hull is taken, ramped over the first
+radius outside so the frame the nose leaves the rim moves the edge by
+nothing. The erosion then lands the mask's edge on the profile instead of
+a radius inside it. Tests: `TestProfilePush` (5); suite 1373 + 2 skipped,
+ruff and mypy clean.
+
+`scripts/probes/profile_probe.py` (the frame's mask rebuilt under each
+push value from the hooked crop points; the profile = the midline points
+outside the rim that frame; from each, inward along the ray to the rim's
+centre, where the mask reaches 0.5 and 0.9; zooms of the paste per push
+value, `recordings/day20/profile-f*.png` -- his face, delete after his
+look). His hardest frames, crop px (1 crop px = 1.6 frame px here):
+
+| frame, yaw | profile points outside the rim | push 0 (before): 0.5 / 0.9 reached, max | push 1: | push 2: |
+|---|---|---|---|---|
+| f298 +48 | 17, by 4-21 px | 3.5 / 6.5 | 0.5 / 3.5 | 0.0 / 0.5 |
+| f452 -45 | 17, 5-22 | 3.0 / 6.0 | 0.0 / 3.5 | 0.0 / 0.0 |
+| f553 +55 | 23, 2-33 | 4.0 / 7.5 | 1.0 / 4.5 | 0.0 / 1.5 |
+| f697 -56 | 22, 5-31 | 2.0 / 6.0 | 0.5 / 4.0 | 0.0 / 0.5 |
+| f804 -45 (fast) | 19, 2-24 | 2.5 / 5.5 | 0.0 / 2.5 | 0.0 / 0.0 |
+| f1042 +40 | 13, 2-17 | 3.5 / 6.5 | 0.5 / 3.5 | 0.0 / 1.0 |
+
+(The medians are 0 at every setting: most midline points lie in the
+hull's concave stretches, inside it; the maxima are the vertices -- the
+brow ridge, the nose tip, the chin -- where the strip is.) The zooms say
+the same: at f553 the half-way contour ran inside his nose tip and brow
+ridge (his own skin between the drawn nose and the room -- the doubled
+nose), at push 1 it lands on the profile points, at push 2 it crosses 2-4
+px onto the room behind him. So 1.0, the plan's number. The frontal
+frames f30, 60, 90, 110, 338, 499, 900: the mask identical to the byte at
+every push value. What is left along the profile at push 1: the feather's
+inner half, 2.5-4.5 crop px from 0.5 to 0.9 -- his brow can tint that
+band faintly; his eye decides whether 1.5 is wanted (the constant).
+
+### His look at the day-20 build (04:00-04:03, from the source tree, both steps in): "nothing changed at all"
+
+His words: exactly the same problems, nothing new, the fps still 21 --
+"would 30 or 60 fix it?" The log confirms the build he ran had steps 1 and
+3 (the engine file's last change 03:51, the avatar loaded 04:00:53). His
+verdict is right about what the eye sees: step 1 removed a 1.8% dip after
+a glance and step 3 moved the paste's edge 5-6 frame px along the profile;
+what dominates a fast turn -- the drawn head 20-32 px behind his (30-45
+live at 21 fps, the filter counts frames) -- was left as it was, on the
+drive path, waiting for his word. The wrong order: that number should have
+been put in front of him first.
+
+**Measured for the decision (replay, no code changed):**
+
+| | `size_smoothing` 0.85 (today) | 0.3 |
+|---|---|---|
+| the drawn nose off his on the fast return (turn clip f801-830) | 20-32 px | 8 px |
+| the avatar's turn against his | 0.34 x, 6 frames (unexplainable fit) | 0.96 x, 0 frames |
+| sitting still at the camera (natural.mkv f40-118): avatar-minus-his per frame p50 / p90 | 0.14 / 0.40 px | 0.12 / 0.29 px |
+| sitting still at the screen (f119-416) | 0.25 / 0.76 px | 0.18 / 0.57 px |
+| the drawn nose's own movement per frame, still, p90 | 0.49 / 1.90 px | 0.45 / 1.96 px (his own 0.49 / 1.94) |
+| expression following (driving.mkv): ear r/gain, mar, mouth width, brow | 0.94/0.97, 0.99/1.17, 0.99/0.67, 0.91/0.69 | 0.94/0.97, 0.99/1.17, 0.99/0.68, 0.91/0.69 |
+| lip thickness, position on every frontal segment | -- | the same to 0.1 px |
+| the photograph's background under the mask on the return, f805 (yaw -42, the guard on) | 1789 px | 673 px |
+
+So the 0.85 buys nothing today -- the scale it was set against is off since
+day 13 -- and costs the whole lag. 0.3 changes nothing sitting still and
+nothing in the expression; the head's position follows within a frame.
+On the fps: 30 is reachable (the tracker on its own thread; the network
+26 ms + the paste 7 leave ~30) and shortens every frame-counted lag by a
+third and the pipeline's own frame from 50 to 33 ms; 60 is not reachable
+on this machine (the network alone is 26 ms) nor from this camera (the
+ZV-E10 streams 30). Neither is the bulk; the 0.85 is.
+
+**The brow and the nose at a hard turn, honestly:** past ~50 degrees the
+head is drawn at the 45 cap, the drawn nose stops short of his, and his
+own nose tip stays visible beside it -- the guard cuts the render's
+background there and his skin shows through. Step 3 covered the 5-px
+strip along the profile and nothing more. What is left is the cap's
+limit: accept it; or raise the cap to 50-55 and look at the smear
+(measured on days 17 and 19: the front portrait draws 40 cleanly, 45 at
+the edge); or the second photograph per side, day 18's approach, which
+broke the face when it switched inside a movement -- it would have to
+switch only on a held turn. His call, after the lag is fixed, because the
+lag makes every turn look worse than it is.
+
+**His word (04:2x): "yes, change it to 0.3."** Done: `_DEFAULT_SIZE_SMOOTHING`
+0.3 (the code default, `_size_smoothing`), and the two avatars' own
+`metadata.json` (his neural avatar and woman_person both carried 0.85
+explicitly; the importer copies his manifest, so new avatars inherit
+0.3). The test's default expectation follows; suite 1373 + 2 skipped,
+ruff and mypy clean. The build as it now runs, on the turn clip: the
+drawn nose 7.4 px off his on the fast return (was 21.5), 1.5 / 6.1 px on
+the slow turns (was -4.6 / +8.6); the avatar's turn 0.93-0.96 x his with
+0 frames of lag on every window (was 1-2, and the fast return
+unexplainable). Next: his live look; then the tracker on its own thread
+for 30 fps; the cap question after that.
+
+### His look at 0.3 (04:34): "it follows well now, beautiful, I like it" -- and his two presses: the far brow's end at a turn
+
+His words: one problem left -- turning past about 20 degrees either way,
+his own brow shows a little, and part of the eye. He pressed "That looked
+wrong" once per side (`captures/moment-20260918-043431`, yaw +27.6 from
+rest, held; `-043450`, -17.4, held). On both, at the far side of the turn
+(the profile side), his black brow's outer end and the eye's outer
+corner show past the paste's edge.
+
+**Measured on the two presses** (the frame replayed as the session,
+the capture's anchor seeded; the paste's reach at the far brow's outer-end
+landmark, along the ray from the rim's centre, crop px; 1 crop px = 1.6
+frame px):
+
+- The far brow's end lies **outside the rim's own hull** at a turn: 6-8 px
+  at +28 (anterior to the temple, it moves with the turn more than the rim
+  does), 2 px at -17. The midline push of step 3 does not reach it: the
+  brows were not in the hull.
+- What cut it was not the driver's oval but **the portrait's static
+  oval** -- the frontal photograph's, built once at load: at +28 it ends
+  11 px short of his far brow's end (14 to the 0.9 level), at -17 7.5 px
+  short; the driver's oval alone, with the brows pushed, would reach
+  within 2.5 / 1.5 px. And the far brow's end sits at the very edge of the
+  portrait mask's box (crop x 355 of a box ending at 358).
+- The drawn face itself **does** reach it: at +28 the render's far temple
+  ends 1 px beyond his brow's end, at -17 8 px beyond (the row of the
+  landmark, the render's pixels not within 30 of the photograph's
+  background). So the gap was the mask's, not the head's.
+
+**Built, off the drive path (the paste's mask only):**
+
+1. `_BROW_LINE` (the 12 brow points) joins the pushed hull set beside the
+   midline; the push's hull test and direction now use the rim **as read**
+   (`_push_profile(reference=)`), before the mask's own forehead ceiling,
+   chin drop and jaw shrink, so what is pushed depends on the face alone
+   (a chin drop no longer moves a pushed point). On his 894 frontal frames
+   the mask with the brows is the mask without, to the byte
+   (`test_the_brows_in_the_hull_change_nothing_on_a_frontal_frame`); the
+   synthetic test face's brows sit 1-5 px outside its own rim, unlike a
+   real face's, so the synthetic identity test excludes them.
+2. **The room past the portrait's oval** (`_turn_room`, `_frame_masks`
+   returning the two ovals, `extra` carried in the held tuple and given to
+   `_paste`): at a turn the paste may add the driver's oval where the
+   portrait's falls short of it, up to the room's weight -- and that
+   addition is pasted **only where the render is the drawn face**, by the
+   guard's keep map in full, so the photograph's background stays out as
+   before, by the guard instead of the static oval. The weight
+   (`_room_weight`, `_ROOM_YAW` 12 to 16 degrees from the rest): nothing
+   under 12 -- `extra` is `None` and `_paste` is the byte it was -- all of
+   it from 16; the guard's own ramp (12 to 20) left the -17 press two
+   thirds covered. A photograph without a flat background has no guard and
+   no room, as before.
+3. `_MASK_TURN_ROOM` 0.08: the portrait mask's box widened to either side
+   by 8% of its width at load (154..358 -> 138..374 on his avatar), since
+   the paste warps only into the box and the drawn face's far side at +28
+   ended 2 px inside the old edge. The paste's area grows by that much.
+4. `_paste` with the hair on now takes the guard and the room too (the
+   hair union is built on the guarded patch); frontal frames with hair are
+   the same values as before.
+
+Tests: `TestTurnRoom` (5: the room's algebra, the ramp, the box, the
+paste adding only over the drawn face -- a checkerboard face, since the
+lighting plane matches a flat face into a flat scene exactly, with the
+correction's memory reset per paste); suite 1379 + 2 skipped, ruff and
+mypy clean. The probes' paste hooks take `extra`; `band_probe` and
+`profile_probe` hook `_frame_masks` now.
+
+**After, on the presses** (the paste's reach at the far brow's end; negative
+is short of it):
+
+| press | before: to 0.5 / to 0.9 | after |
+|---|---|---|
+| +27.6 (left turn, held) | -11.0 / -14.0 px | -3.5 / -6.0 |
+| -17.4 (right turn, held) | -7.5 / -10.0 px | -1.5 / -4.0 |
+
+What is left at +28 is the drawn head's own far edge: the render ends 1
+px past his brow's end there, and the guard's feather (5 px, reaching 2
+into the render's edge) holds the paste that far back from it -- the
+avatar's temple simply ends where his brow ends at that turn. The zooms
+(his face, in the session's scratch folder, gone with it) show the dark
+strip along the far side gone under the drawn temple. The turn clip's
+frontal check frames: the mask identical across the push values, as
+before.
+
+**Next:** his live look at the brow, both sides, past 20 degrees; then the
+tracker thread.
+
 ## What is left, in his order (written 2026-09-12 night, after the push)
 
 Everything above is on origin/main at c5eda18. What he wants next, in
