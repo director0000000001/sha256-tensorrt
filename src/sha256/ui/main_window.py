@@ -1408,7 +1408,15 @@ class MainWindow(QMainWindow):
         snapshot = self._runner.latest() if running else None
         tracking = snapshot.tracking if snapshot is not None else None
         if running and tracking is not None and not tracking.face_detected:
-            self._status_line.setText("Face not found — holding the avatar")
+            # Day 19: a face lost with the head turned away holds the last
+            # frame that went out (see OutputConditioner.holding) -- the
+            # other side sees a still picture, not a black screen.
+            if self._conditioner.holding is not None:
+                self._status_line.setText(
+                    "Face not found — turned away, the last frame is held for the other side"
+                )
+            else:
+                self._status_line.setText("Face not found — holding the avatar")
         else:
             # Once a face is found, an engine still learning its rest (see
             # AvatarEngine.rest_status) gets to say so — the owner then knows

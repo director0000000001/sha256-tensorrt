@@ -157,6 +157,7 @@ def main() -> int:
                 min_detection_confidence=settings.tracking.min_detection_confidence,
                 min_presence_confidence=settings.tracking.min_presence_confidence,
                 min_tracking_confidence=settings.tracking.min_tracking_confidence,
+                redetect_in_crop=settings.tracking.redetect_in_crop,
             )
             tracker.start()
             capture = cv2.VideoCapture(str(args.clip))
@@ -168,6 +169,12 @@ def main() -> int:
             crossed: set[str] = set()
             held_frames = 0
             lost_frames = 0
+            # Day 19: where the tracker lets go and where it finds the face
+            # again -- the yaw of the last frame it saw and of the first it
+            # saw after, with the loss's length between them.
+            last_seen: tuple[int, float] | None = None
+            lost_run = 0
+            tracker_events: list[str] = []
             index = 0
             try:
                 while index <= args.last:
@@ -195,6 +202,28 @@ def main() -> int:
                         )
                         held_frames += loaded.holding
                         lost_frames += not tracking.face_detected
+                        if not tracking.face_detected:
+                            if lost_run == 0:
+                                where = (
+                                    "before the segment"
+                                    if last_seen is None
+                                    else f"f{last_seen[0]} yaw {last_seen[1]:+.0f}"
+                                )
+                                tracker_events.append(f"lost after {where}")
+                            lost_run += 1
+                        else:
+                            if lost_run > 0:
+                                via = (
+                                    " (in the crop around the last face)"
+                                    if tracking.extras.get("redetected")
+                                    else ""
+                                )
+                                tracker_events[-1] += (
+                                    f", found at f{index} yaw {rel_yaw:+.0f}{via} after "
+                                    f"{lost_run} frames ({lost_run / fps:.1f} s)"
+                                )
+                            lost_run = 0
+                            last_seen = (index, rel_yaw)
                         points = None
                         if tracking.landmarks is not None:
                             points = tracking.landmarks.points[:, :2] * (
@@ -264,6 +293,10 @@ def main() -> int:
                 f"lost {lost_frames}; stills {len(rows)} -> {prefix}-sheet.png"
                 + (f", video {prefix}.mp4" if args.video else "")
             )
+            if lost_run > 0:
+                tracker_events[-1] += f", still lost at the segment's end ({lost_run} frames)"
+            for event in tracker_events:
+                print(f"    the tracker: {event}")
             if rows:
                 cv2.imwrite(f"{prefix}-sheet.png", np.vstack(rows))
     finally:

@@ -232,6 +232,7 @@ def build_application(
         failure_text=output.failure_text,
         auto_blackout=output.auto_blackout,
         lost_face_seconds=output.lost_face_seconds,
+        lost_face_seconds_turned=output.lost_face_seconds_turned,
         min_blackout_seconds=output.min_blackout_seconds,
         recovery_seconds=output.recovery_seconds,
     )
@@ -443,6 +444,7 @@ def _create_tracker(registries: Registries, settings: Settings, paths: AppPaths)
         min_tracking_confidence=tracking.min_tracking_confidence,
         smoothing=tracking.smoothing,
         mouth_smoothing=tracking.mouth_smoothing,
+        redetect_in_crop=tracking.redetect_in_crop,
     )
     return tracker
 

@@ -151,6 +151,7 @@ class TestOutputSection:
             3.0,
             1.0,
         )
+        assert output.lost_face_seconds_turned == 8.0  # day 19
         assert output.blackout_hotkey == "ctrl+alt+b"
 
     def test_the_quality_is_one_of_the_conditioners_names(self):
@@ -164,3 +165,9 @@ class TestOutputSection:
     def test_the_committed_default_config_carries_the_section(self, app_paths: AppPaths):
         settings = load_settings(app_paths)
         assert settings.output.failure_text == "Camera battery died"
+
+
+class TestTrackingSection:
+    def test_the_second_look_is_on_by_default(self):
+        tracking = Settings(_env_file=None).tracking
+        assert tracking.redetect_in_crop is True  # day 19

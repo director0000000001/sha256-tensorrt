@@ -72,6 +72,15 @@ class TrackingSettings(_Section):
         ),
     )
     min_tracking_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    redetect_in_crop: bool = Field(
+        default=True,
+        description=(
+            "On a frame where the tracker finds no face, look again in a crop "
+            "around the last face, where a turned or small face fills the picture "
+            "and the detector has its chance (day 19). Frames with a face are "
+            "untouched."
+        ),
+    )
     smoothing: float = Field(
         default=0.0,
         ge=0.0,
@@ -180,6 +189,18 @@ class OutputSettings(_Section):
         ),
     )
     lost_face_seconds: float = Field(default=1.5, ge=0.0, le=30.0)
+    lost_face_seconds_turned: float = Field(
+        default=8.0,
+        ge=0.0,
+        le=60.0,
+        description=(
+            "The patience for a face lost while the head was turned away (past 25 "
+            "degrees of yaw or pitch on the last frame it was seen): the last frame "
+            "that went out is held this long before the black screen. A head turned "
+            "past what the tracker reads is a look at someone in the room, not a "
+            "dead camera."
+        ),
+    )
     min_blackout_seconds: float = Field(
         default=3.0,
         ge=0.0,

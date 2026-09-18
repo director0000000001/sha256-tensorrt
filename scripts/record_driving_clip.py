@@ -106,10 +106,32 @@ NATURAL_STEPS: tuple[tuple[float, str], ...] = (
     (3.0, "SIT STILL again. Relax."),
 )
 
+# The turn script, added 2026-09-17 (day 19) for the client's "the face is
+# lost when the head turns". The guided clip turns the head "slowly LEFT,
+# then back" in five seconds and never reaches the angle where the tracker
+# lets go; his live look of 2026-09-15 did (143 of 300 frames with no face,
+# 22 seconds of black screen) and carried no picture of the turn itself.
+# This clip holds the three things that have to be measured: how far round
+# the tracker follows (slow full turns), how long a held profile stays lost
+# and at what angle the face is found again on the way back (held
+# profiles), and whether an ordinary glance is ever lost at all (quick
+# glances). The still four seconds at the front stay, as in every script.
+TURN_STEPS: tuple[tuple[float, str], ...] = (
+    (4.0, "SIT STILL. Look straight at the camera. Relax your face."),
+    (6.0, "Turn your head SLOWLY all the way LEFT, to a full profile, then slowly back."),
+    (6.0, "Turn your head SLOWLY all the way RIGHT, to a full profile, then slowly back."),
+    (5.0, "Turn LEFT to a full profile and HOLD it there. Come back on the next line."),
+    (5.0, "Turn RIGHT to a full profile and HOLD it there. Come back on the next line."),
+    (4.0, "Look at the camera. Quick GLANCE left and back, right and back, twice."),
+    (6.0, "Turn HALF way left, hold two seconds, back. Then half way right, hold, back."),
+    (3.0, "SIT STILL again. Relax."),
+)
+
 SCRIPTS: dict[str, tuple[tuple[float, str], ...]] = {
     "full": STEPS,
     "speech": SPEECH_STEPS,
     "natural": NATURAL_STEPS,
+    "turn": TURN_STEPS,
 }
 
 LEAD_IN = 5.0
@@ -127,7 +149,8 @@ def main() -> int:
         choices=sorted(SCRIPTS),
         default="full",
         help="'full' is the 62-second guided clip; 'speech' is 39 seconds of the mouth at "
-        "speed; 'natural' is 57 seconds of a call posture: still, head slightly down, talk.",
+        "speed; 'natural' is 57 seconds of a call posture: still, head slightly down, talk; "
+        "'turn' is 39 seconds of the head turned: slow full turns, held profiles, glances.",
     )
     parser.add_argument(
         "--overwrite",

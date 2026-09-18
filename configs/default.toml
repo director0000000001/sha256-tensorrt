@@ -56,6 +56,13 @@ min_detection_confidence = 0.5
 min_presence_confidence = 0.1
 min_tracking_confidence = 0.1
 num_faces = 1
+# Day 19: the second look. Once the tracker has let go of a face it must
+# detect it again, and its detector sees the whole frame scaled to 128 pixels
+# -- a face turned far round, or a small one, is found again only near the
+# front. On a frame with no face the tracker looks again in a crop around the
+# last face, where the face fills the picture. Frames with a face are
+# untouched; the crop is only ever read where there would be no face at all.
+redetect_in_crop = true
 
 # 'auto' resolves to CPU on Windows: the published MediaPipe wheel is built
 # without a GPU delegate. Measured, not assumed — docs/benchmarks/B003.
@@ -196,9 +203,15 @@ quality = "native"
 # work (the camera's own picture about to go out, or the face lost for
 # lost_face_seconds). It appears at once, stays min_blackout_seconds at least,
 # and lifts only after the face has been tracked for recovery_seconds.
+# A face lost while the head was turned away (past 25 degrees of yaw or pitch
+# on the last frame it was seen) is the head past what the tracker reads, not
+# a dead camera: the last frame that went out is held for
+# lost_face_seconds_turned before the black screen, and the avatar is back the
+# moment the face is.
 failure_text = "Camera battery died"
 auto_blackout = true
 lost_face_seconds = 1.5
+lost_face_seconds_turned = 8.0
 min_blackout_seconds = 3.0
 recovery_seconds = 1.0
 # Toggles the black screen from any application (Windows; the meeting app is

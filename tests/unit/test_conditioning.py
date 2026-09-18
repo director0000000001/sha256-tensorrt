@@ -261,3 +261,146 @@ class TestBlackScreen:
         assert c.failure_text == "Camera disconnected"
         assert c.failure_frame_for(64, 32).shape == (32, 64, 3)
         assert OutputConditioner().failure_text == DEFAULT_FAILURE_TEXT
+
+
+class TestTurnedAway:
+    """Day 19: a face lost while the head was turned away holds the last
+    frame that went out instead of blacking the call after 1.5 s."""
+
+    def _conditioner(self, clock: Clock, **kwargs) -> OutputConditioner:
+        return OutputConditioner(clock=clock, **kwargs)
+
+    def _face_frames(self, c: OutputConditioner, clock: Clock, data: np.ndarray) -> None:
+        for dt in (0.0, 0.1):
+            clock.t = 100.0 + dt
+            c.condition(frame(data), face_detected=True, passthrough=False)
+
+    def test_a_turned_loss_holds_the_last_frame_then_blacks(self):
+        clock = Clock()
+        c = self._conditioner(clock, lost_face_seconds=1.5, lost_face_seconds_turned=8.0)
+        seen = checkerboard(72, 128)
+        self._face_frames(c, clock, seen)
+        live = portrait_like(72, 128)
+        for dt in (0.2, 1.0, 2.0, 5.0, 7.9):
+            clock.t = 100.1 + dt
+            out = c.condition(frame(live), face_detected=False, passthrough=False, turned_away=True)
+            assert np.array_equal(out.data, seen), dt
+            assert out.data is not live and not out.is_placeholder and out.avatar_id == "me"
+            assert c.blackout is None and c.holding == "face lost, turned away"
+        clock.t = 108.4
+        out = c.condition(frame(live), face_detected=False, passthrough=False, turned_away=True)
+        assert (out.data == 0).mean() > 0.9
+        assert c.blackout == "face lost, turned away" and c.holding is None
+
+    def test_the_avatar_is_back_the_moment_the_face_is(self):
+        clock = Clock()
+        c = self._conditioner(clock)
+        seen = checkerboard(72, 128)
+        self._face_frames(c, clock, seen)
+        clock.t = 101.0
+        c.condition(
+            frame(portrait_like(72, 128)), face_detected=False, passthrough=False, turned_away=True
+        )
+        assert c.holding is not None
+        clock.t = 103.0
+        fresh = portrait_like(72, 128)
+        out = c.condition(frame(fresh), face_detected=True, passthrough=False)
+        assert out.data is fresh and c.holding is None and c.blackout is None
+
+    def test_the_flag_counts_on_the_losss_first_frame_only(self):
+        clock = Clock()
+        c = self._conditioner(clock, lost_face_seconds=1.5)
+        seen = checkerboard(72, 128)
+        self._face_frames(c, clock, seen)
+        live = portrait_like(72, 128)
+        clock.t = 100.2
+        out = c.condition(frame(live), face_detected=False, passthrough=False, turned_away=False)
+        assert out.data is live and c.holding is None  # a frontal loss, as on day 15
+        clock.t = 100.5
+        out = c.condition(frame(live), face_detected=False, passthrough=False, turned_away=True)
+        assert out.data is live and c.holding is None  # too late to change its mind
+        clock.t = 101.7
+        out = c.condition(frame(live), face_detected=False, passthrough=False, turned_away=True)
+        assert (out.data == 0).mean() > 0.9 and c.blackout == "face lost"
+
+    def test_a_frontal_loss_is_unchanged(self):
+        clock = Clock()
+        c = self._conditioner(clock, lost_face_seconds=1.5)
+        self._face_frames(c, clock, checkerboard(72, 128))
+        live = portrait_like(72, 128)
+        clock.t = 101.0
+        out = c.condition(frame(live), face_detected=False, passthrough=False)
+        assert out.data is live and c.holding is None and c.blackout is None
+        clock.t = 102.6
+        out = c.condition(frame(live), face_detected=False, passthrough=False)
+        assert c.blackout == "face lost"
+
+    def test_the_held_frame_is_a_copy_of_the_one_that_went_out(self):
+        clock = Clock()
+        c = self._conditioner(clock)
+        seen = checkerboard(72, 128)
+        self._face_frames(c, clock, seen)
+        before = seen.copy()
+        seen[:] = 7  # the capture backend reuses its buffer
+        clock.t = 101.0
+        out = c.condition(
+            frame(portrait_like(72, 128)), face_detected=False, passthrough=False, turned_away=True
+        )
+        assert np.array_equal(out.data, before)
+
+    def test_the_held_frame_carries_the_quality_it_went_out_at(self):
+        clock = Clock()
+        c = self._conditioner(clock, quality="360p")
+        seen = checkerboard(72, 128)
+        self._face_frames(c, clock, seen)
+        clock.t = 101.0
+        out = c.condition(
+            frame(portrait_like(72, 128)), face_detected=False, passthrough=False, turned_away=True
+        )
+        assert out.data.shape == seen.shape and not np.array_equal(out.data, seen)
+
+    def test_the_cameras_own_picture_still_blacks_at_once(self):
+        clock = Clock()
+        c = self._conditioner(clock)
+        self._face_frames(c, clock, checkerboard(72, 128))
+        clock.t = 101.0
+        out = c.condition(
+            frame(portrait_like(72, 128), is_passthrough=True),
+            face_detected=False,
+            passthrough=True,
+            turned_away=True,
+        )
+        assert (out.data == 0).mean() > 0.9 and c.holding is None
+        assert c.blackout is not None and "camera" in c.blackout
+
+    def test_nothing_to_hold_before_a_first_face(self):
+        clock = Clock()
+        c = self._conditioner(clock)
+        live = portrait_like(72, 128)
+        out = c.condition(frame(live), face_detected=False, passthrough=False, turned_away=True)
+        assert out.data is live and c.holding is None
+
+    def test_the_manual_switch_and_a_reset_outrank_the_hold(self):
+        clock = Clock()
+        c = self._conditioner(clock)
+        self._face_frames(c, clock, checkerboard(72, 128))
+        live = portrait_like(72, 128)
+        clock.t = 101.0
+        c.condition(frame(live), face_detected=False, passthrough=False, turned_away=True)
+        assert c.holding is not None
+        c.set_manual(True)
+        out = c.condition(frame(live), face_detected=False, passthrough=False, turned_away=True)
+        assert (out.data == 0).mean() > 0.9 and c.holding is None
+        c.set_manual(False)
+        c.reset()
+        out = c.condition(frame(live), face_detected=False, passthrough=False, turned_away=True)
+        assert out.data is live and c.holding is None  # the held frame was forgotten
+
+    def test_auto_off_holds_nothing(self):
+        clock = Clock()
+        c = self._conditioner(clock, auto_blackout=False)
+        self._face_frames(c, clock, checkerboard(72, 128))
+        live = portrait_like(72, 128)
+        clock.t = 101.0
+        out = c.condition(frame(live), face_detected=False, passthrough=False, turned_away=True)
+        assert out.data is live and c.holding is None

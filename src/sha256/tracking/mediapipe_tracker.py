@@ -118,6 +118,50 @@ Delegate = Literal["cpu", "gpu", "auto"]
 # exactly what a fresh VIDEO landmarker gave each photograph before, to 0.000 px.
 RunningMode = Literal["video", "image"]
 
+# Day 19 (the client's "the face is lost when the head turns"): the second
+# look in a crop. The VIDEO landmarker tracks a face it has from frame to
+# frame, and once it has let go it must DETECT again -- and its detector, a
+# short-range one that sees the whole 720p frame scaled to 128 pixels, finds
+# a face turned well past 30 degrees only when the face is large and near
+# the front. So a head that went to 60 degrees and came back is found again
+# only near 30 (his live look of 2026-09-15: 143 of 300 frames with no face,
+# the face back only "coming round"). On a frame the VIDEO landmarker finds
+# nothing, an IMAGE-mode landmarker reads a crop around the last face --
+# _REDETECT_SCALE times the face's height, the frame's own aspect so the
+# task's camera model still holds -- where the face fills the picture and
+# the detector has its chance. Wider after _REDETECT_WIDEN_FRAMES lost
+# frames (a head that moved). The points and the pose are mapped back into
+# the frame (see _crop_to_frame_points / _pose_from_crop). Frames the VIDEO
+# landmarker does see are untouched: the crop is only ever read where there
+# would otherwise be no face at all.
+_REDETECT_SCALE = 1.8
+_REDETECT_SCALE_WIDE = 2.6
+_REDETECT_WIDEN_FRAMES = 30
+# The task's own perspective camera: a vertical field of view of 63 degrees,
+# the principal point at the picture's centre (mediapipe face_geometry). Its
+# focal length in pixels is FOCAL_PER_HEIGHT times the picture's height. A
+# crop puts its own centre where the face is, so the same pixels are read
+# along a different ray. A pure perspective fit would shift the turn by the
+# whole angle between the two rays; MEASURED 2026-09-17 on the owner's clip
+# (scripts/probes/redetect_probe.py, the same frame read again moved 160
+# and 320 px sideways and 120 px up and down): the fitted yaw moves 0.23 of
+# that angle at the median (0.20 on a frontal face, up to 0.69 at 50
+# degrees of yaw), the pitch 0.27 -- the task's solver is only weakly
+# perspective. So a quarter of the ray angle is undone, not all of it: at a
+# face 320 px off the frame's centre the fit is off by 7-20 degrees raw and
+# 0-13 after, and a face within 160 px of the centre is within 3 degrees
+# either way. Depth scales nearly with the picture the face
+# is measured against (7.6% off raw at 50 degrees, 1.7% after; see
+# _DEPTH_EXPONENT).
+_FOCAL_PER_HEIGHT = 0.5 / math.tan(math.radians(63.0 / 2.0))
+_RAY_SHARE = 0.25
+# Depth, by the same measurement: the crop reads the face nearer by the
+# picture scale to the power _DEPTH_EXPONENT, not the scale itself (a face
+# read at 2.09 times its size came out 2.01 times nearer, at 1.03 times
+# 1.03; the exponent fits both within 2%).
+_DEPTH_EXPONENT = 0.92
+FACE_MESH_POINTS = 468  # the mesh proper; 469-477 are the irises
+
 
 class MediaPipeFaceTracker:
     """MediaPipe Face Landmarker behind the :class:`FaceTracker` protocol."""
@@ -135,12 +179,17 @@ class MediaPipeFaceTracker:
         smoothing: float = 0.0,
         mouth_smoothing: float = 0.0,
         running_mode: RunningMode = "video",
+        redetect_in_crop: bool = False,
+        redetect_confidence: float = 0.3,
     ) -> None:
         if not 0.0 <= smoothing < 1.0:
             msg = f"smoothing must be in [0, 1), got {smoothing}"
             raise ValueError(msg)
         if not 0.0 <= mouth_smoothing < 1.0:
             msg = f"mouth_smoothing must be in [0, 1), got {mouth_smoothing}"
+            raise ValueError(msg)
+        if not 0.0 <= redetect_confidence <= 1.0:
+            msg = f"redetect_confidence must be in [0, 1], got {redetect_confidence}"
             raise ValueError(msg)
 
         self._model_path = Path(model_path)
@@ -154,6 +203,16 @@ class MediaPipeFaceTracker:
         self._mouth_smoothing = mouth_smoothing
         self._running_mode = running_mode
         self._mouth_rows = np.asarray(MOUTH_LANDMARKS, dtype=np.intp)
+
+        # Day 19: the second look in a crop around the last face (see
+        # _REDETECT_SCALE). Only on the frame path: a still has no last face.
+        self._redetect_wanted = bool(redetect_in_crop) and running_mode == "video"
+        self._redetect_confidence = float(redetect_confidence)
+        self._crop_landmarker: Any = None
+        # The last face's centre and height in the frame's pixels, and how
+        # many frames in a row the VIDEO landmarker has found nothing.
+        self._last_face: tuple[float, float, float] | None = None
+        self._lost_run = 0
 
         self._landmarker: Any = None
         self._running = False
@@ -246,10 +305,25 @@ class MediaPipeFaceTracker:
             )
             raise TrackingError(msg) from last_error
 
+        if self._redetect_wanted:
+            # Built here, not on the first lost frame: creating a task takes
+            # a good fraction of a second, and the frame path must not stall
+            # the moment the face is lost.
+            self._crop_landmarker = self._create_landmarker(
+                vision,
+                base_options_cls,
+                delegate_enum,
+                self._active_delegate,
+                running_mode="image",
+                detection_confidence=self._redetect_confidence,
+            )
+
         self._mp = mp
         self._cv2, self._cv2_conversions = _try_import_cv2()
         self._running = True
         self._last_timestamp_ms = -1
+        self._last_face = None
+        self._lost_run = 0
         self._clear_smoothing()
 
         _LOG.info(
@@ -265,7 +339,14 @@ class MediaPipeFaceTracker:
         base_options_cls: Any,
         delegate_enum: Any,
         delegate: str,
+        *,
+        running_mode: RunningMode | None = None,
+        detection_confidence: float | None = None,
     ) -> Any:
+        mode = self._running_mode if running_mode is None else running_mode
+        detection = (
+            self._min_detection_confidence if detection_confidence is None else detection_confidence
+        )
         options = vision.FaceLandmarkerOptions(
             base_options=base_options_cls(
                 model_asset_path=str(self._model_path),
@@ -273,16 +354,15 @@ class MediaPipeFaceTracker:
             ),
             # VIDEO rather than IMAGE on the frame path: the task then carries
             # tracking state between frames instead of re-detecting from scratch
-            # every time. IMAGE for stills — see :data:`RunningMode`.
+            # every time. IMAGE for stills — see :data:`RunningMode` — and for
+            # the second look in a crop (day 19), which is a still each time.
             # LIVE_STREAM would deliver results through a callback, which does
             # not fit a synchronous `process()` and buys nothing here.
             running_mode=(
-                vision.RunningMode.IMAGE
-                if self._running_mode == "image"
-                else vision.RunningMode.VIDEO
+                vision.RunningMode.IMAGE if mode == "image" else vision.RunningMode.VIDEO
             ),
             num_faces=self._num_faces,
-            min_face_detection_confidence=self._min_detection_confidence,
+            min_face_detection_confidence=detection,
             min_face_presence_confidence=self._min_presence_confidence,
             min_tracking_confidence=self._min_tracking_confidence,
             output_face_blendshapes=self._output_blendshapes,
@@ -294,17 +374,21 @@ class MediaPipeFaceTracker:
 
     def stop(self) -> None:
         landmarker, self._landmarker = self._landmarker, None
+        crop_landmarker, self._crop_landmarker = self._crop_landmarker, None
         self._running = False
         self._active_delegate = ""
         self._mp = None
         self._cv2 = None
         self._cv2_conversions = {}
+        self._last_face = None
+        self._lost_run = 0
         self._clear_smoothing()
-        if landmarker is not None:
-            try:
-                landmarker.close()
-            except Exception:
-                _LOG.exception("Error closing the MediaPipe landmarker")
+        for task in (landmarker, crop_landmarker):
+            if task is not None:
+                try:
+                    task.close()
+                except Exception:
+                    _LOG.exception("Error closing the MediaPipe landmarker")
 
     def reset(self) -> None:
         """Drop this adapter's temporal state.
@@ -325,7 +409,8 @@ class MediaPipeFaceTracker:
         if self._landmarker is None:
             return FaceTrackingResult.no_face(frame.metadata, tracker_id=self.backend_id)
 
-        image = self._to_mediapipe_image(frame)
+        rgb = self._frame_rgb(frame)
+        image = self._mp.Image(image_format=self._mp.ImageFormat.SRGB, data=rgb)
 
         try:
             if self._running_mode == "image":
@@ -339,6 +424,11 @@ class MediaPipeFaceTracker:
             raise TrackingError(msg) from exc
 
         if not result.face_landmarks:
+            # Day 19: the second look, in a crop around the last face.
+            found = self._redetect(rgb, frame.metadata, started) if self._crop_landmarker else None
+            self._lost_run += 1
+            if found is not None:
+                return found
             # Losing the face is an expected condition, not an error: the engine
             # is responsible for holding or easing to neutral.
             self._clear_smoothing()
@@ -349,12 +439,65 @@ class MediaPipeFaceTracker:
                 processing_time=now() - started,
             )
 
-        return self._adapt(result, frame.metadata, started)
+        self._lost_run = 0
+        adapted = self._adapt(result, frame.metadata, started)
+        self._remember_face(adapted, frame.width, frame.height)
+        return adapted
+
+    def _redetect(
+        self, rgb: np.ndarray, metadata: FrameMetadata, started: float
+    ) -> FaceTrackingResult | None:
+        """The second look (day 19): the IMAGE landmarker on a crop around
+        the last face, its result mapped back into the frame. ``None`` when
+        there is no last face, the crop would be the whole frame (the VIDEO
+        landmarker's own try) or the crop holds no face either."""
+        if self._last_face is None:
+            return None
+        height, width = rgb.shape[:2]
+        scale = (
+            _REDETECT_SCALE_WIDE if self._lost_run >= _REDETECT_WIDEN_FRAMES else _REDETECT_SCALE
+        )
+        window = _redetect_window(self._last_face, scale, width, height)
+        if window is None:
+            return None
+        x0, y0, w, h = window
+        patch = np.ascontiguousarray(rgb[y0 : y0 + h, x0 : x0 + w])
+        image = self._mp.Image(image_format=self._mp.ImageFormat.SRGB, data=patch)
+        try:
+            result = self._crop_landmarker.detect(image)
+        except Exception as exc:
+            msg = f"MediaPipe failed on the crop of frame {metadata.frame_id}: {exc}"
+            raise TrackingError(msg) from exc
+        if not result.face_landmarks:
+            return None
+        adapted = self._adapt(result, metadata, started, crop=(x0, y0, w, h, width, height))
+        self._remember_face(adapted, width, height)
+        return adapted
+
+    def _remember_face(self, result: FaceTrackingResult, width: int, height: int) -> None:
+        """Where the face is, for the next second look: its centre and its
+        height in the frame's pixels (the height, not the width -- a turn
+        narrows the face, it does not shorten it)."""
+        if result.landmarks is None:
+            return
+        points = result.landmarks.points[:FACE_MESH_POINTS, :2]
+        xs = points[:, 0] * width
+        ys = points[:, 1] * height
+        self._last_face = (
+            float((xs.min() + xs.max()) / 2.0),
+            float((ys.min() + ys.max()) / 2.0),
+            float(ys.max() - ys.min()),
+        )
 
     # --- conversion --------------------------------------------------------
 
     def _to_mediapipe_image(self, frame: VideoFrame) -> Any:
-        """Wrap the frame as an SRGB ``mp.Image``.
+        """Wrap the frame as an SRGB ``mp.Image`` -- see :meth:`_frame_rgb`."""
+        mp = self._mp
+        return mp.Image(image_format=mp.ImageFormat.SRGB, data=self._frame_rgb(frame))
+
+    def _frame_rgb(self, frame: VideoFrame) -> np.ndarray:
+        """The frame as contiguous RGB, what an SRGB ``mp.Image`` wraps.
 
         MediaPipe wants contiguous RGB. The camera delivers BGR (OpenCV's native
         layout, kept unconverted at capture so the cost lands on whoever actually
@@ -376,9 +519,8 @@ class MediaPipeFaceTracker:
 
         code = self._cv2_conversions.get(fmt)
         if code is not None:
-            rgb = self._cv2.cvtColor(data, code)
-            mp = self._mp
-            return mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+            converted: np.ndarray = self._cv2.cvtColor(data, code)
+            return converted
 
         if fmt is PixelFormat.RGB24:
             rgb = data if data.flags["C_CONTIGUOUS"] else np.ascontiguousarray(data)
@@ -394,8 +536,7 @@ class MediaPipeFaceTracker:
             msg = f"MediaPipe tracker cannot consume {fmt.value} frames"
             raise TrackingError(msg)
 
-        mp = self._mp
-        return mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+        return rgb
 
     def _next_timestamp_ms(self, metadata: FrameMetadata) -> int:
         """A strictly increasing millisecond stamp for ``detect_for_video``."""
@@ -405,18 +546,33 @@ class MediaPipeFaceTracker:
         self._last_timestamp_ms = candidate
         return candidate
 
-    def _adapt(self, result: Any, metadata: FrameMetadata, started: float) -> FaceTrackingResult:
-        """Translate one MediaPipe result into the neutral contract type."""
+    def _adapt(
+        self,
+        result: Any,
+        metadata: FrameMetadata,
+        started: float,
+        *,
+        crop: tuple[int, int, int, int, int, int] | None = None,
+    ) -> FaceTrackingResult:
+        """Translate one MediaPipe result into the neutral contract type.
+        ``crop`` -- ``(x0, y0, w, h, width, height)`` -- says the result was
+        read off that window of a ``width x height`` frame (day 19's second
+        look) and is mapped back into the frame before anything else."""
         landmarks = result.face_landmarks[0]
         points = np.array([(lm.x, lm.y, lm.z) for lm in landmarks], dtype=np.float32)
 
         pose = self._head_pose(result)
+        if crop is not None:
+            points = _crop_to_frame_points(points, crop)
+            pose = None if pose is None else _pose_from_crop(pose, crop)
         blendshapes = self._blendshapes(result)
 
         if self._smoothing > 0.0 or self._mouth_smoothing > 0.0:
             points, pose, blendshapes = self._smooth(points, pose, blendshapes)
 
         extras: dict[str, float] = {}
+        if crop is not None:
+            extras["redetected"] = 1.0
         if blendshapes is not None and blendshapes.names:
             # The model's own "no expression" score. Cheap to carry and the only
             # graded quality-ish signal MediaPipe emits.
@@ -645,3 +801,78 @@ def _import_mediapipe() -> tuple[Any, Any, Any]:
         raise TrackingError(msg) from exc
 
     return mp, vision, BaseOptions
+
+
+# ---------------------------------------------------------------------------
+# Day 19: the second look in a crop -- pure helpers, testable without the wheel
+# ---------------------------------------------------------------------------
+
+
+def _redetect_window(
+    last_face: tuple[float, float, float], scale: float, width: int, height: int
+) -> tuple[int, int, int, int] | None:
+    """The crop to look for the face in: ``scale`` times the last face's
+    height tall, the frame's own aspect ratio, centred on the last face and
+    shifted (never shrunk) to lie inside the frame. ``(x0, y0, w, h)`` in
+    pixels, or ``None`` when the crop would be the whole frame or more --
+    that look is the VIDEO landmarker's own -- or the last face is too small
+    to mean anything."""
+    cx, cy, face_height = last_face
+    if face_height < 16.0 or width <= 0 or height <= 0:
+        return None
+    h = scale * face_height
+    w = h * width / height
+    if h >= height or w >= width:
+        return None
+    x0 = min(max(cx - w / 2.0, 0.0), width - w)
+    y0 = min(max(cy - h / 2.0, 0.0), height - h)
+    return round(x0), round(y0), round(w), round(h)
+
+
+def _crop_to_frame_points(
+    points: NDArray[np.float32], crop: tuple[int, int, int, int, int, int]
+) -> NDArray[np.float32]:
+    """Landmarks read off a crop, as the frame's own normalised landmarks.
+    ``z`` is scaled like ``x`` (MediaPipe's z shares x's scale)."""
+    x0, y0, w, h, width, height = crop
+    out = points.copy()
+    out[:, 0] = (x0 + points[:, 0] * w) / width
+    out[:, 1] = (y0 + points[:, 1] * h) / height
+    out[:, 2] = points[:, 2] * (w / width)
+    return out
+
+
+def _pose_from_crop(pose: HeadPose, crop: tuple[int, int, int, int, int, int]) -> HeadPose:
+    """The head pose fitted on a crop, as the frame's own.
+
+    The task fits its face model through a perspective camera whose axis
+    runs through the picture's centre (:data:`_FOCAL_PER_HEIGHT`). The crop's
+    centre is on the face, the frame's is not, so the crop's fit explains the
+    same pixels along a different ray and its turn is off by a share of the
+    angle between the rays (:data:`_RAY_SHARE`, measured): a face to the
+    right of the frame's centre that looks at the lens is turned toward the
+    frame's centre (a negative yaw, the subject's right) in the frame and
+    straight ahead in the crop. Depth scales with the picture the face is
+    measured against: the face fills ``height / h`` more of the crop, so it
+    is read that much nearer.
+    """
+    x0, y0, w, h, width, height = crop
+    focal = _FOCAL_PER_HEIGHT * height
+    # The crop's centre, in the frame's pixels, against the frame's centre.
+    dx = (x0 + w / 2.0) - width / 2.0
+    dy = (y0 + h / 2.0) - height / 2.0
+    # The crop's fit sees the face on its axis; it is not. Yaw: positive to
+    # the subject's left = toward the image right, so a face right of centre
+    # looking at the lens has a negative yaw in the frame. Pitch: positive
+    # looks up, so a face below the centre looking at the lens looks up.
+    yaw_shift = _RAY_SHARE * math.degrees(math.atan2(dx, focal))
+    pitch_shift = _RAY_SHARE * math.degrees(math.atan2(dy, focal))
+    depth_scale = (height / h) ** _DEPTH_EXPONENT
+    tx, ty, tz = pose.translation
+    return HeadPose(
+        pitch=pose.pitch + pitch_shift,
+        yaw=pose.yaw - yaw_shift,
+        roll=pose.roll,
+        translation=(tx * depth_scale, ty * depth_scale, tz * depth_scale),
+        confidence=pose.confidence,
+    )

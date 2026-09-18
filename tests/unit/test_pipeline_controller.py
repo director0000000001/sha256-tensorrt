@@ -12,6 +12,7 @@ from sha256.core.enums import PixelFormat
 from sha256.core.types import (
     FaceTrackingResult,
     FrameMetadata,
+    HeadPose,
     LandmarkSet,
     RenderedFrame,
     VideoFrame,
@@ -46,6 +47,7 @@ class Camera:
 class Tracker:
     def __init__(self) -> None:
         self.face = True
+        self.pose: HeadPose | None = None
 
     def start(self) -> None:
         return None
@@ -62,6 +64,7 @@ class Tracker:
             landmarks=LandmarkSet(
                 points=np.zeros((478, 3), dtype=np.float32), scheme="mediapipe_478"
             ),
+            head_pose=self.pose,
         )
 
 
@@ -97,7 +100,7 @@ class Clock:
         return self.t
 
 
-def build(*, conditioner: OutputConditioner, publish: bool = True):
+def build(*, conditioner: OutputConditioner, publish: bool = True, engine: Engine | None = None):
     camera, tracker = Camera(), Tracker()
     sink = NullVirtualCameraSink()
     sink.configure(128, 72, 30.0)
@@ -106,7 +109,7 @@ def build(*, conditioner: OutputConditioner, publish: bool = True):
         tracker=tracker,
         renderer=NullRenderer(width=128, height=72),
         virtual_camera=sink,
-        avatars=SimpleNamespace(engine=Engine(), active=SimpleNamespace(id="me")),
+        avatars=SimpleNamespace(engine=engine or Engine(), active=SimpleNamespace(id="me")),
         monitor=NullPerformanceMonitor(),
         conditioner=conditioner,
     )
@@ -190,3 +193,69 @@ class TestPublishFailure:
         assert controller2.publish_failure("x") is False  # no frame yet: size unknown
         assert sink2.frames_sent == 0
         controller2.stop()
+
+
+class HoldingEngine(Engine):
+    """The neural engine once it has drawn a face: on a lost face it pastes the
+    last face on the live picture and hands that back, not flagged."""
+
+    def animate(self, avatar_id: str, tracking: FaceTrackingResult, frame: VideoFrame):
+        if tracking.face_detected:
+            return super().animate(avatar_id, tracking, frame)
+        return RenderedFrame(
+            data=frame.data,
+            pixel_format=frame.pixel_format,
+            metadata=frame.metadata,
+            avatar_id=avatar_id,
+            render_timestamp=frame.metadata.capture_timestamp + 0.01,
+        )
+
+
+class TestTurnedAway:
+    """Day 19: the controller reads the head's turn off the last frame with a
+    face and tells the conditioner whether a loss was a turned-away one."""
+
+    def _run(self, yaw: float, pitch: float = 0.0):
+        clock = Clock()
+        conditioner = OutputConditioner(clock=clock, lost_face_seconds=1.5)
+        controller, tracker, sink = build(conditioner=conditioner, engine=HoldingEngine())
+        tracker.pose = HeadPose(yaw=yaw, pitch=pitch, translation=(0.0, 0.0, 40.0))
+        clock.t = 10.0
+        seen = controller.process_once()
+        assert seen is not None and seen.avatar_id == "me"
+        tracker.face = False
+        clock.t = 10.1  # the loss's first frame decides
+        controller.process_once()
+        clock.t = 12.0  # past lost_face_seconds, inside the turned patience
+        lost = controller.process_once()
+        assert lost is not None
+        controller.stop()
+        return conditioner, seen, lost, sink
+
+    def test_a_loss_after_a_turned_head_holds_the_last_frame(self):
+        conditioner, seen, lost, sink = self._run(yaw=40.0)
+        assert conditioner.holding == "face lost, turned away"
+        assert np.array_equal(lost.data, seen.data) and lost.data is not seen.data
+        assert not lost.is_placeholder and sink.last_frame is lost
+
+    def test_a_tilt_counts_as_turned_away_too(self):
+        conditioner, _, lost, _ = self._run(yaw=0.0, pitch=-30.0)
+        assert conditioner.holding is not None and not lost.is_placeholder
+
+    def test_a_loss_after_a_frontal_face_blacks_as_before(self):
+        conditioner, _, lost, _ = self._run(yaw=10.0, pitch=-5.0)
+        assert conditioner.holding is None and conditioner.blackout == "face lost"
+        assert lost.is_placeholder and (lost.data == 0).mean() > 0.9
+
+    def test_without_a_pose_the_loss_is_a_frontal_one(self):
+        clock = Clock()
+        conditioner = OutputConditioner(clock=clock, lost_face_seconds=1.5)
+        controller, tracker, _ = build(conditioner=conditioner, engine=HoldingEngine())
+        controller.process_once()
+        tracker.face = False
+        clock.t = 10.1
+        controller.process_once()
+        clock.t = 12.0
+        lost = controller.process_once()
+        assert lost is not None and conditioner.blackout == "face lost"
+        controller.stop()

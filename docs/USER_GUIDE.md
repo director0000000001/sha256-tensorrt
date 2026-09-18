@@ -51,7 +51,10 @@ All of this page, and every button explained, is inside the app too:
 - **Camera battery died** (the red button, or **Ctrl+Alt+B** from any
   window) blacks the camera with that text, as if the battery went. Press
   again to come back. The app does the same on its own when it loses your
-  face for more than a moment.
+  face for more than a moment. Lost while your head was turned away, the
+  other side sees the last picture, still, for up to eight seconds first --
+  a look at someone in the room, not a dead camera -- and the avatar is
+  back the moment your face is.
 - **Menu → Avatar's hair**: the avatar's own hair drawn over your head, not
   only its face. Off, your hair stays and the avatar's face is joined under it
   at your hairline -- read from your face in the first second (look at the

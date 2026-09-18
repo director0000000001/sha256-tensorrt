@@ -25,11 +25,17 @@ from sha256.core.errors import TrackingError
 from sha256.core.interfaces import FaceTracker
 from sha256.core.types import FrameMetadata, VideoFrame
 from sha256.tracking.mediapipe_tracker import (
+    _REDETECT_SCALE,
+    _REDETECT_SCALE_WIDE,
+    _REDETECT_WIDEN_FRAMES,
     BLENDSHAPE_SCHEME,
     LANDMARK_SCHEME,
     MOUTH_LANDMARKS,
     MediaPipeFaceTracker,
+    _crop_to_frame_points,
     _head_pose_from_matrix,
+    _pose_from_crop,
+    _redetect_window,
 )
 
 # --- fake MediaPipe --------------------------------------------------------
@@ -68,6 +74,9 @@ class FakeLandmarker:
         # Every landmark sits at this coordinate. Settable so a test can move
         # the "face" between frames and watch what the filters do.
         self.position = 0.5
+        # How far the landmarks spread around the position (a face with a
+        # size, for the second look in a crop); 0.0 puts them all on one point.
+        self.spread = 0.0
         # Set by FakeFaceLandmarker.create_from_options, so a test can read
         # back what running mode (and anything else) it was built with.
         self.options: object | None = None
@@ -79,7 +88,14 @@ class FakeLandmarker:
         if not self.detects:
             return FakeResult()
 
-        landmarks = [FakeLandmark(self.position, self.position, self.position) for _ in range(478)]
+        landmarks = [
+            FakeLandmark(
+                self.position + self.spread * ((i % 3) - 1) / 2.0,
+                self.position + self.spread * ((i // 3 % 3) - 1) / 2.0,
+                self.position,
+            )
+            for i in range(478)
+        ]
         blendshapes = [
             FakeCategory("_neutral", 0.9),
             FakeCategory("jawOpen", 0.25),
@@ -672,3 +688,161 @@ def _rotation(axis: str, radians: float) -> np.ndarray:
     if axis == "yaw":
         return np.array([[cos, 0, sin], [0, 1, 0], [-sin, 0, cos]], dtype=np.float32)
     return np.array([[cos, -sin, 0], [sin, cos, 0], [0, 0, 1]], dtype=np.float32)
+
+
+# --- day 19: the second look in a crop ----------------------------------------
+
+
+def face_frame(width: int = 640, height: int = 360) -> VideoFrame:
+    return make_frame(width=width, height=height)
+
+
+class TestSecondLook:
+    """A frame the VIDEO landmarker finds no face on is looked at again in a
+    crop around the last face, by an IMAGE landmarker built at start."""
+
+    def _tracker_with_a_face(self, control, **kwargs):
+        tracker = make_tracker(control, redetect_in_crop=True, **kwargs)
+        tracker.start()
+        video, crop = control["created"][-2], control["created"][-1]
+        video.spread = 0.2  # a face 72 px tall in a 360 px frame
+        first = tracker.process(face_frame())
+        assert first.face_detected and "redetected" not in first.extras
+        return tracker, video, crop
+
+    def test_the_second_landmarker_is_built_at_start_in_image_mode(self, fake_mediapipe):
+        tracker = make_tracker(fake_mediapipe, redetect_in_crop=True, redetect_confidence=0.3)
+        tracker.start()
+        video, crop = fake_mediapipe["created"]
+        assert video.options.kwargs["running_mode"] == "VIDEO"
+        assert crop.options.kwargs["running_mode"] == "IMAGE"
+        assert crop.options.kwargs["min_face_detection_confidence"] == pytest.approx(0.3)
+        assert video.options.kwargs["min_face_detection_confidence"] == pytest.approx(0.5)
+
+    def test_off_by_default_and_never_for_stills(self, fake_mediapipe):
+        make_tracker(fake_mediapipe).start()
+        assert len(fake_mediapipe["created"]) == 1
+        make_tracker(fake_mediapipe, redetect_in_crop=True, running_mode="image").start()
+        assert len(fake_mediapipe["created"]) == 2  # one more, not two
+
+    def test_a_lost_face_is_looked_for_in_a_crop_around_the_last_one(self, fake_mediapipe):
+        tracker, video, crop = self._tracker_with_a_face(fake_mediapipe)
+        video.detects = False
+        crop.position, crop.spread = 0.5, 0.4
+
+        result = tracker.process(face_frame())
+
+        assert result.face_detected and result.extras["redetected"] == 1.0
+        assert crop.stills == 1
+        x0, y0, w, h = _redetect_window((320.0, 180.0, 72.0), _REDETECT_SCALE, 640, 360)
+        assert crop.images[0].data.shape == (h, w, 3)
+        # The crop's centre point lands at the crop's centre in the frame.
+        centre = result.landmarks.points[:, :2].mean(axis=0)
+        assert centre[0] * 640 == pytest.approx(x0 + w / 2.0, abs=0.5)
+        assert centre[1] * 360 == pytest.approx(y0 + h / 2.0, abs=0.5)
+        assert result.head_pose is not None
+
+    def test_the_crop_follows_the_face_the_second_look_found(self, fake_mediapipe):
+        tracker, video, crop = self._tracker_with_a_face(fake_mediapipe)
+        video.detects = False
+        crop.position, crop.spread = 0.7, 0.4  # found right of the crop's centre
+        tracker.process(face_frame())
+        tracker.process(face_frame())
+        # The next crop is centred on where the face was found, not where it
+        # was: the window moved right, and it is sized to that face.
+        assert tracker._last_face[0] > 320.0
+
+    def test_the_crop_widens_after_a_while(self, fake_mediapipe):
+        tracker, video, crop = self._tracker_with_a_face(fake_mediapipe)
+        video.detects = False
+        crop.detects = False  # nothing found: the last face stays put
+        for _ in range(_REDETECT_WIDEN_FRAMES):
+            assert not tracker.process(face_frame()).face_detected
+        narrow = crop.images[0].data.shape
+        tracker.process(face_frame())
+        wide = crop.images[-1].data.shape
+        expect = _redetect_window((320.0, 180.0, 72.0), _REDETECT_SCALE_WIDE, 640, 360)
+        assert wide[0] > narrow[0] and wide[1] > narrow[1]
+        assert wide[:2] == (expect[3], expect[2])
+
+    def test_no_second_look_before_a_first_face(self, fake_mediapipe):
+        fake_mediapipe["detects"] = False
+        tracker = make_tracker(fake_mediapipe, redetect_in_crop=True)
+        tracker.start()
+        assert not tracker.process(face_frame()).face_detected
+        assert fake_mediapipe["created"][1].stills == 0
+
+    def test_the_second_look_finding_nothing_is_a_lost_face(self, fake_mediapipe):
+        tracker, video, crop = self._tracker_with_a_face(fake_mediapipe, smoothing=0.5)
+        video.detects = False
+        crop.detects = False
+        result = tracker.process(face_frame())
+        assert not result.face_detected and crop.stills == 1
+        assert tracker._smoothed_points is None  # the filters forgot the face
+
+    def test_a_face_the_video_landmarker_finds_again_is_read_as_before(self, fake_mediapipe):
+        tracker, video, crop = self._tracker_with_a_face(fake_mediapipe)
+        video.detects = False
+        tracker.process(face_frame())
+        video.detects = True
+        result = tracker.process(face_frame())
+        assert result.face_detected and "redetected" not in result.extras
+        assert crop.stills == 1 and tracker._lost_run == 0
+
+    def test_a_crop_failure_is_a_project_error(self, fake_mediapipe):
+        tracker, video, crop = self._tracker_with_a_face(fake_mediapipe)
+        video.detects = False
+        crop.raises = True
+        with pytest.raises(TrackingError, match="crop"):
+            tracker.process(face_frame())
+
+    def test_stop_closes_both_landmarkers(self, fake_mediapipe):
+        tracker, video, crop = self._tracker_with_a_face(fake_mediapipe)
+        tracker.stop()
+        assert video.closed and crop.closed
+        assert tracker._last_face is None
+
+    def test_an_out_of_range_confidence_is_refused(self, fake_mediapipe):
+        with pytest.raises(ValueError, match="redetect_confidence"):
+            make_tracker(fake_mediapipe, redetect_confidence=1.5)
+
+
+class TestRedetectWindow:
+    def test_the_frames_aspect_centred_on_the_face(self):
+        x0, y0, w, h = _redetect_window((640.0, 360.0, 100.0), 1.8, 1280, 720)
+        assert (w, h) == (320, 180)
+        assert (x0 + w / 2.0, y0 + h / 2.0) == (640.0, 360.0)
+
+    def test_shifted_inside_the_frame_never_shrunk(self):
+        x0, y0, w, h = _redetect_window((20.0, 700.0, 100.0), 1.8, 1280, 720)
+        assert (x0, y0, w, h) == (0, 540, 320, 180)
+
+    def test_none_when_the_crop_would_be_the_whole_frame_or_the_face_is_tiny(self):
+        assert _redetect_window((640.0, 360.0, 400.0), 1.8, 1280, 720) is None
+        assert _redetect_window((640.0, 360.0, 10.0), 1.8, 1280, 720) is None
+        assert _redetect_window((640.0, 360.0, 100.0), 1.8, 0, 720) is None
+
+
+class TestCropToFrame:
+    def test_points_map_through_the_window(self):
+        points = np.array([[0.0, 0.0, 0.1], [1.0, 1.0, -0.2], [0.5, 0.5, 0.0]], dtype=np.float32)
+        out = _crop_to_frame_points(points, (100, 50, 320, 180, 1280, 720))
+        assert out[0].tolist() == pytest.approx([100 / 1280, 50 / 720, 0.1 * 0.25])
+        assert out[1].tolist() == pytest.approx([420 / 1280, 230 / 720, -0.2 * 0.25])
+        assert out[2].tolist() == pytest.approx([260 / 1280, 140 / 720, 0.0])
+        assert points[0, 0] == 0.0  # untouched
+
+    def test_the_pose_is_nearer_in_the_crop_and_turned_toward_the_frames_centre(self):
+        from sha256.core.types import HeadPose
+
+        raw = HeadPose(pitch=2.0, yaw=-30.0, roll=1.0, translation=(1.0, 2.0, -28.0))
+        # A crop right of and below the frame's centre.
+        fixed = _pose_from_crop(raw, (800, 400, 320, 180, 1280, 720))
+        assert fixed.roll == 1.0
+        assert abs(fixed.translation[2]) > 28.0 * 3.5  # (720/180) ** 0.92 = 3.58
+        assert fixed.translation[2] < 0.0  # the sign is kept
+        assert fixed.yaw < raw.yaw  # right of centre: turned to the subject's right
+        assert fixed.pitch > raw.pitch  # below centre: looking up
+        assert abs(fixed.yaw - raw.yaw) < 10.0  # a share of the ray, not all of it
+        centred = _pose_from_crop(raw, (480, 270, 320, 180, 1280, 720))
+        assert centred.yaw == pytest.approx(raw.yaw) and centred.pitch == pytest.approx(raw.pitch)

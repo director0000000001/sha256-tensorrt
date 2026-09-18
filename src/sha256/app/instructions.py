@@ -86,6 +86,9 @@ _THE_BAR = """\
                   same from any window: Ctrl+Alt+B. The application does
                   the same on its own when it loses your face for more
                   than a moment, and comes back when the face is back.
+                  Lost while your head was turned away, the last picture
+                  stays for eight seconds first -- a look at someone in
+                  the room, not a dead camera.
   (status line)   What the application wants you to know right now --
                   see section 5.
   (fps)           How many pictures a second the avatar is drawn at.
@@ -168,6 +171,10 @@ _STATUS_LINE = """\
   "Face not found -- holding the avatar"
         The tracker cannot see enough of a face. The avatar is held
         where it was; the camera is never passed through.
+  "Face not found -- turned away, the last frame is held for the other side"
+        The face was lost with the head turned well to the side or
+        down. The other side sees the last picture, still, for up to
+        eight seconds; the avatar is back the moment the face is.
   "Calibrating -- follow the instruction above"
         Calibrate me is running.
   "BLACK SCREEN -- the other side sees 'Camera battery died' (...)"
@@ -199,7 +206,10 @@ _ON_A_CALL = """\
   head stops at the angle a photograph can still be drawn at (about 45
   degrees sideways, 30 down) while your own goes on; the face keeps
   blinking and, near the side, calms. If the tracker loses your face
-  altogether, the black screen takes over until it finds you again.
+  altogether while you are turned away, the other side sees the last
+  picture, still, for up to eight seconds, then the black screen; the
+  application keeps looking for the face in a close-up around where it
+  was, and the avatar is back the moment it is found.
 """
 
 _TROUBLE = """\

@@ -70,6 +70,17 @@ QUALITY_NAMES: tuple[str, ...] = tuple(QUALITY_LEVELS)
 
 DEFAULT_FAILURE_TEXT = "Camera battery died"
 
+# Day 19 (the client's "the face is lost when the head turns"): a face lost
+# with the head turned this far -- yaw or pitch, read off the last frame the
+# tracker saw a face on -- is the head past what a webcam tracker reads
+# (MediaPipe lets go around 60 degrees of yaw; his live look of 2026-09-15
+# lost 143 of 300 frames that way and blacked the call for 22 seconds), not
+# a face in front of the camera the tracker failed on. Such a loss holds the
+# last frame that went out for DEFAULT_LOST_FACE_SECONDS_TURNED before the
+# black screen: a look at someone in the room, not a dead camera.
+TURNED_AWAY_DEGREES = 25.0
+DEFAULT_LOST_FACE_SECONDS_TURNED = 8.0
+
 # The black frames, one per size and text: built once, read many times, and
 # never written to by anyone (the sink copies what it sends).
 _FAILURE_FRAMES: dict[tuple[int, int, str], np.ndarray] = {}
@@ -163,6 +174,7 @@ class OutputConditioner:
         failure_text: str = DEFAULT_FAILURE_TEXT,
         auto_blackout: bool = True,
         lost_face_seconds: float = 1.5,
+        lost_face_seconds_turned: float = DEFAULT_LOST_FACE_SECONDS_TURNED,
         min_blackout_seconds: float = 3.0,
         recovery_seconds: float = 1.0,
         clock: Callable[[], float] = now,
@@ -171,6 +183,7 @@ class OutputConditioner:
         self._text = failure_text
         self._auto = auto_blackout
         self._lost_after = float(lost_face_seconds)
+        self._lost_after_turned = float(lost_face_seconds_turned)
         self._min_black = float(min_blackout_seconds)
         self._recover_after = float(recovery_seconds)
         self._clock = clock
@@ -179,6 +192,11 @@ class OutputConditioner:
         self._stable_since: float | None = None
         self._black_since: float | None = None
         self._reason: str | None = None
+        # Day 19: the turned-away loss -- decided on the loss's first frame
+        # and kept for its length, and the last frame that went out with a
+        # face, which stands in for the avatar while it lasts.
+        self._lost_turned = False
+        self._held: RenderedFrame | None = None
 
     # --- the switches --------------------------------------------------------
 
@@ -220,12 +238,26 @@ class OutputConditioner:
             return "manual"
         return self._reason if self._black_since is not None else None
 
+    @property
+    def holding(self) -> str | None:
+        """Why the last frame is standing in for the avatar right now -- the
+        face lost while the head was turned away (see
+        :data:`TURNED_AWAY_DEGREES`) -- or ``None`` while the avatar itself,
+        or the black screen, is going out."""
+        if self._manual or self._black_since is not None or not self._auto:
+            return None
+        if self._lost_since is not None and self._lost_turned and self._held is not None:
+            return "face lost, turned away"
+        return None
+
     def reset(self) -> None:
         """Forget the automatic state (a pipeline start). The manual switch is
         his and stays where he left it."""
         self._lost_since = None
         self._stable_since = None
         self._black_since = None
+        self._lost_turned = False
+        self._held = None
         if not self._manual:
             self._reason = None
 
@@ -235,23 +267,61 @@ class OutputConditioner:
         return failure_frame(width, height, self._text)
 
     def condition(
-        self, frame: RenderedFrame, *, face_detected: bool, passthrough: bool
+        self,
+        frame: RenderedFrame,
+        *,
+        face_detected: bool,
+        passthrough: bool,
+        turned_away: bool = False,
     ) -> RenderedFrame:
         """The frame that goes out for ``frame``: the black screen when the
         manual switch is on or an automatic trigger holds, else ``frame`` at
         the chosen quality. ``passthrough`` says the frame would show the
-        camera's own picture (the engine had no face to draw)."""
-        if self._blackout_now(face_detected=face_detected, passthrough=passthrough):
+        camera's own picture (the engine had no face to draw).
+
+        ``turned_away`` says the last face the tracker saw was turned past
+        :data:`TURNED_AWAY_DEGREES` (day 19). A face lost that way is not the
+        tracker failing on a face in front of it but the head past what any
+        webcam tracker reads -- a glance at someone in the room -- so the
+        last frame that went out with a face stays on the screen for
+        ``lost_face_seconds_turned`` before the black screen, instead of the
+        engine's own frame (the last face pasted over the live picture) for
+        ``lost_face_seconds``. Read on the loss's first frame; the flag on
+        the frames after is ignored.
+        """
+        if self._blackout_now(
+            face_detected=face_detected, passthrough=passthrough, turned_away=turned_away
+        ):
             return replace(
                 frame,
                 data=self.failure_frame_for(frame.width, frame.height),
                 avatar_id=None,
                 is_placeholder=True,
             )
+        held = self._held
+        if self.holding is not None and held is not None:
+            return replace(frame, data=held.data, avatar_id=held.avatar_id, is_placeholder=False)
         data = apply_quality(frame.data, self._quality)
-        return frame if data is frame.data else replace(frame, data=data)
+        out = frame if data is frame.data else replace(frame, data=data)
+        if face_detected and not passthrough and not frame.is_placeholder:
+            self._remember(out)
+        return out
 
-    def _blackout_now(self, *, face_detected: bool, passthrough: bool) -> bool:
+    def _remember(self, out: RenderedFrame) -> None:
+        """Keep a copy of the frame that just went out. A copy, not the
+        frame: its pixels are the camera's buffer with the face pasted on,
+        and a capture backend may reuse that buffer for the next frame (the
+        rule on ``VideoFrame``). One buffer, refilled -- a 720p copy is well
+        under a millisecond."""
+        buffer = None if self._held is None else self._held.data
+        if buffer is None or buffer.shape != out.data.shape or buffer.dtype != out.data.dtype:
+            buffer = np.empty_like(out.data)
+        np.copyto(buffer, out.data)
+        self._held = replace(out, data=buffer)
+
+    def _blackout_now(
+        self, *, face_detected: bool, passthrough: bool, turned_away: bool = False
+    ) -> bool:
         if self._manual:
             return True
         if not self._auto:
@@ -260,19 +330,29 @@ class OutputConditioner:
         t = self._clock()
         if face_detected and not passthrough:
             self._lost_since = None
+            self._lost_turned = False
             if self._stable_since is None:
                 self._stable_since = t
         else:
             self._stable_since = None
             if self._lost_since is None:
                 self._lost_since = t
+                self._lost_turned = bool(turned_away) and not passthrough
+                if self._lost_turned:
+                    _LOG.info(
+                        "Face lost while turned away: the last frame is held for %.1f s",
+                        self._lost_after_turned,
+                    )
 
         if self._black_since is None:
-            lost_long = self._lost_since is not None and t - self._lost_since >= self._lost_after
+            patience = self._lost_after_turned if self._lost_turned else self._lost_after
+            lost_long = self._lost_since is not None and t - self._lost_since >= patience
             if passthrough or lost_long:
                 self._black_since = t
                 self._reason = (
-                    "the camera's own picture would have gone out" if passthrough else "face lost"
+                    "the camera's own picture would have gone out"
+                    if passthrough
+                    else ("face lost, turned away" if self._lost_turned else "face lost")
                 )
                 _LOG.info("Black screen on: %s", self._reason)
                 return True

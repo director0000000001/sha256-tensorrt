@@ -25,7 +25,7 @@ from sha256.core.interfaces import (
     VirtualCameraSink,
 )
 from sha256.core.types import FaceTrackingResult, RenderedFrame, VideoFrame
-from sha256.pipeline.conditioning import OutputConditioner
+from sha256.pipeline.conditioning import TURNED_AWAY_DEGREES, OutputConditioner
 from sha256.utils.logging import get_logger
 
 __all__ = ["PipelineComponents", "PipelineController"]
@@ -64,6 +64,9 @@ class PipelineController:
         self._last_frame: RenderedFrame | None = None
         self._last_source: VideoFrame | None = None
         self._last_tracking: FaceTrackingResult | None = None
+        # Day 19: the head's turn (the larger of |yaw| and |pitch|) on the
+        # last frame with a face, for the conditioner's turned-away loss.
+        self._last_turn = 0.0
 
     @property
     def state(self) -> PipelineState:
@@ -260,10 +263,21 @@ class PipelineController:
             with monitor.measure(PipelineStage.RENDERING):
                 rendered = self._components.renderer.render(animated)
 
+        # Day 19: how far the head was turned on the last frame with a face,
+        # so a loss can be told apart -- turned away past what the tracker
+        # reads, or a face in front of the camera it failed on.
+        if tracking.face_detected and tracking.head_pose is not None:
+            pose = tracking.head_pose
+            self._last_turn = max(abs(float(pose.yaw)), abs(float(pose.pitch)))
+        turned_away = self._last_turn >= TURNED_AWAY_DEGREES
+
         # Day 15: the quality, and the black screen -- what goes out is also
         # what the preview shows, so what he sees is what the other side sees.
         rendered = self._components.conditioner.condition(
-            rendered, face_detected=tracking.face_detected, passthrough=passthrough
+            rendered,
+            face_detected=tracking.face_detected,
+            passthrough=passthrough,
+            turned_away=turned_away,
         )
         monitor.record_frame(PipelineStage.RENDERING)
 
