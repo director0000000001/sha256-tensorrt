@@ -6325,8 +6325,37 @@ strip along the far side gone under the drawn temple. The turn clip's
 frontal check frames: the mask identical across the push values, as
 before.
 
-**Next:** his live look at the brow, both sides, past 20 degrees; then the
-tracker thread.
+### His look (04:5x): "perfect" -- committed and pushed; and does it hold for another face?
+
+His word: commit and push, this is the version he likes. Days 19 and 20
+went up as four commits (4359d00 the turned-away hold and the second
+look; 4b26f11 the engine: the oval to the profile, the room, the depth
+held, the smoothing; b7b4cde the three deleted test avatars; ee5d837 the
+docs) -- origin/main ee5d837, with day 17's last two commits that had
+been waiting. The zooms of his face under recordings/day19 and day20 are
+deleted; the day-20 CSVs (numbers) stay.
+
+His question, "will it work on someone else's face once they calibrate?"
+-- measured rather than assumed, on the friend's calibration recording of
+2026-09-12 19:40 (her clip through the engine with her own avatar):
+
+- Every one of her 624 recorded frontal frames (under 12 degrees) gives
+  the same mask to the byte with the day-20 rules (the midline and the
+  brows in the hull, the push) as without; her 26 turned frames only grow.
+- Her turn step (+18 to -34 degrees): at -34 the profile push does on her
+  face what it does on his -- the strip along the profile 3.0 crop px to
+  0.9 before, 0.0 after (max 6.0 to 2.5). Her turns never passed 35, so
+  the depth hold was not exercised on her; when it is, it reads her own
+  resting depth from her own anchor.
+- Nothing in the turn work carries a number of his face: every rule
+  measures from the person's own rest (the anchor learned at each Start,
+  the calibration's profile) and from the tracker's landmarks; the degree
+  thresholds (12, 16, 20, 35) are about the tracker's geometry. The
+  translation smoothing is the avatar's (both avatars 0.3; a new avatar
+  copies his manifest). What is the same for everyone: the 45-degree cap
+  and the drawn head's own far edge.
+
+**Next:** the tracker on its own thread (30 fps); then the cap question.
 
 ## What is left, in his order (written 2026-09-12 night, after the push)
 
