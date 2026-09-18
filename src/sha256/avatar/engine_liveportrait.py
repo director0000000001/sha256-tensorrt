@@ -212,6 +212,7 @@ DRIVER_OPTION_KEYS: frozenset[str] = frozenset(
         "lip_rest_tracking",
         "hold_pitch_degrees",
         "hold_yaw_degrees",
+        "depth_hold_yaw",
         "motion_smoothing",
         "size_smoothing",
         "crop_smoothing",
@@ -243,6 +244,7 @@ PORTRAIT_OPTION_KEYS: frozenset[str] = frozenset(
         "mask_chin_reach",
         "chin_follow",
         "edge_match",
+        "background_guard",
         "rotation_pivot",
         "pivot_z",
         # Day 17: the hair switch and its skin lever, the hairline's
@@ -1082,9 +1084,48 @@ _BROWS = (46, 53, 52, 65, 55, 107, 276, 283, 282, 295, 285, 336)
 # extension is not carried over -- it shipped at ``_JAW_REACH_SCALE = 1.0``,
 # which the owner's own 2026-08-15 verdict made a no-op (he preferred his own
 # jaw showing to a stretched avatar chin), so there is nothing to port.
+# Day 19 (his screenshot of a held turn, the pale strip beside the eye):
+# the oval is the convex hull of the face's rim, and at a turn the rim's
+# near side projects INSIDE the face -- the hull runs straight from the
+# temple to the chin and leaves the nose, the lips and the cheek in front
+# of the eye outside the paste, where his own skin shows. Measured on his
+# turn clip at yaw -47 (band_probe, f452): the hull's near edge 10-25 crop
+# px inside the drawn face, cutting the avatar's nose off. The face's
+# midline -- brow ridge, nose bridge and tip, the lips, the chin -- goes
+# into the hull too: on a frontal face every one of these lies inside the
+# rim and the hull is the same polygon to the pixel; at a turn the near
+# side follows the profile.
+_MIDLINE = (
+    151, 9, 8, 168, 6, 197, 195, 5, 4, 1, 19, 94, 2, 164,
+    0, 11, 12, 13, 14, 15, 16, 17, 18, 200, 199, 175,
+)  # fmt: skip
+
+# Day 20, his two presses of 04:34 (the far brow's outer end and the eye's
+# corner showing at 17 and 28 degrees): the far brow's end projects 6-8 crop
+# px outside the rim's hull at 28 degrees (anterior to the temple, it moves
+# with the turn more than the rim does) and the paste's edge ran through
+# it. So the brows go into the hull with the midline, under the same push;
+# on a frontal face every brow point is inside the rim (his 894 frames).
+_BROW_LINE = _BROWS
+
 _OVAL_SHRINK = 0.04
 _OVAL_FEATHER = 0.07
 _OVAL_FOREHEAD_REACH = 0.85
+# Day 20 (his two screenshots of 2026-09-18: his black brow's end and eye
+# corner showing beside the avatar's at a held turn, his own nose tip
+# beside the drawn nose -- "the nose doubled"): with the midline in the
+# hull the oval reaches his profile at a turn, but the erosion then pulls
+# the edge a radius (6 crop px at his face width) back inside it and the
+# feather halves the paste over the next 7, so 10-15 px of his own face
+# along the profile stay his (measured on day 19 past 50 degrees). So a
+# midline point that lies OUTSIDE the rim's own hull -- which only a turn
+# does; on a frontal face every midline point is inside the rim, proven on
+# his 894 recorded frames -- is pushed outward along the ray from the
+# rim's centre by this many erosion radii before the hull is taken, so the
+# erosion lands the edge on the profile. Ramped over the first radius
+# outside the rim, so the frame the nose first leaves the rim (about 30
+# degrees on his face) moves the edge by nothing, not by a jump.
+_PROFILE_PUSH = 1.0
 
 # Day 12: the jaw band ("white line", his 2026-09-06 night screenshots). The
 # portrait's beard stops short of its jaw contour; his runs along it. With
@@ -1113,6 +1154,12 @@ _NOSE_TIP = 1
 # enough that the feather's falloff is not itself clipped by the box the
 # paste warps into.
 _MASK_BOX_MARGIN = 4
+# Day 20: the box's room to either side, a fraction of the portrait oval's
+# own width -- at a turn the drawn face's far side reaches past the frontal
+# oval's edge (his press at +28 degrees: the render's far temple 2 px inside
+# the old box's edge; at 45 it is past it) and the paste warps only into
+# the box. Costs the paste about that fraction of its area, twice.
+_MASK_TURN_ROOM = 0.08
 
 # Low-frequency relighting, exactly the warp engine's own technique
 # (``engine_warp._match_colour`` / ``_fit_lighting_plane``), written again
@@ -1813,9 +1860,15 @@ def _oval_mask(
     oval = crop_points[list(_FACE_OVAL)]
     brow = crop_points[list(_BROWS)]
 
-    trimmed = oval.copy()
+    # Day 19: the rim and the midline together (see _MIDLINE). Every
+    # statistic below -- the rim's top, the mean the jaw shrink pulls
+    # toward -- is still the rim's own, so a frontal face's hull is the
+    # polygon it was to the pixel; only what the hull ENCLOSES can grow,
+    # and only when a midline point leaves the rim, which is a turn.
+    rim = len(oval)
+    trimmed = np.concatenate([oval, crop_points[list(_MIDLINE) + list(_BROW_LINE)]]).copy()
     brow_top = float(brow[:, 1].min())
-    oval_top = float(trimmed[:, 1].min())
+    oval_top = float(trimmed[:rim, 1].min())
     ceiling = brow_top - (brow_top - oval_top) * forehead_reach
     if forehead_reach > 1.0:
         # Day 16 (C1): past the mesh's own top the forehead arc is lifted
@@ -1840,11 +1893,15 @@ def _oval_mask(
         eye_y = float(crop_points[list(_LEFT_EYE_CORNERS + _RIGHT_EYE_CORNERS), 1].mean())
         nose_y = float(crop_points[_NOSE_TIP, 1])
         weight = np.clip((trimmed[:, 1] - eye_y) / max(nose_y - eye_y, 1.0), 0.0, 1.0)
-        inward = trimmed.mean(axis=0) - trimmed
+        inward = trimmed[:rim].mean(axis=0) - trimmed
         inward /= np.maximum(np.linalg.norm(inward, axis=1), 1e-6)[:, None]
         trimmed = trimmed + inward * (weight * face_width * jaw_shrink)[:, None]
     shrink = max(1, int(face_width * _OVAL_SHRINK))
     feather = max(3, int(face_width * _OVAL_FEATHER) | 1)
+    if _PROFILE_PUSH > 0.0 and len(trimmed) > rim:
+        # Day 20: the profile's midline points out by the erosion's radius
+        # (see _PROFILE_PUSH); a frontal face has none outside the rim.
+        trimmed = _push_profile(trimmed, rim, ((shrink | 1) // 2) * _PROFILE_PUSH, reference=oval)
 
     filled = np.zeros((size, size), dtype=np.uint8)
     cv2.fillConvexPoly(filled, cv2.convexHull(trimmed.astype(np.int32)), 255)
@@ -1855,15 +1912,164 @@ def _oval_mask(
     return (softened.astype(np.float32) / 255.0)[:, :, None]
 
 
+def _push_profile(
+    points: np.ndarray, rim: int, radius: float, reference: np.ndarray | None = None
+) -> np.ndarray:
+    """``points`` with every point past index ``rim`` that lies outside the
+    convex hull of the rim -- ``reference``, or the first ``rim`` points --
+    moved outward, along the ray from the rim's mean, by ``radius`` --
+    less, in proportion, when it is less than ``radius`` outside (see
+    :data:`_PROFILE_PUSH`). Points inside the hull, and the first ``rim``
+    points, are returned as they are; a ``radius`` of 0 returns the array
+    itself. ``reference`` is the rim as read off the face, before the
+    mask's own adjustments (the forehead ceiling, the chin drop, the jaw
+    shrink), so what is pushed, and where to, depends on the face alone."""
+    if radius <= 0.0 or len(points) <= rim:
+        return points
+    import cv2
+
+    rim_points = points[:rim] if reference is None else reference
+    hull = cv2.convexHull(np.ascontiguousarray(rim_points, dtype=np.float32))
+    centre = rim_points.mean(axis=0)
+    pushed = points.copy()
+    for index in range(rim, len(points)):
+        x, y = float(points[index, 0]), float(points[index, 1])
+        outside = -cv2.pointPolygonTest(hull, (x, y), True)
+        if outside <= 0.0:
+            continue
+        direction = points[index] - centre
+        length = float(np.linalg.norm(direction))
+        if length <= 1e-6:
+            continue
+        pushed[index] = points[index] + direction / length * min(outside, radius)
+    return pushed
+
+
+# Day 19 (his screenshot of a fast shake, the white streak down the cheek;
+# day 18 had measured the same thing under the turn views): the paste mask
+# is the two ovals, and the network draws the face where the pose puts it
+# inside the crop -- where the drawn face falls short of the mask (a turn
+# narrows it, a fast move lags it), the mask covers the photograph's own
+# flat background and pastes it, white, over his cheek. So the photograph's
+# background colour is read once at load from its border, and at every
+# paste the mask is cut wherever the render is that colour AND joined to the
+# box's border (a highlight on the nose is that colour too, and is not
+# joined to anything). A frontal face fills its own oval, so nothing is cut
+# there and the paste is the one it was; a photograph without a flat border
+# (a room) gets no guard, as before.
+_BACKGROUND_RING = 0.03  # of the picture's size, the border read at load
+_BACKGROUND_FLAT = 12.0  # the border's spread (median absolute deviation) allowed
+_BACKGROUND_NEAR = 30.0  # colour distance under which a render pixel is background
+# The cut reaches this far into the drawn face's own edge: the render's
+# face-to-background transition is a pixel or two of skin mixed with white,
+# past the distance above yet pale on his cheek (measured on his turn clip,
+# f452/f459: a thin light rim along the profile with the distance alone).
+_BACKGROUND_REACH = 2
+_BACKGROUND_SOFT = 5  # the cut's own feather, px (odd)
+# The guard comes on with the turn -- nothing under the first, all of it
+# from the second, degrees of yaw from the anchor's rest -- so a frontal
+# frame's paste is the one it was to the byte: measured on his turn clip,
+# a frontal frame's mask meets the render's own edge at the jaw for a pixel
+# or two, and the guard would trim those; the nose leaves the rim past 30.
+_BACKGROUND_YAW = (12.0, 20.0)
+
+
+def _background_guard(options: dict[str, Any]) -> bool:
+    """``background_guard`` (default on): whether the paste stops where the
+    render shows the photograph's own background."""
+    return bool(float(options.get("background_guard", 1.0)) > 0.0)
+
+
+# Day 20: the room past the portrait's oval (see _turn_room) comes on over
+# its own, shorter ramp: nothing under 12 degrees of yaw from the rest (a
+# frontal frame's paste is the one it was, to the byte), all of it from 16
+# -- his press at 17 degrees had the far brow's end 7.5 crop px past the
+# portrait's oval already, and under the guard's ramp (12 to 20) the room
+# there was only two thirds of the paste, his brow showing through the
+# other third. The room is pasted only where the render is the drawn face,
+# by the guard's keep map in full, so it needs none of the guard's own
+# caution about the frontal jaw.
+_ROOM_YAW = (12.0, 16.0)
+
+
+def _room_weight(loaded: _Portrait, head_pose: HeadPose | None) -> float:
+    """How much of the room past the portrait's oval this frame may take:
+    0.0 within :data:`_ROOM_YAW`'s first angle of the rest yaw, 1.0 past
+    its second, linear between; 0.0 without a background or a pose."""
+    if loaded.background is None or head_pose is None:
+        return 0.0
+    yaw = abs(float(head_pose.yaw) - (loaded.rest_yaw or 0.0))
+    return float(_soft_gate(yaw, _ROOM_YAW))
+
+
+def _background_weight(loaded: _Portrait, head_pose: HeadPose | None) -> float:
+    """How much of the guard applies this frame: 0.0 within
+    :data:`_BACKGROUND_YAW`'s first angle of the rest yaw, 1.0 past its
+    second, linear between; 0.0 without a background or a pose."""
+    if loaded.background is None or head_pose is None:
+        return 0.0
+    yaw = abs(float(head_pose.yaw) - (loaded.rest_yaw or 0.0))
+    return float(_soft_gate(yaw, _BACKGROUND_YAW))
+
+
+def _background_colour(portrait: np.ndarray) -> np.ndarray | None:
+    """The photograph's flat background colour (BGR, float32) from its
+    border -- the top ring and the upper halves of the two sides, where a
+    portrait's shoulders never are -- or ``None`` when that border is not
+    one colour (a room behind the face)."""
+    height, width = portrait.shape[:2]
+    ring = max(2, round(min(height, width) * _BACKGROUND_RING))
+    top = portrait[:ring].reshape(-1, 3)
+    left = portrait[: height // 2, :ring].reshape(-1, 3)
+    right = portrait[: height // 2, width - ring :].reshape(-1, 3)
+    pixels = np.concatenate([top, left, right]).astype(np.float32)
+    colour = np.median(pixels, axis=0)
+    spread = np.median(np.abs(pixels - colour), axis=0).max()
+    if spread > _BACKGROUND_FLAT:
+        return None
+    return colour.astype(np.float32)
+
+
+def _background_keep(face: np.ndarray, background: np.ndarray) -> np.ndarray | None:
+    """What the mask may keep of ``face`` (a BGR render patch): 0 where the
+    render is the photograph's background joined to the patch's border,
+    rising to 1 over :data:`_BACKGROUND_NEAR`; ``None`` when no background
+    reaches the patch at all, so the caller pays nothing."""
+    import cv2
+
+    distance = np.max(np.abs(face.astype(np.float32) - background), axis=2)
+    flat = (distance < _BACKGROUND_NEAR).astype(np.uint8)
+    if not flat.any():
+        return None
+    count, labels = cv2.connectedComponents(flat, connectivity=4)
+    if count <= 1:
+        return None
+    border = np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]])
+    joined = np.unique(border[border > 0])
+    if joined.size == 0:
+        return None
+    outside = np.isin(labels, joined).astype(np.uint8)
+    reach = 2 * _BACKGROUND_REACH + 1
+    grown = cv2.dilate(outside, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (reach, reach)))
+    keep = cv2.GaussianBlur((1 - grown).astype(np.float32), (_BACKGROUND_SOFT, _BACKGROUND_SOFT), 0)
+    return np.asarray(keep, dtype=np.float32)
+
+
 def _mask_bbox(
-    mask: np.ndarray, margin: int = _MASK_BOX_MARGIN, *, reach_below: int = 0
+    mask: np.ndarray,
+    margin: int = _MASK_BOX_MARGIN,
+    *,
+    reach_below: int = 0,
+    room_aside: float = 0.0,
 ) -> tuple[int, int, int, int]:
     """Where ``mask`` is non-zero, with a small margin, as integer crop pixels.
 
     ``reach_below`` extends the box's bottom edge by that many more pixels
     (day 13): the per-frame mask under an open mouth reaches below the
     portrait's own oval by up to the chin drop's limit, and the paste
-    warps only into this box.
+    warps only into this box. ``room_aside`` (day 20) widens it to either
+    side by that fraction of its own width, for the drawn face's far side
+    at a turn (see :data:`_MASK_TURN_ROOM`).
 
     This is the whole reason the mask is precomputed once at load: its box is
     a fixed rectangle inside the crop, far smaller than the crop's own 512
@@ -1878,10 +2084,42 @@ def _mask_bbox(
     y1 = min(int(nonzero[:, 0].max()) + 1 + margin + reach_below, size)
     x0 = max(int(nonzero[:, 1].min()) - margin, 0)
     x1 = min(int(nonzero[:, 1].max()) + 1 + margin, size)
+    if room_aside > 0.0:
+        room = round((x1 - x0) * room_aside)
+        x0, x1 = max(x0 - room, 0), min(x1 + room, size)
     return x0, y0, x1, y1
 
 
+def _turn_room(portrait: np.ndarray, driver: np.ndarray, weight: float) -> np.ndarray | None:
+    """Day 20: what the paste may add beyond the portrait's static oval at a
+    turn -- the driver's own oval, up to ``weight`` (see
+    :func:`_room_weight`), where the portrait's oval falls short of it;
+    ``None`` at weight 0, so a frontal frame's paste is the one it was.
+    The portrait's oval is the frontal photograph's and keeps its
+    background and shoulders out; at a turn the drawn face's far side
+    reaches past that oval's edge (his press at +28 degrees: the drawn
+    temple 1 px beyond his far brow's end, the oval 11 px short of it) and
+    his own brow showed in the gap. What this adds is pasted only where the
+    render is the drawn face, not its background -- :meth:`_paste` applies
+    the guard's keep map to it in full -- so the background stays out as
+    before, by the guard instead of the oval; a photograph without a flat
+    background has no guard, and no room."""
+    if weight <= 0.0:
+        return None
+    extra = np.minimum(np.maximum(weight - portrait, 0.0), driver)
+    return np.asarray(extra, dtype=np.float32)
+
+
 def _frame_mask(
+    portrait_mask: np.ndarray,
+    driver_crop_points: np.ndarray,
+    **kwargs: Any,
+) -> np.ndarray:
+    """The paste mask for one frame -- :func:`_frame_masks`'s first."""
+    return _frame_masks(portrait_mask, driver_crop_points, **kwargs)[0]
+
+
+def _frame_masks(
     portrait_mask: np.ndarray,
     driver_crop_points: np.ndarray,
     *,
@@ -1891,8 +2129,10 @@ def _frame_mask(
     forehead_reach: float = _OVAL_FOREHEAD_REACH,
     chin_reach: float = 0.0,
     driver_forehead_reach: float | None = None,
-) -> np.ndarray:
-    """The paste mask for one frame: the portrait's oval **and** the driver's.
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """The paste mask for one frame -- the portrait's oval **and** the
+    driver's -- with the two ovals it was made of (day 20, for
+    :func:`_turn_room`).
 
     ``driver_forehead_reach`` (day 17) gives the driver's oval its own
     reach, ``None`` for the same as the portrait's: with the avatar's hair
@@ -1950,18 +2190,14 @@ def _frame_mask(
             chin_drop=chin_drop + chin_reach,
             forehead_reach=forehead_reach,
         )
-    combined: np.ndarray = np.minimum(
-        portrait,
-        _oval_mask(
-            driver_crop_points,
-            jaw_shrink=jaw_shrink,
-            chin_drop=chin_reach,
-            forehead_reach=forehead_reach
-            if driver_forehead_reach is None
-            else driver_forehead_reach,
-        ),
+    driver = _oval_mask(
+        driver_crop_points,
+        jaw_shrink=jaw_shrink,
+        chin_drop=chin_reach,
+        forehead_reach=forehead_reach if driver_forehead_reach is None else driver_forehead_reach,
     )
-    return combined
+    combined: np.ndarray = np.minimum(portrait, driver)
+    return combined, driver, portrait
 
 
 def _fit_lighting_plane(difference: np.ndarray, coverage: np.ndarray) -> np.ndarray:
@@ -2096,12 +2332,29 @@ def _scale_gain(options: dict[str, Any]) -> float:
     return g
 
 
+# Day 20 (2026-09-18), his "the AI face cannot keep up with a slightly
+# quick turn": 0.85 was day 9's answer to the extractor's SCALE breathing
+# while he sat still, and the scale has not been applied since day 13
+# (scale_gain 0) -- only the translation was left carrying the weight,
+# and with it the drawn head's position lagged six frames: the drawn nose
+# 20-32 px off his on the turn clip's fast return (30-45 live at 21 fps,
+# the filter counts frames), the mask leading the drawn face by that much.
+# Measured before the change (replay): at 0.3 the nose is 8 px off on the
+# same frames and the head follows within a frame; sitting still the
+# drawn nose's own frame-to-frame movement is the same (p90 0.45-0.49 px
+# at the camera, 1.9 at the screen, his own head's) and avatar-minus-his
+# jitter is lower (p90 0.40 -> 0.29 px); the expression (ear, mar, mouth
+# width, brow: r and gain) identical on driving.mkv. His word, 04:2x.
+_DEFAULT_SIZE_SMOOTHING = 0.3
+
+
 def _size_smoothing(options: dict[str, Any]) -> float:
     """The EMA weight on the previous frame's extractor *scale and
-    translation* (``size_smoothing``, default 0.85; 0.0 off) -- applied in
+    translation* (``size_smoothing``, default
+    :data:`_DEFAULT_SIZE_SMOOTHING`; 0.0 off) -- applied in
     :meth:`LivePortraitEngine._drive` on top of ``motion_smoothing``, which
     stays at 0.0 for the expression. See the comment there."""
-    a = float(options.get("size_smoothing", 0.85))
+    a = float(options.get("size_smoothing", _DEFAULT_SIZE_SMOOTHING))
     if not (0.0 <= a < 1.0):
         raise ValueError(f"size_smoothing must be in [0, 1), got {a}")
     return a
@@ -3302,6 +3555,64 @@ def _hold_thresholds(options: dict[str, Any]) -> tuple[float, float]:
     return pitch, yaw
 
 
+# Day 20 (2026-09-18), his "a quick turn left-right zooms the face out":
+# the crop is sized by the pose's translation z (see _driver_face_height),
+# and z is a rigid fit of the whole face model -- on half a face it wanders.
+# Measured on his turn clip (recordings/driving-turn.mkv, the tracker as
+# the app runs it, z over the still start's median): within 10 degrees of
+# yaw 0.995 (0.97-1.08 as he leans), 20-35 degrees 0.96-0.98 (nearer than
+# he is, the crop up to 4% too large), 36-47 to the left 1.01 (farther),
+# the profile 0.92-0.95, and the first frame found after a profile 1.012
+# at -63 -- 4% farther than the frames right after, and the crop's 1-Hz
+# size filter, reset by the loss, started from that frame: the avatar 3-4%
+# smaller than his face for the next half second, back at the camera,
+# with the photograph's background as a line along the far side (day 19).
+# So past this many degrees of yaw from the rest the crop's size stops
+# following z and keeps the depth he sat at -- a turn in place does not
+# change the distance -- and follows z again the moment the head is back
+# under. On every frame at or under the threshold the crop's geometry is
+# what it was before, by construction; only the size filter's memory of a
+# turn differs on the frames after one (0.0002 px past 45 frames, nothing
+# past 52). 0 turns it off (the sweep of depth_probe.py).
+_DEFAULT_DEPTH_HOLD_YAW = 35.0
+# The depth held is read on frames within this many degrees of yaw from
+# the rest, where the fit is trusted (above), as the MEDIAN of the last
+# _DEPTH_TRUST_FRAMES such readings: the first version held the last
+# frame's own z, and on his clip that was once a face the second look
+# found for a single frame at pitch +29 with z 16% off -- the next profile
+# was drawn 15% too small for six frames. His real leans move z by at
+# most 1.6% in a frame (p99 0.8%), so five frames cost nothing he can see
+# and one bad frame cannot reach the hold.
+_DEPTH_TRUST_YAW = 20.0
+_DEPTH_TRUST_FRAMES = 5
+
+
+def _depth_hold_yaw(options: dict[str, Any]) -> float:
+    """``depth_hold_yaw`` -- degrees of yaw from the rest past which the
+    crop's depth is held (default :data:`_DEFAULT_DEPTH_HOLD_YAW`); 0 off."""
+    yaw = float(options.get("depth_hold_yaw", _DEFAULT_DEPTH_HOLD_YAW))
+    if yaw < 0.0:
+        raise ValueError(f"depth_hold_yaw must be >= 0, got {yaw}")
+    return yaw
+
+
+def _held_depth(loaded: _Portrait, head_pose: HeadPose, z: float) -> float:
+    """The depth the crop is sized from this frame: ``z`` itself at or under
+    :func:`_depth_hold_yaw` of yaw from the rest -- and within
+    :data:`_DEPTH_TRUST_YAW` remembered, the median of the last
+    :data:`_DEPTH_TRUST_FRAMES` such readings kept as ``z_frontal`` -- the
+    remembered depth past it; ``z`` past it when no trusted frame has been
+    seen yet (found first at a turn)."""
+    hold_yaw = _depth_hold_yaw(loaded.options)
+    yaw = abs(float(head_pose.yaw) - (loaded.rest_yaw or 0.0))
+    if hold_yaw <= 0.0 or yaw <= hold_yaw:
+        if yaw <= _DEPTH_TRUST_YAW:
+            loaded.z_recent.append(z)
+            loaded.z_frontal = float(statistics.median(loaded.z_recent))
+        return z
+    return z if loaded.z_frontal is None else loaded.z_frontal
+
+
 _STEEP_POSE_MODES = ("hold", "clamp")
 # "clamp" since day 17 (his "head down, looking to the side, the face must
 # not get lost"): on natural.mkv's tilt step the hold froze 165 of 296
@@ -3527,6 +3838,7 @@ class _Portrait:
         "anchor_seen",
         "anchor_sum",
         "anchor_wanted",
+        "background",
         "blink_brow_hold",
         "blink_mouth_hold",
         "blink_mouth_lift",
@@ -3559,6 +3871,7 @@ class _Portrait:
         "gate_open_prev",
         "gaze_prev",
         "graph",
+        "guard_weight",
         "hair_box",
         "hair_matte",
         "hair_on",
@@ -3625,6 +3938,8 @@ class _Portrait:
         "x_s",
         "yaw_pivot",
         "yaw_prev",
+        "z_frontal",
+        "z_recent",
         "z_rest",
     )
 
@@ -3725,6 +4040,13 @@ class _Portrait:
         # The portrait's own 512 crop (BGR), kept for the hair's first matte
         # when the hair is switched on after the load.
         self.portrait_crop: np.ndarray | None = None
+        # Day 19: the photograph's flat background colour (BGR), read at
+        # load from its border, or None when the border is not flat or the
+        # guard is off -- see _background_colour and _background_keep.
+        self.background: np.ndarray | None = None
+        # How much of the guard the last rendered frame gets (the turn's
+        # weight, see _background_weight); kept for a held frame.
+        self.guard_weight: float = 0.0
         # Day 11: his resting iris offset (x, y) in units of eye width,
         # learned with the anchor like rest_brow; and the gaze drive's own
         # EMA state -- see the GAZE section and _gaze_drive.
@@ -3784,6 +4106,12 @@ class _Portrait:
         self.size_samples: list[tuple[float, float]] = []
         self.face_height_rest: float | None = None
         self.z_rest: float | None = None
+        # Day 20: the depth he sits at -- the median of the pose's z over
+        # the last few frames within _DEPTH_TRUST_YAW of the rest -- what
+        # the crop is sized from past depth_hold_yaw (see _held_depth).
+        # None until such a frame; kept across a loss.
+        self.z_recent: deque[float] = deque(maxlen=_DEPTH_TRUST_FRAMES)
+        self.z_frontal: float | None = None
         # Day 11: the crop centre's fixed vertical offset off the eye line,
         # in units of the crop size -- collected on accepted anchor frames
         # when crop_centre is "eyeline" and frozen as their median with the
@@ -3913,7 +4241,7 @@ class _Portrait:
         # with, for the frames the tracker loses: the face stays, the room
         # keeps moving, and the hold needs the same mask a fresh frame would
         # have built so a lost-tracking frame does not flash a different edge.
-        self.last: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None
+        self.last: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray | None] | None = None
         # The portrait's own oval, feathered, in the 512x512 crop the network
         # always draws into — computed once at load from the portrait's own
         # landmarks and reused every frame as one half of :func:`_frame_mask`.
@@ -4142,7 +4470,9 @@ class LivePortraitEngine:
         loaded.forehead_reach = reach
         loaded.mask = _oval_mask(loaded.crop_points, forehead_reach=reach)
         loaded.mask_bbox = _mask_bbox(
-            loaded.mask, reach_below=int(np.ceil(loaded.chin_drop_max + loaded.chin_reach))
+            loaded.mask,
+            reach_below=int(np.ceil(loaded.chin_drop_max + loaded.chin_reach)),
+            room_aside=_MASK_TURN_ROOM,
         )
 
     def _enable_hair(self, loaded: _Portrait) -> bool:
@@ -4298,6 +4628,19 @@ class LivePortraitEngine:
         # Day 17: the crop itself is kept for the hair's own matte (see
         # _enable_hair), and set_hair's word overrides the file's.
         loaded.portrait_crop = crop
+        # Day 19: the photograph's flat background, so the paste can stop
+        # where the drawn face stops (see _background_keep).
+        loaded.background = (
+            _background_colour(portrait) if _background_guard(loaded.options) else None
+        )
+        if loaded.background is None:
+            _LOG.info("Avatar %s: no flat background read; the paste is not guarded", descriptor.id)
+        else:
+            _LOG.info(
+                "Avatar %s: background colour (BGR) %s; the paste stops at the drawn face",
+                descriptor.id,
+                loaded.background.astype(int).tolist(),
+            )
         wanted = self._hair_wanted.get(descriptor.id)
         if wanted is not None:
             loaded.hair_on = wanted
@@ -4339,7 +4682,9 @@ class LivePortraitEngine:
         loaded.chin_reach = room.chin_reach
         loaded.chin_drop_max = room.chin_drop_max
         loaded.mask_bbox = _mask_bbox(
-            loaded.mask, reach_below=int(np.ceil(loaded.chin_drop_max + loaded.chin_reach))
+            loaded.mask,
+            reach_below=int(np.ceil(loaded.chin_drop_max + loaded.chin_reach)),
+            room_aside=_MASK_TURN_ROOM,
         )
         # Day 17: the hair asked for (the option, or set_hair before the
         # load) -- the segmenter started and the portrait's own matte read
@@ -4567,6 +4912,8 @@ class LivePortraitEngine:
             loaded.size_samples = []
             loaded.face_height_rest = None
             loaded.z_rest = None
+            loaded.z_recent.clear()
+            loaded.z_frontal = None
             loaded.centre_samples = []
             loaded.pose_samples = []
             loaded.centre_offset = None
@@ -4787,12 +5134,14 @@ class LivePortraitEngine:
         for the forehead-to-nose height under pitch and -20% for the cheek-
         to-cheek width under yaw). ``None`` before the anchor has frozen, or
         without a usable pose, and :func:`crop_matrix` measures the frame
-        itself instead."""
+        itself instead. Day 20: past ``depth_hold_yaw`` of yaw the depth is
+        the last frontal frame's, not this frame's (see :func:`_held_depth`)."""
         if loaded.face_height_rest is None or loaded.z_rest is None or head_pose is None:
             return None
         z = abs(float(head_pose.translation[2]))
         if z <= 1e-6:
             return None
+        z = _held_depth(loaded, head_pose, z)
         return loaded.face_height_rest * loaded.z_rest / z
 
     def animate(
@@ -4832,7 +5181,7 @@ class LivePortraitEngine:
             loaded.last_timestamp = None
             if loaded.last is None:
                 return self._passthrough(scene, frame, tracking, avatar_id)
-            face, to_frame, mask = loaded.last
+            face, to_frame, mask, extra = loaded.last
         else:
             started = now()
             scale = float(loaded.options.get("crop_scale", CROP_SCALE))
@@ -4902,7 +5251,7 @@ class LivePortraitEngine:
             if not still:
                 self._restart_anchor(loaded)
             if _should_hold(loaded, tracking.head_pose) and loaded.last is not None:
-                face, _, _ = loaded.last
+                face = loaded.last[0]
                 # Whatever his mouth does while held is not seen; the first
                 # frame after must not read the jump as speech (_gates).
                 loaded.mar_prev = loaded.width_prev = None
@@ -5007,7 +5356,7 @@ class LivePortraitEngine:
             # in -- and, under an open mouth, the portrait's own let down to
             # meet it; see _frame_mask.
             assert loaded.mask is not None
-            mask = _frame_mask(
+            mask, driver_oval, portrait_oval = _frame_masks(
                 loaded.mask,
                 crop_points,
                 jaw_shrink=_mask_jaw_shrink(loaded.options),
@@ -5023,7 +5372,13 @@ class LivePortraitEngine:
             )
             masked = now()
 
-            loaded.last = (face, to_frame, mask)
+            # Day 19: how much the paste stops at the drawn face this frame
+            # -- with the turn, nothing on a frontal face (see _paste).
+            loaded.guard_weight = _background_weight(loaded, tracking.head_pose)
+            # Day 20: past the portrait's own oval at a turn, the driver's
+            # -- pasted where the render is the drawn face (see _turn_room).
+            extra = _turn_room(portrait_oval, driver_oval, _room_weight(loaded, tracking.head_pose))
+            loaded.last = (face, to_frame, mask, extra)
             self.last_timings = {
                 "crop_ms": (cropped - started) * 1000.0,
                 "model_ms": (rendered - cropped) * 1000.0,
@@ -5032,7 +5387,7 @@ class LivePortraitEngine:
             }
 
         pasted = now()
-        output = self._paste(scene, face, to_frame, loaded, mask)
+        output = self._paste(scene, face, to_frame, loaded, mask, extra=extra)
         self.last_timings["paste_ms"] = (now() - pasted) * 1000.0
 
         return RenderedFrame(
@@ -5523,12 +5878,13 @@ class LivePortraitEngine:
                 torch.minimum(pose_now - loaded.pose_d0, loaded.pose_limit), -loaded.pose_limit
             )
         # Day 9, later: the extractor's scale and translation are smoothed
-        # harder than its expression and pose (size_smoothing, default
-        # 0.85 -- a fifth of each frame's fresh reading), the same _ema_
-        # in the same state. Sitting still, the extractor's scale reads
-        # 0.1%/1.1% (p50/p90) differently frame to frame -- a face that
-        # breathes in size for no reason ("bounce"); neither should change
-        # quickly in a crop that already follows him.
+        # harder than its expression and pose (size_smoothing, the same
+        # _ema_ in the same state). Sitting still, the extractor's scale
+        # read 0.1%/1.1% (p50/p90) differently frame to frame -- a face
+        # that breathes in size for no reason ("bounce") -- hence 0.85, a
+        # fifth of each frame. Day 20: the scale is unused since day 13
+        # and 0.85 on the translation alone lagged the drawn head six
+        # frames behind a quick turn; 0.3 now (see _DEFAULT_SIZE_SMOOTHING).
         a_size = max(a, _size_smoothing(loaded.options))
         t_now = _ema_(loaded.t_prev, t, a_size)
         scale_now = _ema_(loaded.scale_prev, scale, a_size)
@@ -5740,6 +6096,7 @@ class LivePortraitEngine:
         to_frame: np.ndarray,
         loaded: _Portrait,
         mask: np.ndarray,
+        extra: np.ndarray | None = None,
     ) -> np.ndarray:
         """The generated face into the frame, under its own oval, colour-matched.
 
@@ -5747,6 +6104,9 @@ class LivePortraitEngine:
         intersected with the driver's, see :func:`_frame_mask` -- not
         ``loaded.mask``, which is the portrait's half alone and no longer
         enough on its own (see that function's docstring for why).
+        ``extra`` (day 20, see :func:`_turn_room`) is what may be added past
+        the portrait's oval at a turn, pasted only where the render is the
+        drawn face; ``None`` on a frontal frame.
 
         Bounded to ``loaded.mask_bbox``, the *portrait* mask's own box in the
         crop -- not the whole 512 square LivePortrait draws into, most of
@@ -5771,10 +6131,9 @@ class LivePortraitEngine:
         # skin at the join, as day 13 built it), and its plane -- the room's
         # light -- is what the hair takes too. Off, every line below is what
         # it was: one mask, one box.
-        paste: np.ndarray | None = None
         box = loaded.mask_bbox
-        if loaded.hair_on and loaded.hair_matte is not None:
-            paste = np.maximum(mask, loaded.hair_matte)
+        hair = loaded.hair_on and loaded.hair_matte is not None
+        if hair:
             grown = union_box(box, loaded.hair_box)
             assert grown is not None
             box = grown
@@ -5796,6 +6155,21 @@ class LivePortraitEngine:
 
         face_patch = face[by0:by1, bx0:bx1]
         mask_patch = mask[by0:by1, bx0:bx1, 0]
+        # Day 19: the paste stops where the drawn face stops -- the mask
+        # cut wherever the render shows the photograph's own background
+        # (see _background_keep), by the turn's weight (see
+        # _background_weight): nothing on a frontal frame, whose paste is
+        # the one it was to the byte.
+        weight = loaded.guard_weight
+        keep = None
+        if loaded.background is not None and (weight > 0.0 or extra is not None):
+            keep = _background_keep(face_patch, loaded.background)
+        if keep is not None and weight > 0.0:
+            mask_patch = mask_patch * (1.0 - weight * (1.0 - keep))
+        if extra is not None:
+            # Day 20: the room past the portrait's oval, the drawn face only.
+            extra_patch = extra[by0:by1, bx0:bx1, 0]
+            mask_patch = mask_patch + (extra_patch if keep is None else extra_patch * keep)
 
         placed = cv2.warpAffine(face_patch, shifted, size, flags=cv2.INTER_LINEAR).astype(
             np.float32
@@ -5805,9 +6179,12 @@ class LivePortraitEngine:
         region = output[y0:y1, x0:x1].astype(np.float32)
         fit3 = cv2.merge((mask[:, :, 0], mask[:, :, 0], mask[:, :, 0]))
         alpha3 = fit3
-        if paste is not None:
+        if hair:
+            assert loaded.hair_matte is not None
+            matte = loaded.hair_matte
+            matte_patch = matte[by0:by1, bx0:bx1, 0] if matte.ndim == 3 else matte[by0:by1, bx0:bx1]
             blend = cv2.warpAffine(
-                paste[by0:by1, bx0:bx1, 0], shifted, size, flags=cv2.INTER_LINEAR
+                np.maximum(mask_patch, matte_patch), shifted, size, flags=cv2.INTER_LINEAR
             )
             alpha3 = cv2.merge((blend, blend, blend))
         features = None if loaded.features is None else loaded.features - (x0, y0)

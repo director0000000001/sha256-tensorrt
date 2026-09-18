@@ -45,7 +45,7 @@
     "mouth_lateral_gain": 0.0,
     "mouth_smile_gain": 1.0,
     "mouth_tilt_trim": 0.005,
-    "size_smoothing": 0.85,
+    "size_smoothing": 0.3,
     "crop_smoothing": 1.0,
     "crop_centre_smoothing": 0.0,
     "crop_smoothing_beta": 0.02,

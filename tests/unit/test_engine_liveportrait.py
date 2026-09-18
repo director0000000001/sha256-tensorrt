@@ -33,9 +33,11 @@ from sha256.avatar.engine_liveportrait import (
     _DEFAULT_CROP_SMOOTHING_HZ,
     _DEFAULT_FRAME_DT,
     _EDGE_FEATURES,
+    _FACE_OVAL,
     _GATE_ATTACK,
     _GATE_RELEASE,
     _MASK_EDGE_CLEARANCE,
+    _MIDLINE,
     _MOUTH_ACTIVITY_GATE,
     _MOUTH_ACTIVITY_MAR,
     _MOUTH_ACTIVITY_WIDTH,
@@ -61,6 +63,10 @@ from sha256.avatar.engine_liveportrait import (
     NUM_KP,
     LivePortraitEngine,
     _anchor_frame_ok,
+    _background_colour,
+    _background_guard,
+    _background_keep,
+    _background_weight,
     _brow_follow,
     _brow_gain,
     _brow_gate,
@@ -75,6 +81,7 @@ from sha256.avatar.engine_liveportrait import (
     _crop_filters,
     _crop_geometry,
     _dark_cells,
+    _depth_hold_yaw,
     _edge_match,
     _edge_residual,
     _ema_,
@@ -97,6 +104,7 @@ from sha256.avatar.engine_liveportrait import (
     _gaze_gain,
     _gaze_offset,
     _gaze_rest_tracking,
+    _held_depth,
     _hold_thresholds,
     _lip_ratio,
     _lip_rest_tracking,
@@ -120,9 +128,11 @@ from sha256.avatar.engine_liveportrait import (
     _pivot_z,
     _Portrait,
     _pose_still,
+    _push_profile,
     _region_masks,
     _release,
     _relieved_ear,
+    _room_weight,
     _rotation_pivot,
     _scale_gain,
     _should_hold,
@@ -131,6 +141,7 @@ from sha256.avatar.engine_liveportrait import (
     _soft_gate,
     _transformed_box,
     _translation_gain,
+    _turn_room,
     crop_matrix,
 )
 from sha256.avatar.engine_liveportrait import (
@@ -174,6 +185,12 @@ def face_points(*, centre=(640.0, 360.0), width=300.0, roll_degrees=0.0) -> np.n
     pts[10] = (0.0, -0.45 * width)
     pts[1] = (0.0, 0.05 * width)
     for index, y in zip((168, 6, 197, 195, 5, 4), np.linspace(-0.4, 0.0, 6) * width, strict=True):
+        pts[index] = (0.0, y)
+    # Day 19: the rest of the midline (see _MIDLINE) on the midline too, well
+    # inside the rim -- as on a face; scattered, a random one could fall
+    # outside the rim's own hull and grow the oval where a face never would.
+    rest = [index for index in _MIDLINE if index not in (168, 6, 197, 195, 5, 4, 1)]
+    for index, y in zip(rest, np.linspace(-0.3, 0.3, len(rest)) * width, strict=True):
         pts[index] = (0.0, y)
     theta = math.radians(roll_degrees)
     rot = np.array([[math.cos(theta), -math.sin(theta)], [math.sin(theta), math.cos(theta)]])
@@ -3068,7 +3085,7 @@ class TestExtremePoseHold:
         frame1, tracking1 = self._frame(pts, pitch=0.0, yaw=0.0)
         engine.animate(loaded.descriptor.id, tracking1, frame1)
         assert loaded.graph.calls == 1
-        face_before, to_frame_before, _ = loaded.last
+        face_before, to_frame_before, _, _ = loaded.last
 
         moved = pts.copy()
         moved[:, 1] += 40.0  # his face really did move, so the crop differs
@@ -3077,7 +3094,7 @@ class TestExtremePoseHold:
 
         assert loaded.graph.calls == 1  # the network was not asked again
         assert loaded.holding is True
-        face_after, to_frame_after, _ = loaded.last
+        face_after, to_frame_after, _, _ = loaded.last
         assert np.array_equal(face_after, face_before)
         assert not np.allclose(to_frame_after, to_frame_before)
 
@@ -3845,7 +3862,7 @@ class TestCropSmoothing:
 
 class TestSizeSmoothing:
     def test_size_smoothing_default_and_validation(self):
-        assert _size_smoothing({}) == 0.85
+        assert _size_smoothing({}) == 0.3
         assert _size_smoothing({"size_smoothing": 0.0}) == 0.0
         with pytest.raises(ValueError, match="size_smoothing"):
             _size_smoothing({"size_smoothing": 1.0})
@@ -4385,3 +4402,526 @@ class TestOnTheGpu:
             assert shut < open_ - 0.03, f"shut={shut:.3f} open={open_:.3f}: no separation"
         finally:
             engine.stop()
+
+
+class TestMidlineInTheOval:
+    """Day 19: the face's midline goes into the oval's hull, so at a turn
+    the near side follows the profile instead of cutting through the nose;
+    on a frontal face the hull is the polygon it was."""
+
+    def _crop_points(self, pts: np.ndarray) -> np.ndarray:
+        to_crop, _ = crop_matrix(pts)
+        return (pts @ to_crop[:, :2].T + to_crop[:, 2]).astype(np.float32)
+
+    def test_a_frontal_face_gets_the_same_mask_to_the_pixel(self, monkeypatch):
+        from sha256.avatar import engine_liveportrait as engine
+
+        crop_points = self._crop_points(face_points())
+        with_midline = _oval_mask(crop_points, jaw_shrink=0.05, chin_drop=6.0)
+        # The hull of the rim alone, as it was before day 19.
+        monkeypatch.setattr(engine, "_MIDLINE", ())
+        rim_only = _oval_mask(crop_points, jaw_shrink=0.05, chin_drop=6.0)
+        assert np.array_equal(with_midline, rim_only)
+
+    def test_a_nose_past_the_rim_is_inside_the_mask(self):
+        pts = face_points()
+        crop_points = self._crop_points(pts)
+        before = _oval_mask(crop_points)[:, :, 0]
+        # A turn to the subject's right: the nose tip and bridge project
+        # past the rim's side by a fifth of the face width.
+        turned = crop_points.copy()
+        for index in (1, 4, 5, 195, 197):
+            turned[index, 0] -= 0.35 * 300.0
+        after = _oval_mask(turned)[:, :, 0]
+        x, y = turned[1].astype(int)
+        # Not at the tip itself, which the erosion and the feather round off
+        # like any vertex, but a few pixels in from it.
+        assert before[y, x + 8] < 0.5 < after[y, x + 8]
+        assert after.sum() > before.sum()
+
+    def test_the_midline_is_on_the_mesh_and_off_the_rim(self):
+        assert all(0 <= index < 468 for index in _MIDLINE)
+        assert not set(_MIDLINE) & set(_FACE_OVAL)
+
+
+class TestProfilePush:
+    """Day 20 (step 3 of the turn plan): a midline point outside the rim's
+    hull -- the profile at a turn -- is pushed out by the erosion's radius
+    before the hull, so the eroded edge lands on the profile; on a frontal
+    face nothing is outside the rim and the mask is the same bytes."""
+
+    def _square(self):
+        rim = np.array([[0.0, 0.0], [100.0, 0.0], [100.0, 100.0], [0.0, 100.0]], dtype=np.float32)
+        return rim
+
+    def test_points_inside_the_rim_and_the_rim_itself_do_not_move(self):
+        pts = np.concatenate([self._square(), [[50.0, 50.0], [99.0, 50.0], [100.0, 50.0]]])
+        pushed = _push_profile(pts.astype(np.float32), 4, 6.0)
+        assert np.array_equal(pushed, pts.astype(np.float32))
+
+    def test_a_point_outside_moves_out_along_the_centre_ray_by_the_radius(self):
+        pts = np.concatenate([self._square(), [[120.0, 50.0]]]).astype(np.float32)
+        pushed = _push_profile(pts, 4, 6.0)
+        assert pushed[4].tolist() == pytest.approx([126.0, 50.0])
+        assert np.array_equal(pushed[:4], pts[:4])
+
+    def test_ramped_over_the_first_radius_outside(self):
+        pts = np.concatenate([self._square(), [[103.0, 50.0]]]).astype(np.float32)
+        pushed = _push_profile(pts, 4, 6.0)
+        assert pushed[4].tolist() == pytest.approx([106.0, 50.0])  # 3 outside: pushed 3
+        assert np.array_equal(_push_profile(pts, 4, 0.0), pts)
+
+    def test_a_frontal_face_gets_the_same_mask_to_the_byte(self, monkeypatch):
+        from sha256.avatar import engine_liveportrait as engine
+
+        # The synthetic face's brows sit 1-5 px outside its own rim, unlike
+        # a real face's (his 894 frames, TestMidlineOnHisFace); the midline
+        # alone here, the brows proven on his face.
+        monkeypatch.setattr(engine, "_BROW_LINE", ())
+        pts = face_points()
+        to_crop, _ = crop_matrix(pts)
+        crop_points = (pts @ to_crop[:, :2].T + to_crop[:, 2]).astype(np.float32)
+        pushed = _oval_mask(crop_points, jaw_shrink=0.05, chin_drop=6.0)
+        monkeypatch.setattr(engine, "_PROFILE_PUSH", 0.0)
+        plain = _oval_mask(crop_points, jaw_shrink=0.05, chin_drop=6.0)
+        assert np.array_equal(pushed, plain)
+
+    def test_at_a_turn_the_eroded_edge_lands_on_the_nose(self, monkeypatch):
+        """The synthetic face turned as in TestMidlineInTheOval: the mask's
+        half-way line along the nose's row sits at the nose tip's own x
+        (within a pixel), where without the push it sits an erosion radius
+        (6 px at this face width) inside."""
+        from sha256.avatar import engine_liveportrait as engine
+
+        pts = face_points()
+        to_crop, _ = crop_matrix(pts)
+        crop_points = (pts @ to_crop[:, :2].T + to_crop[:, 2]).astype(np.float32)
+        turned = crop_points.copy()
+        for index in (1, 4, 5, 195, 197):
+            turned[index, 0] -= 0.35 * 300.0
+        x, y = turned[1]
+        row = _oval_mask(turned)[round(float(y)), :, 0]
+        monkeypatch.setattr(engine, "_PROFILE_PUSH", 0.0)
+        row_plain = _oval_mask(turned)[round(float(y)), :, 0]
+
+        def half_way(values):
+            # The first column, from the nose tip inward, at or over 0.5.
+            for dx in range(0, 40):
+                if values[round(float(x)) + dx] >= 0.5:
+                    return dx
+            return None
+
+        assert half_way(row_plain) is not None and half_way(row_plain) >= 4
+        assert half_way(row) is not None and half_way(row) <= 1
+        assert (row >= row_plain - 1e-6).all()
+
+
+class TestBackgroundGuard:
+    """Day 19: the paste stops where the render shows the photograph's own
+    flat background, read once from the photograph's border."""
+
+    def test_a_flat_border_gives_its_colour_and_a_busy_one_none(self):
+        flat = np.full((200, 160, 3), (230, 232, 235), dtype=np.uint8)
+        flat[60:180, 40:120] = (90, 120, 170)  # a face in the middle
+        colour = _background_colour(flat)
+        assert colour is not None and colour.tolist() == [230.0, 232.0, 235.0]
+        rng = np.random.default_rng(3)
+        busy = rng.integers(0, 255, size=(200, 160, 3), dtype=np.uint8)
+        assert _background_colour(busy) is None
+        # Shoulders along the bottom edge do not count: only the top ring and
+        # the upper halves of the sides are read.
+        shouldered = flat.copy()
+        shouldered[150:, :] = (30, 30, 30)
+        assert _background_colour(shouldered) is not None
+
+    def test_the_option_defaults_on(self):
+        assert _background_guard({}) is True
+        assert _background_guard({"background_guard": 0}) is False
+        assert _background_guard({"background_guard": 1.0}) is True
+
+    def test_background_joined_to_the_border_is_cut_and_a_highlight_is_kept(self):
+        bg = np.array([235.0, 235.0, 235.0], dtype=np.float32)
+        face = np.full((60, 80, 3), (120, 150, 190), dtype=np.uint8)
+        face[:, :20] = (235, 235, 235)  # the background, in from the left edge
+        face[30:34, 50:54] = (240, 240, 240)  # a highlight on the nose, an island
+        keep = _background_keep(face, bg)
+        assert keep is not None and keep.shape == (60, 80)
+        assert keep[:, :20].max() == 0.0
+        assert keep[30:34, 50:54].min() == 1.0
+        assert keep[:, 25:].min() == 1.0
+
+    def test_the_edge_between_them_is_soft(self):
+        bg = np.array([235.0, 235.0, 235.0], dtype=np.float32)
+        face = np.full((10, 40, 3), (120, 150, 190), dtype=np.uint8)
+        # A gradient from the background colour into the face, from the edge.
+        for x in range(20):
+            face[:, x] = np.clip(235 - x * 3, 0, 255)
+        keep = _background_keep(face, bg)
+        assert keep is not None
+        row = keep[5]
+        assert row[0] == 0.0 and row[-1] == 1.0
+        assert np.any((row > 0.0) & (row < 1.0))  # a ramp, not a step
+        assert np.all(np.diff(row) >= -1e-6)
+        # The cut reaches a little into the face's own edge, past the last
+        # background-coloured pixel (x 9 here: 235 - 3 * 9 = 208 > 205).
+        assert row[10] < 0.5
+
+    def test_a_render_with_no_background_costs_nothing(self):
+        bg = np.array([235.0, 235.0, 235.0], dtype=np.float32)
+        face = np.full((30, 30, 3), (120, 150, 190), dtype=np.uint8)
+        assert _background_keep(face, bg) is None
+        face[10:12, 10:12] = (235, 235, 235)  # background colour, but an island
+        assert _background_keep(face, bg) is None
+
+
+class TestMidlineOnHisFace:
+    """Day 19, on the owner's own recorded landmarks (gitignored; skipped
+    elsewhere): a frontal frame's oval is the polygon it was to the pixel,
+    and a turned frame's grows on the near side."""
+
+    TRACKING = REPO_ROOT / "recordings" / "calibration-20260912-004157" / "tracking.npz"
+
+    def _ovals(self, monkeypatch, points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        from sha256.avatar import engine_liveportrait as engine
+
+        to_crop, _ = crop_matrix(points)
+        crop_points = (points @ to_crop[:, :2].T + to_crop[:, 2]).astype(np.float32)
+        with_midline = _oval_mask(crop_points)
+        midline = engine._MIDLINE
+        monkeypatch.setattr(engine, "_MIDLINE", ())
+        try:
+            rim_only = _oval_mask(crop_points)
+        finally:
+            monkeypatch.setattr(engine, "_MIDLINE", midline)
+        return with_midline, rim_only
+
+    def test_every_frontal_frame_is_unchanged_and_the_turned_ones_grow(self, monkeypatch):
+        if not self.TRACKING.is_file():
+            pytest.skip("the owner's calibration recording is not on this machine")
+        data = np.load(self.TRACKING)
+        landmarks, pose, detected = data["landmarks"], data["pose"], data["detected"]
+        frontal = turned = 0
+        grown: dict[float, float] = {}
+        for index in range(0, len(landmarks), 3):
+            if not detected[index]:
+                continue
+            points = landmarks[index, :FACE_POINTS, :2] * (1280.0, 720.0)
+            with_midline, rim_only = self._ovals(monkeypatch, points.astype(np.float32))
+            yaw = abs(float(pose[index][0]))  # the recording keeps (yaw, pitch, roll)
+            if yaw < 12.0:
+                assert np.array_equal(with_midline, rim_only), f"frame {index}, yaw {yaw:.0f}"
+                frontal += 1
+            else:
+                # A turn can only ever add to the oval, never take from it;
+                # how much it adds depends on the nose leaving the rim,
+                # which on his face happens past about 30 degrees.
+                assert np.all(with_midline >= rim_only - 1e-6), f"frame {index}, yaw {yaw:.0f}"
+                grown[yaw] = float(with_midline.sum() - rim_only.sum())
+                turned += 1
+        assert frontal > 100 and turned > 5, (frontal, turned)
+        widest = max(grown)
+        if widest >= 35.0:
+            assert grown[widest] > 0.0, widest
+
+    def test_the_brows_in_the_hull_change_nothing_on_a_frontal_frame(self, monkeypatch):
+        """Day 20, his two presses: the brows join the pushed hull set; on
+        every frontal frame of his the mask is the same bytes with them and
+        without, and a turned frame's mask only ever grows."""
+        from sha256.avatar import engine_liveportrait as engine
+
+        if not self.TRACKING.is_file():
+            pytest.skip("the owner's calibration recording is not on this machine")
+        data = np.load(self.TRACKING)
+        landmarks, pose, detected = data["landmarks"], data["pose"], data["detected"]
+        frontal = turned = 0
+        for index in range(0, len(landmarks), 3):
+            if not detected[index]:
+                continue
+            points = landmarks[index, :FACE_POINTS, :2] * (1280.0, 720.0)
+            to_crop, _ = crop_matrix(points.astype(np.float32))
+            crop_points = (points @ to_crop[:, :2].T + to_crop[:, 2]).astype(np.float32)
+            with_brows = _oval_mask(crop_points)
+            monkeypatch.setattr(engine, "_BROW_LINE", ())
+            try:
+                without = _oval_mask(crop_points)
+            finally:
+                monkeypatch.setattr(engine, "_BROW_LINE", engine._BROWS)
+            yaw = abs(float(pose[index][0]))
+            if yaw < 12.0:
+                assert np.array_equal(with_brows, without), f"frame {index}, yaw {yaw:.0f}"
+                frontal += 1
+            else:
+                assert np.all(with_brows >= without - 1e-6), f"frame {index}, yaw {yaw:.0f}"
+                turned += 1
+        assert frontal > 100 and turned > 5, (frontal, turned)
+
+    def test_the_profile_push_moves_nothing_on_a_frontal_frame(self, monkeypatch):
+        """Day 20: the push acts only on midline points outside the rim, so
+        every one of his frontal frames gives the same mask to the byte with
+        it on and off, and a turned frame's mask only ever grows."""
+        from sha256.avatar import engine_liveportrait as engine
+
+        if not self.TRACKING.is_file():
+            pytest.skip("the owner's calibration recording is not on this machine")
+        data = np.load(self.TRACKING)
+        landmarks, pose, detected = data["landmarks"], data["pose"], data["detected"]
+        frontal = turned = 0
+        for index in range(0, len(landmarks), 3):
+            if not detected[index]:
+                continue
+            points = landmarks[index, :FACE_POINTS, :2] * (1280.0, 720.0)
+            to_crop, _ = crop_matrix(points.astype(np.float32))
+            crop_points = (points @ to_crop[:, :2].T + to_crop[:, 2]).astype(np.float32)
+            pushed = _oval_mask(crop_points)
+            monkeypatch.setattr(engine, "_PROFILE_PUSH", 0.0)
+            try:
+                plain = _oval_mask(crop_points)
+            finally:
+                monkeypatch.setattr(engine, "_PROFILE_PUSH", 1.0)
+            yaw = abs(float(pose[index][0]))
+            if yaw < 12.0:
+                assert np.array_equal(pushed, plain), f"frame {index}, yaw {yaw:.0f}"
+                frontal += 1
+            else:
+                assert np.all(pushed >= plain - 1e-6), f"frame {index}, yaw {yaw:.0f}"
+                turned += 1
+        assert frontal > 100 and turned > 5, (frontal, turned)
+
+
+class TestBackgroundWeight:
+    """Day 19: the guard comes on with the turn, so a frontal frame's paste
+    is untouched by construction."""
+
+    def _loaded(self, background, rest_yaw=None):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(background=background, rest_yaw=rest_yaw)
+
+    def test_nothing_frontal_all_of_it_turned_and_a_ramp_between(self):
+        bg = np.array([240.0, 240.0, 240.0], dtype=np.float32)
+        loaded = self._loaded(bg)
+        assert _background_weight(loaded, HeadPose(yaw=0.0)) == 0.0
+        assert _background_weight(loaded, HeadPose(yaw=11.9)) == 0.0
+        assert _background_weight(loaded, HeadPose(yaw=-11.9)) == 0.0
+        assert _background_weight(loaded, HeadPose(yaw=20.0)) == 1.0
+        assert _background_weight(loaded, HeadPose(yaw=-45.0)) == 1.0
+        assert 0.0 < _background_weight(loaded, HeadPose(yaw=16.0)) < 1.0
+
+    def test_measured_from_the_rest_yaw(self):
+        bg = np.array([240.0, 240.0, 240.0], dtype=np.float32)
+        loaded = self._loaded(bg, rest_yaw=-8.0)
+        assert _background_weight(loaded, HeadPose(yaw=0.0)) == 0.0  # 8 from rest
+        assert _background_weight(loaded, HeadPose(yaw=-30.0)) == 1.0  # 22 from rest
+
+    def test_nothing_without_a_background_or_a_pose(self):
+        bg = np.array([240.0, 240.0, 240.0], dtype=np.float32)
+        assert _background_weight(self._loaded(None), HeadPose(yaw=40.0)) == 0.0
+        assert _background_weight(self._loaded(bg), None) == 0.0
+
+
+class TestDepthHold:
+    """Day 20: past ``depth_hold_yaw`` of yaw from the rest the crop is sized
+    from the depth he sits at -- the median of the last five readings within
+    20 degrees -- so the z a half-face fit wanders to (4% farther on the
+    first frame found after a profile, 7% nearer at the profile, on his
+    clip) cannot zoom the avatar; at or under the threshold the depth is the
+    frame's own, as before -- the frontal crop is untouched by construction."""
+
+    def _loaded(self, rest_yaw=None, **options):
+        from collections import deque
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            options=dict(options), rest_yaw=rest_yaw, z_frontal=None, z_recent=deque(maxlen=5)
+        )
+
+    def test_default_and_validation(self):
+        assert _depth_hold_yaw({}) == 35.0
+        assert _depth_hold_yaw({"depth_hold_yaw": 0.0}) == 0.0
+        assert _depth_hold_yaw({"depth_hold_yaw": 20}) == 20.0
+        with pytest.raises(ValueError, match="depth_hold_yaw"):
+            _depth_hold_yaw({"depth_hold_yaw": -1.0})
+
+    def test_the_frames_own_depth_at_or_under_the_threshold(self):
+        loaded = self._loaded()
+        assert _held_depth(loaded, HeadPose(yaw=0.0), 31.0) == 31.0
+        assert loaded.z_frontal == 31.0
+        assert _held_depth(loaded, HeadPose(yaw=35.0), 30.5) == 30.5  # at the threshold: live
+        assert _held_depth(loaded, HeadPose(yaw=30.0), 29.0) == 29.0  # 20-35: live, not trusted
+        assert loaded.z_frontal == 31.0
+
+    def test_remembered_within_twenty_degrees_as_the_median_of_five(self):
+        loaded = self._loaded()
+        for z in (31.0, 31.2, 36.8, 31.1, 30.9):  # one bad frame among five
+            _held_depth(loaded, HeadPose(yaw=5.0), z)
+        assert loaded.z_frontal == 31.1
+        _held_depth(loaded, HeadPose(yaw=20.0), 30.8)  # at the trust edge: remembered
+        assert loaded.z_frontal == 31.1  # the window slid: 31.2, 36.8, 31.1, 30.9, 30.8
+        assert list(loaded.z_recent) == [31.2, 36.8, 31.1, 30.9, 30.8]
+
+    def test_the_remembered_depth_past_it_whatever_z_reads(self):
+        loaded = self._loaded()
+        _held_depth(loaded, HeadPose(yaw=10.0), 31.0)
+        assert _held_depth(loaded, HeadPose(yaw=35.1), 32.3) == 31.0
+        assert _held_depth(loaded, HeadPose(yaw=-63.0), 29.5) == 31.0
+        assert loaded.z_frontal == 31.0  # the held frames do not move it
+        assert list(loaded.z_recent) == [31.0]
+
+    def test_a_single_bad_frame_cannot_reach_the_hold(self):
+        """His clip: a face found for one frame at pitch +29 with z 16%
+        off, then a profile -- the hold must be sized from his real seat."""
+        loaded = self._loaded()
+        for z in (31.7, 31.6, 31.7, 31.8):
+            _held_depth(loaded, HeadPose(yaw=2.0), z)
+        _held_depth(loaded, HeadPose(yaw=18.0), 36.8)  # the bad frame, within trust
+        assert _held_depth(loaded, HeadPose(yaw=55.0), 29.1) == 31.7
+
+    def test_released_on_the_way_back(self):
+        loaded = self._loaded()
+        _held_depth(loaded, HeadPose(yaw=10.0), 31.0)
+        _held_depth(loaded, HeadPose(yaw=50.0), 33.0)
+        assert _held_depth(loaded, HeadPose(yaw=34.0), 31.6) == 31.6
+        assert loaded.z_frontal == 31.0  # 34 is not trusted
+        assert _held_depth(loaded, HeadPose(yaw=12.0), 31.6) == 31.6
+        assert loaded.z_frontal == pytest.approx(31.3)  # the median of 31.0 and 31.6
+
+    def test_measured_from_the_rest_yaw(self):
+        loaded = self._loaded(rest_yaw=-8.0)
+        _held_depth(loaded, HeadPose(yaw=-8.0), 31.0)
+        assert _held_depth(loaded, HeadPose(yaw=30.0), 33.0) == 31.0  # 38 from rest
+        assert _held_depth(loaded, HeadPose(yaw=-40.0), 32.0) == 32.0  # 32 from rest
+        assert loaded.z_frontal == 31.0  # 32 from rest is not trusted either
+
+    def test_found_first_at_a_turn_the_frames_own_depth(self):
+        loaded = self._loaded()
+        assert _held_depth(loaded, HeadPose(yaw=60.0), 33.0) == 33.0
+        assert loaded.z_frontal is None
+
+    def test_off_at_zero(self):
+        loaded = self._loaded(depth_hold_yaw=0.0)
+        _held_depth(loaded, HeadPose(yaw=0.0), 31.0)
+        assert _held_depth(loaded, HeadPose(yaw=60.0), 33.0) == 33.0
+        assert loaded.z_frontal == 31.0  # still read, for the day it is turned on
+
+    def test_the_driver_face_height_holds_through_a_turn(self, tmp_path):
+        """Through the engine's own sizing: at rest 369 px at z 40; turned
+        50 degrees with z reading 44 the height stays 369 (the hold), where
+        the live reading would give 335.5 -- which it does again at 30
+        degrees on the way back; reset_anchor forgets the held depth."""
+        torch = pytest.importorskip("torch")
+        engine, loaded = TestAnchorGatingInRender()._engine_and_loaded(
+            tmp_path, torch=torch, anchor_wanted=1
+        )
+        TestAnchorGatingInRender()._feed(engine, loaded, [(369.0, 40.0)])
+
+        def pose(yaw, z):
+            return HeadPose(pitch=0.0, yaw=yaw, roll=0.0, translation=(0.0, 0.0, -z))
+
+        assert engine._driver_face_height(loaded, pose(0.0, 40.0)) == pytest.approx(369.0)
+        assert engine._driver_face_height(loaded, pose(50.0, 44.0)) == pytest.approx(369.0)
+        assert engine._driver_face_height(loaded, pose(-60.0, 38.0)) == pytest.approx(369.0)
+        assert engine._driver_face_height(loaded, pose(30.0, 44.0)) == pytest.approx(335.4545)
+        assert loaded.z_frontal == pytest.approx(40.0)  # 30 degrees is live but not trusted
+        assert engine._driver_face_height(loaded, pose(10.0, 44.0)) == pytest.approx(335.4545)
+        assert loaded.z_frontal == pytest.approx(42.0)  # the median of 40 and 44
+
+        loaded.options["depth_hold_yaw"] = 0.0
+        assert engine._driver_face_height(loaded, pose(50.0, 40.0)) == pytest.approx(369.0)
+
+        engine.reset_anchor(loaded.descriptor.id)
+        assert loaded.z_frontal is None
+        assert len(loaded.z_recent) == 0
+
+
+class TestTurnRoom:
+    """Day 20, his two presses: past the portrait's static oval at a turn
+    the paste may add the driver's oval, only where the render is the
+    drawn face; nothing at all on a frontal frame."""
+
+    def test_nothing_at_weight_zero(self):
+        portrait = np.zeros((8, 8, 1), dtype=np.float32)
+        driver = np.ones((8, 8, 1), dtype=np.float32)
+        assert _turn_room(portrait, driver, 0.0) is None
+
+    def test_the_drivers_oval_where_the_portraits_falls_short_up_to_the_weight(self):
+        portrait = np.zeros((1, 5, 1), dtype=np.float32)
+        portrait[0, :, 0] = (1.0, 0.6, 0.2, 0.0, 0.0)
+        driver = np.zeros((1, 5, 1), dtype=np.float32)
+        driver[0, :, 0] = (1.0, 1.0, 1.0, 0.5, 0.0)
+        extra = _turn_room(portrait, driver, 1.0)
+        assert extra is not None
+        assert extra[0, :, 0].tolist() == pytest.approx([0.0, 0.4, 0.8, 0.5, 0.0])
+        half = _turn_room(portrait, driver, 0.5)
+        assert half is not None
+        assert half[0, :, 0].tolist() == pytest.approx([0.0, 0.0, 0.3, 0.5, 0.0])
+        # never past the driver's own oval, and combined never past max(portrait, weight)
+        combined = np.minimum(portrait, driver) + extra
+        assert np.all(combined <= driver + 1e-6)
+        assert np.all(combined <= np.maximum(portrait, 1.0) + 1e-6)
+
+    def test_the_rooms_own_ramp_twelve_to_sixteen_degrees(self):
+        from types import SimpleNamespace
+
+        bg = np.array([240.0, 240.0, 240.0], dtype=np.float32)
+        loaded = SimpleNamespace(background=bg, rest_yaw=-3.0)
+        assert _room_weight(loaded, HeadPose(yaw=-3.0)) == 0.0
+        assert _room_weight(loaded, HeadPose(yaw=8.9)) == 0.0  # 11.9 from rest
+        assert _room_weight(loaded, HeadPose(yaw=11.0)) == pytest.approx(0.5)  # 14 from rest
+        assert _room_weight(loaded, HeadPose(yaw=13.0)) == 1.0  # 16 from rest
+        assert _room_weight(loaded, HeadPose(yaw=-30.0)) == 1.0
+        assert (
+            _room_weight(SimpleNamespace(background=None, rest_yaw=0.0), HeadPose(yaw=40.0)) == 0.0
+        )
+        assert _room_weight(loaded, None) == 0.0
+
+    def test_the_box_gets_room_aside(self):
+        mask = np.zeros((100, 100, 1), dtype=np.float32)
+        mask[40:60, 30:70] = 1.0
+        assert _mask_bbox(mask, 0) == (30, 40, 70, 60)
+        assert _mask_bbox(mask, 0, room_aside=0.1) == (26, 40, 74, 60)
+        assert _mask_bbox(mask, 0, room_aside=0.0) == (30, 40, 70, 60)
+        wide = np.ones((100, 100, 1), dtype=np.float32)
+        assert _mask_bbox(wide, 0, room_aside=0.5) == (0, 0, 100, 100)
+
+    def test_the_paste_adds_the_room_only_where_the_render_is_the_face(self, tmp_path):
+        """A render whose left third is the photograph's background: the
+        room over that third pastes nothing, the room over the face pastes
+        the face; with no room the output is the byte it was. The face is a
+        checkerboard, which the lighting plane cannot flatten into the
+        scene (a flat face against a flat scene is matched away to the
+        scene's own colour); the correction's memory is reset per paste."""
+        loaded = TestPaste()._loaded_portrait(tmp_path)
+        engine = LivePortraitEngine()
+        scene = np.full((200, 200, 3), 40, dtype=np.uint8)
+        yy, xx = np.mgrid[0:CROP_SIZE, 0:CROP_SIZE]
+        checker = (((yy // 8) + (xx // 8)) % 2)[:, :, None] == 1
+        face = np.where(
+            checker, np.array([90, 140, 200], np.uint8), np.array([200, 90, 60], np.uint8)
+        ).astype(np.uint8)
+        face[:, :170] = (243, 243, 237)  # the photograph's background, left third
+        loaded.background = np.array([243.0, 243.0, 237.0], dtype=np.float32)
+        loaded.guard_weight = 1.0
+        to_frame = np.array([[0.3, 0.0, 20.0], [0.0, 0.3, 20.0]], dtype=np.float32)
+        loaded.mask_bbox = (0, 0, CROP_SIZE, CROP_SIZE)
+        loaded.features = None
+        mask = np.zeros((CROP_SIZE, CROP_SIZE, 1), dtype=np.float32)
+        mask[200:300, 250:300] = 1.0  # the portrait's and driver's ovals agree here
+        extra = np.zeros((CROP_SIZE, CROP_SIZE, 1), dtype=np.float32)
+        extra[200:300, 100:250] = 1.0  # the room: over the background AND the face
+
+        def paste(**kwargs):
+            loaded.correction = None
+            return engine._paste(scene, face, to_frame, loaded, mask, **kwargs)
+
+        def changed(image, x0, x1, y0=82, y1=108):
+            # crop x 250-300 -> frame 95-110; 170-250 -> 71-95; 100-170 -> 50-71
+            return int((image[y0:y1, x0:x1] != 40).any(axis=2).sum())
+
+        plain = paste()
+        roomed = paste(extra=extra)
+        none = paste(extra=None)
+
+        assert np.array_equal(plain, none)
+        assert changed(plain, 97, 108) > 0 and changed(roomed, 97, 108) > 0  # the ovals' own
+        assert changed(plain, 72, 94) == 0 and changed(roomed, 72, 94) > 200  # the room, face
+        assert changed(plain, 52, 68) == 0 and changed(roomed, 52, 68) == 0  # the room, background
