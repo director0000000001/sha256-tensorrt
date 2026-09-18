@@ -6357,6 +6357,124 @@ His question, "will it work on someone else's face once they calibrate?"
 
 **Next:** the tracker on its own thread (30 fps); then the cap question.
 
+## The delivery, safely: the lock, the two builds, the payments (a plan, 2026-09-18, nothing built)
+
+His ask after the push: "show me the full roadmap for uploading this
+application completely safely, so that nobody can steal it -- I fear a
+scam, that I work for nothing and they take the app and do not pay."
+
+### What is true today (checked, not assumed)
+
+| | today |
+|---|---|
+| the source | private repository (the GitHub API answers 404 to a stranger); the package holds no `.py` -- PyInstaller's bytecode inside `sha256.exe`; the models are public LivePortrait / MediaPipe weights, the value is the 20 days of engine work |
+| the switch | a **courtesy**: it fails open (no network, a blocked host, a deleted line -- all "allowed"), its URL sits in `configs/local.toml` as plain text, and **the build of 2026-09-14 carries no URL at all** (built without `--switch-url`), so that package cannot be switched off |
+| the client's copy | identical for everyone: no per-copy id, no expiry; a copy runs forever offline |
+| the exe | unsigned by choice (anonymity); SmartScreen's warning is accepted |
+| the deal | staged payment was the protection (the 2026-08-15 decision: no licence server, no accounts) |
+
+So the honest answer to "can they take it and not pay": with the package
+as built, yes -- they unplug the network or never see a switch, and the
+application works. The 08-15 decision traded this for time on quality.
+That time is spent; the question is open again, and this is what can be
+done, in the order it is worth.
+
+### Step 1 -- the courtesy switch becomes a lock (one day)
+
+The same file on a host he controls, but:
+
+1. **Fails closed.** No answer within the timeout, no file, a wrong file
+   -- the application does not Start, with a plain message ("the
+   application could not confirm its licence; check the internet and try
+   again"). A call already running is not cut mid-call: the check every
+   five minutes only refuses the *next* Start once it has failed for N
+   minutes (a grace of, say, an hour), so a flaky line does not kill a
+   meeting.
+2. **The URL and a public key inside the executable**, not in a text
+   file. A config edit removes nothing.
+3. **The file is signed** (Ed25519: he keeps the private key, the exe
+   carries the public one). Nobody can forge "on" by pointing the host
+   name elsewhere or serving their own file; the only way round is to
+   change the executable itself.
+4. **A hard expiry in every build** (30 days from the build date, say):
+   after it the build refuses to Start whatever the file says. Every
+   month they need a build from him -- until he decides otherwise. The
+   file can also say "allowed until <date>", so an extension is one line
+   on the host, no rebuild.
+5. **A per-copy id** compiled into each package (client A, client B, the
+   demo): the file lists which ids run. One copy switched off, the rest
+   untouched; a leaked copy is switched off by name.
+6. The guide says it plainly: the application confirms its licence at
+   Start and every five minutes; it needs the internet for that.
+
+What a thief must then do: extract the Python bytecode from the exe and
+patch out the check -- a skilled person's afternoon-to-day with Python
+3.12 (decompilers are poor for it, but patching a check does not need
+readable source). That is step 2's job.
+
+### Step 2 -- the executable made hard to open (one to two days)
+
+PyArmor over the PyInstaller build (the bytecode obfuscated and bound to
+a runtime), or Nuitka (Python compiled to C). Either turns "patch a
+check" from an afternoon into days-to-weeks of expert work on a 5 GB
+bundle with torch and MediaPipe inside -- more than the application is
+worth to steal for most. Torch and MediaPipe must be tested under either
+(a known source of trouble; a day is budgeted for it). No client-side
+lock is unbreakable: a person with a debugger on their own machine wins
+in the end. The aim is cost above the payment, not impossibility.
+
+### Step 3 -- two builds, and the payments tied to them
+
+- **The demo build**: the lock on, a 14-day expiry, its own id, the
+  avatars he chooses. They test it on real calls. Nothing is owed for it
+  beyond what was agreed for the demo stage.
+- **The final build**: after the payment for the delivery -- the lock
+  still on (expiry 30 days, renewed by a line on the host while the
+  deal holds), so the last payment is still protected.
+- **The unlocked build** (or the host's file set to "allowed, no
+  expiry"): only after the full payment. His choice which.
+- **The source code is never part of the package**, and not part of the
+  deal unless priced separately -- the exe is the product.
+- Something written, even an e-mail exchange, that says what is
+  delivered, when, for what -- through the friends' company, in whatever
+  name he chooses; his anonymity constraint makes a court a poor
+  fallback, which is why the lock, not the paper, is the protection.
+
+### Step 4 -- the upload itself
+
+The zip (3.8 GB) on the download site he builds and on the USB stick,
+with its SHA-256 checksum published beside it, so a client can tell his
+package from a tampered one. The locked package is safe to hand out:
+whoever downloads it needs the host's word to run it. The host for the
+switch file: any static host on the anonymous account (a GitHub Pages
+page of the private organisation, a small object store) -- since the
+file is signed, the host need not be trusted, only reachable. The private
+key: kept off the machine that runs the client's build, backed up twice
+-- lose it and every copy stops at its expiry, which is the one way the
+lock can hurt him.
+
+### What no step can prevent, said plainly
+
+- The idea. Anyone may build "a live avatar for calls"; what took twenty
+  days of measurement cannot be copied from a screen.
+- A screen recording of the output.
+- A client who pays, gets the unlocked build, and passes it on: only the
+  per-copy id (a name inside the file) says whose copy it was.
+- An expert who decides to spend weeks: step 2 makes it weeks, not
+  hours.
+
+### The order, and his decisions
+
+1. Step 1 first (one day; it turns the fear into a switch he holds).
+2. The demo build with it; their look; the first payment.
+3. Step 2 before the final build, if the first payment came without
+   trouble and the deal looks real; if it did not, nothing more is spent.
+4. Steps 3 and 4 as written.
+
+His decisions: the expiry lengths (14 / 30 days); whether the last
+build is unlocked at all; the host; whether step 2 is worth its two days
+against the sum at stake. Nothing here is built until his word.
+
 ## What is left, in his order (written 2026-09-12 night, after the push)
 
 Everything above is on origin/main at c5eda18. What he wants next, in
