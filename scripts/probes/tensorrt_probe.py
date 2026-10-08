@@ -545,6 +545,9 @@ def make_engine() -> tuple[Any, Any, Any, Any]:
     engine = LivePortraitEngine(
         model_path=models / DEFAULT_MODEL_RELATIVE_PATH,
         weights=models / DEFAULT_WEIGHTS_RELATIVE_PATH,
+        # The probe swaps the networks itself (install_nets); the engine's
+        # own stage-2 backend (B006, "pixel_backend") stays out of the way.
+        pixel_backend="torch",
     )
     return engine, tracker, repository, settings
 

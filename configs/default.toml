@@ -100,6 +100,13 @@ mouth_smoothing = 0.35
 backend = "warp"
 device = "auto"
 precision = "auto"
+# LivePortrait only (2026-10-09, docs/benchmarks/B006-tensorrt.md): the two
+# networks that draw the face's pixels on TensorRT when an engine for this GPU
+# sits under models/tensorrt/ (scripts/build_tensorrt_engine.py) and the
+# tensorrt package is installed; the torch networks otherwise. "torch" never
+# looks; "tensorrt" refuses to start without the engine. The motion extractor
+# and the expression are torch, bit for bit, either way.
+pixel_backend = "auto"
 
 [rendering]
 backend = "null"

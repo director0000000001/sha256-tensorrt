@@ -169,6 +169,14 @@ module = ["pyvirtualcam.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+# TensorRT's Python bindings, and the ONNX exporter's helpers, ship no type
+# information and are optional on a machine (B006, 2026-10-09). One module,
+# sha256.avatar.liveportrait_tensorrt, imports them lazily and hands the engine
+# back sha256's own types, so the untyped surface stops there.
+module = ["tensorrt", "tensorrt.*", "onnx", "onnx.*", "onnxscript", "onnxscript.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 # LivePortrait's networks (src/sha256/avatar/liveportrait/), vendored MIT code
 # with no type annotations of its own -- see that package's __init__.py for
 # provenance. Retrofitting stubs onto someone else's forward passes is not a

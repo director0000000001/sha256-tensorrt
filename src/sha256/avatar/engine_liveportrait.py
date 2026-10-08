@@ -97,6 +97,7 @@ from sha256.avatar.hair import (
     skin_weight,
     union_box,
 )
+from sha256.avatar.liveportrait_tensorrt import PIXEL_BACKENDS, TENSORRT_RELATIVE_DIR
 from sha256.core.avatar import AvatarDescriptor
 from sha256.core.enums import DeviceKind, PixelFormat
 from sha256.core.errors import AvatarLoadError, EngineError
@@ -1415,17 +1416,37 @@ def _luminance(image: np.ndarray, *, bgr: bool = True) -> np.ndarray:
     return lum
 
 
-def _patch_mean(lum: np.ndarray, centre: np.ndarray, radius: float) -> float:
-    """Mean of the square patch of half-width ``radius`` at ``centre``; NaN
-    when it falls off the picture."""
-    h, w = lum.shape
+def _patch_box(centre: np.ndarray, radius: float, h: int, w: int) -> tuple[int, int, int, int]:
+    """The square patch of half-width ``radius`` at ``centre`` clamped to an
+    ``h`` x ``w`` picture, as ``(x0, y0, x1, y1)``; empty when it falls off."""
     r = max(int(radius), 1)
     x, y = round(float(centre[0])), round(float(centre[1]))
-    x0, x1 = max(x - r, 0), min(x + r + 1, w)
-    y0, y1 = max(y - r, 0), min(y + r + 1, h)
+    return max(x - r, 0), max(y - r, 0), min(x + r + 1, w), min(y + r + 1, h)
+
+
+def _patch_mean(
+    lum: np.ndarray,
+    centre: np.ndarray,
+    radius: float,
+    *,
+    origin: tuple[int, int] = (0, 0),
+    bounds: tuple[int, int] | None = None,
+) -> float:
+    """Mean of the square patch of half-width ``radius`` at ``centre``; NaN
+    when it falls off the picture.
+
+    ``lum`` may be a window of a larger picture (2026-10-09): ``origin`` is
+    the window's top-left in that picture and ``bounds`` its ``(height,
+    width)``. The patch is clamped to the whole picture, as it would be read
+    from the whole of it, then read from the window -- exact, so long as the
+    window holds every pixel of the clamped patch (:func:`_hairline_window`
+    builds it so)."""
+    h, w = bounds if bounds is not None else lum.shape
+    x0, y0, x1, y1 = _patch_box(centre, radius, h, w)
     if x1 <= x0 or y1 <= y0:
         return math.nan
-    return float(lum[y0:y1, x0:x1].mean())
+    ox, oy = origin
+    return float(lum[y0 - oy : y1 - oy, x0 - ox : x1 - ox].mean())
 
 
 def _forehead_geometry(points: np.ndarray) -> tuple[np.ndarray, float]:
@@ -1440,11 +1461,14 @@ def _forehead_geometry(points: np.ndarray) -> tuple[np.ndarray, float]:
     return brow_top, forehead_h
 
 
-def _hairline_fraction(lum: np.ndarray, points: np.ndarray) -> float | None:
-    """Where the hair starts above the brows on ``lum`` (a luminance
-    picture), for the face at ``points`` (its pixels, the 468 face points
-    or more) -- as a fraction of the forehead height; ``None`` when no
-    hair is met within :data:`_HAIRLINE_SEARCH` foreheads."""
+def _hairline_patches(
+    points: np.ndarray,
+) -> tuple[np.ndarray, list[list[np.ndarray]], float, float]:  # _HairlinePatches, below
+    """The patches :func:`_hairline_fraction` reads: the steps up the
+    forehead, the three patch centres at each (left, middle, right of the
+    face's own vertical through the brow top), their half-width, and the
+    forehead height -- the same arithmetic the reading itself uses, so the
+    window cut for it (:func:`_hairline_window`) holds every pixel it reads."""
     pts = np.asarray(points, dtype=np.float32)[:FACE_POINTS, :2]
     face_w = max(float(pts[:, 0].max() - pts[:, 0].min()), 1.0)
     ux, uy, _ = _face_axes(pts)
@@ -1452,14 +1476,75 @@ def _hairline_fraction(lum: np.ndarray, points: np.ndarray) -> float | None:
     centre_x = (pts[_CHEEKS[0]] + pts[_CHEEKS[1]]) / 2.0
     base = brow_top - ux * float((brow_top - centre_x) @ ux)  # above the face's middle
     steps = np.arange(0.0, _HAIRLINE_SEARCH * forehead_h, _HAIRLINE_STEP_PX)
+    centres = [
+        [base - uy * d + ux * dx for dx in (-0.12 * face_w, 0.0, 0.12 * face_w)] for d in steps
+    ]
+    return steps, centres, 0.012 * face_w, forehead_h
+
+
+_HairlinePatches = tuple[np.ndarray, list[list[np.ndarray]], float, float]
+
+
+def _median_of_few(values: list[float]) -> float:
+    """``np.median`` of one to three floats without numpy's call overhead:
+    the middle value, or the mean of the two middle ones in the same float64
+    arithmetic numpy does -- ``(a + b) / 2.0`` -- so the result is the same
+    number to the bit (2026-10-09; measured 2.6 ms a read in the 260 calls)."""
+    ordered = sorted(values)
+    n = len(ordered)
+    if n % 2:
+        return ordered[n // 2]
+    return (ordered[n // 2 - 1] + ordered[n // 2]) / 2.0
+
+
+def _hairline_window(
+    points: np.ndarray, shape: tuple[int, ...], *, patches: _HairlinePatches | None = None
+) -> tuple[int, int, int, int] | None:
+    """The part of an ``h`` x ``w`` picture the hairline reading touches, as
+    ``(x0, y0, x1, y1)``: the union of its patches clamped to the picture,
+    so a luminance of this window alone gives the reading the whole
+    picture's would, to the bit (2026-10-09: the luminance of a 1280x720
+    frame, 6 ms, became 0.1 ms; the read's own loop stays). ``patches`` is
+    :func:`_hairline_patches` of the same points when the caller has it,
+    so the geometry is not computed twice. ``None`` when every patch falls
+    off the picture, where the reading is ``None`` too."""
+    h, w = int(shape[0]), int(shape[1])
+    _, centres, radius, _ = patches if patches is not None else _hairline_patches(points)
+    boxes = [_patch_box(c, radius, h, w) for row in centres for c in row]
+    boxes = [b for b in boxes if b[2] > b[0] and b[3] > b[1]]
+    if not boxes:
+        return None
+    return (
+        min(b[0] for b in boxes),
+        min(b[1] for b in boxes),
+        max(b[2] for b in boxes),
+        max(b[3] for b in boxes),
+    )
+
+
+def _hairline_fraction(
+    lum: np.ndarray,
+    points: np.ndarray,
+    *,
+    origin: tuple[int, int] = (0, 0),
+    bounds: tuple[int, int] | None = None,
+    patches: _HairlinePatches | None = None,
+) -> float | None:
+    """Where the hair starts above the brows on ``lum`` (a luminance
+    picture), for the face at ``points`` (its pixels, the 468 face points
+    or more) -- as a fraction of the forehead height; ``None`` when no
+    hair is met within :data:`_HAIRLINE_SEARCH` foreheads. ``lum`` may be
+    the window :func:`_hairline_window` names, with its ``origin`` and the
+    whole picture's ``bounds`` (see :func:`_patch_mean`); ``patches`` the
+    geometry already computed for that window."""
+    steps, centres, radius, forehead_h = (
+        patches if patches is not None else _hairline_patches(points)
+    )
     profile: list[float] = []
-    for d in steps:
-        values = [
-            _patch_mean(lum, base - uy * d + ux * dx, 0.012 * face_w)
-            for dx in (-0.12 * face_w, 0.0, 0.12 * face_w)
-        ]
+    for row in centres:
+        values = [_patch_mean(lum, c, radius, origin=origin, bounds=bounds) for c in row]
         finite = [v for v in values if math.isfinite(v)]
-        profile.append(float(np.median(finite)) if finite else math.nan)
+        profile.append(_median_of_few(finite) if finite else math.nan)
     skin_zone = [
         v
         for d, v in zip(steps, profile, strict=True)
@@ -4356,11 +4441,27 @@ class LivePortraitEngine:
         weights: Path | str | None = None,
         driver_options: Mapping[str, Any] | None = None,
         hair_model: Path | str | None = None,
+        pixel_backend: str = "torch",
+        engines: Path | str | None = None,
     ) -> None:
         # The face-landmark model, to read the portrait's own face at load and
         # to name the driver's crop; the same one the tracker uses.
         self._model_path = Path(model_path) if model_path is not None else None
         self._weights = Path(weights) if weights is not None else None
+        # Phase 2 (2026-10-09, B006): which networks draw the face --
+        # "torch" (the modules, as always), "tensorrt" (the engine under
+        # ``engines``, and an error without it), "auto" (the engine when it
+        # is there for this GPU and TensorRT version, the modules otherwise).
+        # The application passes its setting; scripts and tests get torch
+        # unless they ask, so their proofs read the path they always did.
+        if pixel_backend not in PIXEL_BACKENDS:
+            msg = f"pixel_backend must be one of {PIXEL_BACKENDS}, not {pixel_backend!r}"
+            raise ValueError(msg)
+        self._pixel_backend_wanted = pixel_backend
+        self._pixel_backend = "torch"
+        self._engines = Path(engines) if engines is not None else None
+        self._pixel_engine: Any = None
+        self._torch_pixel_nets: tuple[Any, Any] | None = None
         # Day 17 (C1b): the hair segmenter's model, beside the landmarker by
         # default (see sha256.avatar.hair); started the first time an
         # avatar's hair is asked for, never before.
@@ -4432,11 +4533,13 @@ class LivePortraitEngine:
         self._device = torch.device("cuda")
         torch.backends.cudnn.benchmark = True
         self._nets = self._load_networks()
+        self._start_pixel_backend()
         self._running = True
         _LOG.info(
-            "LivePortrait engine ready on %s, fp16, weights from %s",
+            "LivePortrait engine ready on %s, fp16, weights from %s, the face drawn by %s",
             torch.cuda.get_device_name(0),
             self._weights_root(),
+            self._pixel_backend,
         )
 
     def stop(self) -> None:
@@ -4444,9 +4547,80 @@ class LivePortraitEngine:
             self.unload_avatar(avatar_id)
         self._stop_hair()
         self._nets = {}
+        self._torch_pixel_nets = None
+        if self._pixel_engine is not None:
+            # After the graphs that ran through it (unloaded above).
+            self._pixel_engine.close()
+            self._pixel_engine = None
+        self._pixel_backend = "torch"
         self._running = False
         if self._torch is not None:
             self._torch.cuda.empty_cache()
+
+    @property
+    def pixel_backend(self) -> str:
+        """Which networks draw the face since :meth:`start`: ``"torch"`` or
+        ``"tensorrt"`` (B006, 2026-10-09)."""
+        return self._pixel_backend
+
+    def _engines_root(self) -> Path:
+        return self._engines or (Path("models") / TENSORRT_RELATIVE_DIR)
+
+    def _start_pixel_backend(self) -> None:
+        """Phase 2 (2026-10-09, B006): the warping module and the SPADE
+        decoder on TensorRT when asked for and available -- the two ``_nets``
+        entries swapped for the engine's, nothing else, so ``_capture``
+        records each avatar's graph around the engine's enqueue exactly as
+        it records it around the modules. The motion extractor and every
+        line of ``_drive`` -- the expression -- are the same either way;
+        B006 proved the swap on the clip (the keypoints byte-identical over
+        601 frames, the pixels different by fp16 rounding)."""
+        from sha256.avatar import liveportrait_tensorrt as trt_backend
+
+        torch = self._torch
+        self._pixel_backend = "torch"
+        wanted = self._pixel_backend_wanted
+        version = None if wanted == "torch" else trt_backend.tensorrt_version()
+        plan: Path | None = None
+        if version is not None:
+            plan = self._engines_root() / trt_backend.engine_name(
+                tuple(torch.cuda.get_device_capability(0)), version
+            )
+        try:
+            backend, reason = trt_backend.resolve_pixel_backend(wanted, version=version, plan=plan)
+        except RuntimeError as exc:
+            msg = f"pixel_backend = tensorrt was asked for and cannot run: {exc}"
+            raise EngineError(msg) from exc
+        if backend != "tensorrt":
+            if wanted != "torch":
+                _LOG.info("The face is drawn by the torch networks: %s", reason)
+            return
+        assert plan is not None
+        try:
+            engine = trt_backend.PixelEngine(plan, self._device)
+        except Exception as exc:
+            if wanted == "tensorrt":
+                msg = f"the TensorRT engine {plan} could not be loaded: {exc}"
+                raise EngineError(msg) from exc
+            _LOG.warning(
+                "TensorRT engine %s could not be loaded (%s); the torch networks draw the face",
+                plan.name,
+                exc,
+            )
+            return
+        warping, decoder = trt_backend.pixel_nets(engine)
+        self._torch_pixel_nets = (self._nets["warping"], self._nets["decoder"])
+        self._nets["warping"] = warping
+        self._nets["decoder"] = decoder
+        self._pixel_engine = engine
+        self._pixel_backend = "tensorrt"
+        _LOG.info(
+            "The face is drawn by TensorRT %s: %s, loaded in %.2f s, %d MB of activations",
+            engine.version,
+            plan.name,
+            engine.load_s,
+            engine.device_memory_bytes // (1024 * 1024),
+        )
 
     # --- the avatar's hair (day 17, C1b) ------------------------------------
 
@@ -5488,7 +5662,22 @@ class LivePortraitEngine:
                 not loaded.hairline_settled
                 or tracking.metadata.frame_id % _HAIRLINE_READ_EVERY == 0
             ):
-                reading = _hairline_fraction(_luminance(scene, bgr=bgr), target)
+                # 2026-10-09: the luminance of the window the reading
+                # touches, not the whole frame -- the same numbers to the
+                # bit (see _hairline_window), under a millisecond instead
+                # of 17-20.
+                patches = _hairline_patches(target)
+                window = _hairline_window(target, scene.shape[:2], patches=patches)
+                reading = None
+                if window is not None:
+                    wx0, wy0, wx1, wy1 = window
+                    reading = _hairline_fraction(
+                        _luminance(scene[wy0:wy1, wx0:wx1], bgr=bgr),
+                        target,
+                        origin=(wx0, wy0),
+                        bounds=(int(scene.shape[0]), int(scene.shape[1])),
+                        patches=patches,
+                    )
                 loaded.hairline_last = reading
                 if not loaded.hairline_settled:
                     loaded.hairline_samples.append(reading)

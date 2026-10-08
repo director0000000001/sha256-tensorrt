@@ -64,6 +64,7 @@ from sha256.avatar.engine_liveportrait import (  # noqa: E402
     DEFAULT_WEIGHTS_RELATIVE_PATH,
     LivePortraitEngine,
 )
+from sha256.avatar.liveportrait_tensorrt import TENSORRT_RELATIVE_DIR  # noqa: E402
 from sha256.avatar.repository import FilesystemAvatarRepository  # noqa: E402
 from sha256.config.loader import load_settings  # noqa: E402
 from sha256.config.paths import AppPaths  # noqa: E402
@@ -320,6 +321,14 @@ def main() -> int:
         "loads, so two runs pick the same kernels and the hashes can be compared; "
         "the model is a little slower this way.",
     )
+    parser.add_argument(
+        "--pixel-backend",
+        choices=("torch", "auto", "tensorrt"),
+        default="torch",
+        help="Which networks draw the face (2026-10-09, B006): torch, as always; "
+        "tensorrt, the engine under models/tensorrt/ for this GPU (an error without "
+        "it); auto, the engine when it is there. The application's own default is auto.",
+    )
     args = parser.parse_args()
 
     if args.mode == "threads" and args.pace == "asap":
@@ -343,8 +352,11 @@ def main() -> int:
     engine = LivePortraitEngine(
         model_path=models / DEFAULT_MODEL_RELATIVE_PATH,
         weights=models / DEFAULT_WEIGHTS_RELATIVE_PATH,
+        pixel_backend=args.pixel_backend,
+        engines=models / TENSORRT_RELATIVE_DIR,
     )
     engine.start()
+    print(f"pixel networks: {engine.pixel_backend} (asked: {args.pixel_backend})")
     if args.cpu_paste:
         engine.paste_on_gpu = False
         print("paste: on the CPU")

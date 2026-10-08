@@ -393,11 +393,16 @@ def _create_engine(registries: Registries, settings: Settings, paths: AppPaths) 
         # The same landmark model, for the portrait's face and the driver's
         # crop, plus LivePortrait's own weights under the models root.
         from sha256.avatar.engine_liveportrait import DEFAULT_WEIGHTS_RELATIVE_PATH
+        from sha256.avatar.liveportrait_tensorrt import TENSORRT_RELATIVE_DIR
 
         neural: AvatarEngine = registries.engine.create(
             "liveportrait",
             model_path=models_root / DEFAULT_MODEL_RELATIVE_PATH,
             weights=models_root / DEFAULT_WEIGHTS_RELATIVE_PATH,
+            # Phase 2 (2026-10-09): the pixel networks on TensorRT when the
+            # setting and the engine under models/tensorrt/ allow.
+            pixel_backend=settings.engine.pixel_backend,
+            engines=models_root / TENSORRT_RELATIVE_DIR,
         )
         return neural
     if settings.engine.backend != "warp":

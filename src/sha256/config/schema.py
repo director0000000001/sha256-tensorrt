@@ -130,6 +130,16 @@ class EngineSettings(_Section):
     backend: str = Field(default="null")
     device: Literal["auto", "cuda", "cpu"] = "auto"
     precision: Literal["fp32", "fp16", "auto"] = "auto"
+    pixel_backend: Literal["auto", "torch", "tensorrt"] = Field(
+        default="auto",
+        description=(
+            "LivePortrait only (2026-10-09, B006): which networks draw the face. "
+            "'auto' uses the TensorRT engine built for this GPU when it is under "
+            "models/tensorrt/ and the tensorrt package is installed, the torch "
+            "networks otherwise; 'tensorrt' insists and fails to start without it; "
+            "'torch' never looks. The expression is the same either way."
+        ),
+    )
 
 
 class RenderingSettings(_Section):
