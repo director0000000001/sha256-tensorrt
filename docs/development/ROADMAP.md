@@ -6475,6 +6475,387 @@ His decisions: the expiry lengths (14 / 30 days); whether the last
 build is unlocked at all; the host; whether step 2 is worth its two days
 against the sum at stake. Nothing here is built until his word.
 
+## The fast version: the same face in fewer milliseconds (planned and built 2026-10-08; his live look pending)
+
+His ask (2026-10-08): "write the plan for what the maximally optimised
+version gives us in this application, with the face and the expressions
+working as they do now -- nothing spoilt, everything the same." And: will
+it run on an i5-14400F with an RTX 4060 Ti 16 GB, 32 GB, 1 TB. The ask came
+after a generic "Principal AI Systems Architect" prompt from another
+assistant (zero-copy, multi-process, TensorRT, adaptive scaling, 60 fps on
+a 3060); what of it applies here is below, what does not is at the end.
+
+### What is true today (this machine, the dates given)
+
+| stage | where | ms | measured |
+|---|---|---|---|
+| tracker (MediaPipe Face Landmarker, VIDEO mode) | CPU | 12.6-12.7 | day 11 live; day 19 on driving.mkv |
+| crop (one warpAffine to 256) | CPU | 0.6 | day 11 |
+| model (three nets, fp16, one CUDA graph, the upload inside) | GPU | 17-27 | 25.5 on 2026-09-04 with sync; ~17 in the day-11 render script; 26.7 in the paste table |
+| the 512 face downloaded, RGB to BGR | GPU to CPU | under 1 | |
+| mask (`_frame_masks`) | CPU | 1.2-1.5 | day 13 |
+| paste (three warpAffines, the quarter-scale colour plane, one fused blend) | CPU | 7.6-9.5; 17.9 with the hair on | 2026-09-04; day 17 |
+| virtual camera send | CPU | 1.4 | B004 re-run |
+| **sum, one thread, hair off** | | **42-55** | **18-23 fps, his counter** |
+
+Everything runs on one thread (`PipelineRunner._run` calling
+`PipelineController.process_once`): read, track, animate, render,
+condition, send, in that order. The GPU waits while the CPU tracks and
+pastes; the CPU waits while the GPU draws. The camera gives a frame every
+33.2 ms. The stages' sum equals the frame time (day 11: 43 ms, 23 fps, his
+number), so there is no hidden interpreter or VS Code cost: the exe will
+not be faster than the source tree by more than a frame or two.
+
+Not measured anywhere yet: the stages with the app's own `last_timings`
+for 60 s with him in frame; the portable build against the source tree;
+any GPU but the 5070 Ti; any CPU but the 14700KF.
+
+### The rule every step is held to
+
+The drive path -- landmarks, gates, `ratios` / `brow_delta` / `mouth_leak`,
+`graph.replay()`, `static_out` -- is not touched. The tracker reads the same
+1280x720 frame, the crop is the same warpAffine, the graph is the same
+graph. Proven the way days 19-20 were: `capture_replay.py` on his captures
+and the friend's recording, `static_out` byte-identical, frame for frame.
+
+What may change is where the drawn face is put into the frame (the paste)
+and when each stage runs (the threads). The paste's change carries a
+tolerance, because GPU bilinear sampling rounds differently from
+OpenCV's: at most 2/255 at p99 and 0.5/255 mean against today's CPU paste
+on 20 stills across three avatars, frontal and turned, hair on and off;
+the frame outside the box byte-identical, as `TestPaste` already requires.
+
+Nothing adaptive. No frame skipping of the tracker, no smoothing, no
+resolution ladder, no quality switch mid-call (the output quality selector
+of day 15 stays what it is, the user's own choice).
+
+### Step 0 -- the measurement protocol (half a day)
+
+A probe (`scripts/probes/frame_budget.py`, or a `--budget` flag on the
+app) that runs the app's own pipeline for 60 s with him in frame --
+talking, a smile, a turn each way -- and writes per stage p50/p90/p99 and
+the fps counter: the tracker (the monitor's TRACKING stage), the engine's
+`last_timings` (crop/model/hair/mask/paste), the send, end to end. A CSV
+under `recordings/budget/` (not committed) and a table here. Twice: hair
+off, hair on. Once more from the portable build (`dist/sha256-portable`),
+to settle "is the exe faster" with a number (expected: the same within
+1-2 ms).
+
+This protocol is what every later step is measured by, before and after:
+`driving.mkv` through replay for the stages that replay, the live camera
+for the fps counter.
+
+### Step 1 -- two threads: the tracker on the next frame while the GPU draws this one (one to two days)
+
+`pipeline/runner.py` grows a second thread. Thread A (capture):
+`camera.read()`, `tracker.process(frame)`, the pair `(frame, tracking)`
+into a one-slot mailbox -- latest wins; a pair nobody took is counted as
+dropped, the runner's own "drop, never queue" rule. Thread B (render):
+takes the newest pair, `engine.animate`, `renderer.render`, the day-19
+turned-away reading, `conditioner.condition`, `virtual_camera.send`,
+`_publish`. The snapshot carries the pair's own frame and tracking, not
+`controller.last_*` -- two threads must not share a "last". `process_once`
+stays as it is, the single-thread diagnostic path the tests and
+`capture_replay` use, built from the same two halves
+(`_capture_and_track`, `_render_and_send`) so the two paths cannot drift.
+
+What it gives: the frame time becomes the longer of (CPU after tracking +
+GPU) and (capture + tracking), instead of their sum. On this machine: GPU
+17-27 + mask 1.5 + paste 7.6 = 26-36 ms against the camera's 33.2 -- 30 fps
+most of the time, step 2 for the rest. On a slower CPU the tracker's
+15-20 ms stops costing anything so long as it stays under the GPU's time.
+
+What it costs: one more frame of latency, 33 ms, on a chain that is about
+260 ms glass to glass today (227 of it the camera). He has cared about
+latency; this is his call, said before it is kept.
+
+What stays the same: the engine's temporal state (`last_dt` from the
+camera's timestamps, the EMAs, `_pose_still`, the anchor) reads the same
+timestamps and sees frames in the same order; the tracker's VIDEO mode
+runs on one thread with monotonic timestamps as now; the hair worker is
+already its own thread; UI calls into the engine (Calibrate me, options,
+Reset, capture) run from the UI thread today without a lock and keep
+doing so -- thread B is the one thread that calls `animate`, as the
+pipeline thread is today.
+
+Keep bar: replay byte-identical (the same frame sequence, the same
+`static_out`, the same output); live, the fps counter at 29 or more for
+60 s with him in frame, hair off; p90 frame time on thread B under
+33.2 ms; no frame ever published with another frame's tracking (asserted
+on `frame_id` in the snapshot). Live, the dropped-frame pattern changes
+with the timing, so a live session is not byte-comparable to the old
+build: the replay is the proof, the live run the measurement.
+
+### Step 2 -- the paste on the GPU (one to two days)
+
+Today `_render` downloads the whole 512x512 face, then `_paste` warps the
+mask box's patch of it into the frame with three `cv2.warpAffine`s (face,
+mask, the hair blend), fits the lighting plane at quarter scale, and
+blends: 7.6-9.5 ms, 17.9 with the box grown to the hair.
+
+New: `static_out` stays on the GPU. The mask box's patch of the face, this
+frame's mask (`_frame_masks`' output, uploaded as one small float tensor,
+about 13% of the square), `extra` and the day-19 `keep` go through one
+`affine_grid` + `grid_sample` (bilinear; `align_corners` chosen to match
+OpenCV's pixel-centre convention, the match measured, not assumed) into
+the frame box only; the blend in fp32 on the GPU; the box downloaded once
+as uint8 and written into `scene.copy()` as now. The lighting-plane fit
+(`_face_colour_correction`) keeps its quarter-scale arithmetic, either on
+a downloaded quarter-scale ring (the same numpy, a 1/16 download) or
+ported to torch -- whichever differs less from today, measured. The hair
+matte's warp joins the same `grid_sample` as a second channel, so the box
+grown to the curls costs GPU pixels, not CPU passes.
+
+The hair worker still needs the face on the CPU: that download becomes
+asynchronous (a pinned buffer, `non_blocking`, consumed by the worker a
+frame later; it already runs one or two frames behind). The day-19 hold
+(`loaded.last`) keeps the face it needs the same way.
+
+Expected: paste 7.6-9.5 to 2-4 ms, hair on the same as off; the CPU side
+of thread B down to mask + download + send, about 4-5 ms.
+
+Keep bar: the tolerance above on 20 stills -- his captures' replay, the
+friend's recording, baska's, woman_person, frontal and at +-30 yaw, hair
+on and off; the zooms of every edge looked at before the number is
+believed (the day-16 lesson); paste p50 at most 4 ms, hair on at most 5.
+
+### Step 3 -- the GPU's housekeeping, exact (half a day)
+
+Small, byte-identical things: the crop's upload through a pinned buffer
+with `non_blocking=True` on the graph's stream; step 2's one download the
+only synchronisation point in the frame; `cudnn.benchmark` stays (already
+on); the mask's landmark half (`_frame_masks`' driver oval) built on
+thread A beside the tracker, since it needs only the landmarks, leaving
+thread B the portrait half and the intersection. Expected 1-3 ms off
+thread B. Kept only if replay is byte-identical.
+
+### Step 4 -- re-measure (an hour)
+
+Step 0's protocol again, source tree and portable build. Expected on this
+machine: the fps counter at the camera's 30, p90 under 33.2 ms, hair on
+and off. If step 1 alone reaches it, step 2 still goes in: it is what
+makes a slower CPU irrelevant.
+
+### Step 5 -- the first measurement on a slower machine (a day, when one is at hand)
+
+The portable build and step 0's protocol on a 4060 Ti / 5060 Ti-class
+machine -- the one he is considering, or one of the five users'. The first
+real number for any GPU but the 5070 Ti; every estimate in the table below
+stands until it exists. It decides whether phase 2 is needed at all.
+
+### Phase 2 -- TensorRT for the two pixel networks (after the delivery, only if step 5 is under 25 fps)
+
+The warping module and the SPADE decoder (31.5 of B005's 38.4 ms) compiled
+to one TensorRT fp16 engine; the motion extractor and every line of
+`_drive` stay in torch, so the keypoints -- the expression -- are
+bit-identical and only the drawn pixels change, under step 2's tolerance.
+The cost is B005's list: the `grid_sample_3d` plugin built against this
+TensorRT, the CUDA runtime matched, the engine built on each user's GPU at
+first run (minutes), about 1 GB more in the package, and a new way for a
+user's machine to fail. Expected 1.5-2x on the model. Not for this
+delivery.
+
+### Not in the plan, and why
+
+- **The tracker on a half-size frame** (day 11's 2a): MediaPipe's landmarks
+  move by sub-pixel amounts, and the landmarks are the drive path's input
+  -- the gates, the crop, the anchor. After step 1 the tracker's time is
+  hidden behind the GPU on every machine where the GPU is the slower side,
+  which is every machine this plan is for. Not worth the one thing he
+  asked to keep.
+- **Tracking every other frame, temporal smoothing, an adaptive
+  resolution or quality ladder**: each changes what the face does or how
+  it looks mid-call. Excluded by the rule.
+- **Multiprocessing, shared memory, zero-copy camera to GPU**: the frame
+  to the GPU is a 256x256 crop (196 KB); OpenCV, MediaPipe and torch
+  release the GIL in their C++; a second process would cost the
+  PyInstaller build more than it gives.
+- **Nuitka for speed**: the Python layer is thin (the stages' sum already
+  equals the frame time); 1-2 ms at most. It stays in the delivery plan
+  for the lock, not for fps.
+- **The model's input size**: 256 is LivePortrait's own; another size is
+  another model.
+
+### What the fast version gives, machine by machine (estimates, except the first row's today)
+
+| machine | today's code | after steps 1-3 | after phase 2 |
+|---|---|---|---|
+| his: i7-14700KF + RTX 5070 Ti | 18-22 fps (measured) | 30, the camera's ceiling, p90 under 33 ms | 30, with room for 60 if a 60 fps source ever exists |
+| i5-14400F + RTX 4060 Ti 16 GB, 32 GB | 10-15 (CPU 30-38 ms serial + model 35-65) | 18-28, model-bound; 30 not promised | likely 30 |
+| i5-14400F / Ryzen 5 7500F + RTX 5060 Ti | 12-17 | 22-30 | 30 |
+| 6-core 2020 + RTX 3060 12 GB (the written minimum) | 8-13 | 15-25 | 25-30 |
+
+How the 4060 Ti row is reached: its compute is about half the 5070 Ti's
+and its memory bus a third (288 against 896 GB/s; Ada's 32 MB L2 softens
+that for 256x256 maps), so the model is estimated at 2-2.5x: 35-65 ms.
+The i5-14400F's single-thread speed is about 80-85% of the 14700KF's, so
+the tracker is about 15-16 ms -- under the model's time, hence hidden by
+step 1. Its 16 GB of VRAM buys nothing here (the model peaks at 0.7 GB);
+32 GB of RAM and 1 TB are above the written 16 GB / 6 GB. It runs; after
+steps 1-3 it is usable; 30 fps on it needs phase 2 or a faster GPU. Step 5
+replaces every number in that row.
+
+### The order, and his decisions
+
+Step 0, 1, 2, 3, 4 -- about four to five days; step 5 when a machine
+exists; phase 2 after the delivery, on step 5's number. His decisions: the
+one frame of latency (step 1); whether a 4060 Ti machine is bought before
+step 5 can be run on it, or a user's machine is measured first. Nothing
+here is built until his word.
+
+### Built the same day (2026-10-08): steps 0-3, measured, proven
+
+His word in the afternoon: "start the optimisation from beginning to end,
+report the result at the end; the application's quality must not break --
+the face and so on all work well." Steps 0 to 3 are built and measured on
+`recordings/driving.mkv` (frames 300-900, his face, 1280x720); step 4's
+live run with him in frame, and step 5, are still to come. Nothing is
+committed.
+
+**Step 0, the measurement -- `scripts/probes/frame_budget.py`.** The clip
+through the application's own `PipelineController` (and, in `--mode
+threads`, through `PipelineRunner` itself), every published frame hashed,
+the stages from the monitor and the engine's `last_timings`. Three pacings:
+`asap` (stage timings), `lockstep` (the next frame only once the previous
+is published -- no drops, so two runs' frame sequences are the same and
+their hashes must be), `realtime` (a frame every 33.3 ms, the latest due
+one, as a camera hands it -- the frame rate). `--compare` says, frame by
+frame, whether two runs agree to the byte; `--deterministic` turns
+`cudnn.benchmark` off so they can (see below); `--cpu-paste` / `--cpu-fit`
+run the old paths for the comparison; `--profile` is cProfile over the
+loop. `scripts/probes/still_diff.py` reads two output frames' difference
+in grey levels. What the first runs showed, against the plan's table:
+
+| stage, one thread, the clip | plan's figure | measured 2026-10-08 |
+|---|---|---|
+| tracker | 12.6-12.7 | **6.5 or 12.7**, bimodal between runs of the same code -- not understood; MediaPipe's threads, or the CPU's clocks |
+| model (the CPU waiting the graph out) | 17-27 | **28.0 p50, 37 p90** |
+| mask | 1.2-1.5 | **2.1-3.1** (two ovals a frame since the chin reach) |
+| paste | 7.6-9.5 | **10.1-15.7** (the day-16 dark cells, day-19 keep, day-20 room) |
+| the p90 spikes | -- | **the hairline read**: `_luminance` over the whole 1280x720 frame, every 6th frontal frame, 17-20 ms, counted in `model_ms` |
+| frame, one thread, 30 fps camera | 42-55 | **50-66 ms, 18.8 fps** -- his 18-22 |
+
+The profile (cProfile, 271 frames) put the paste's cost where the plan did
+not expect it: not the three warps (0.9 ms) but the colour correction's
+full-box float arithmetic (9.4 ms: the mask-weighted subtract and multiply
+over the box, the area resizes, the astype conversions), and the GPU's own
+time in `.cpu()` at 25.8 ms a frame.
+
+**Step 1, two threads -- built as planned.** `PipelineController.process_once`
+is now `capture_and_track` then `render_tracked`, the same code in two
+halves; `PipelineRunner` runs them on `sha256-capture` and `sha256-render`
+with a mailbox of one between them (`TrackedFrame`: the frame and its
+tracking together; the newest wins, drops counted as `dropped_at_capture`);
+a failure on either thread ends both, with the black screen as before.
+`performance.overlap_tracking = false` in `configs/local.toml` is the one
+thread again. Ten new tests (`tests/unit/test_pipeline_runner_overlap.py`):
+the pairing of frame and tracking, the mailbox never queuing, both threads
+ending on either's failure, the prompt stop, the single-thread fallbacks.
+
+**Step 2, the paste on the GPU -- built, further than planned.** `_render`
+hands the face back as the tensor it is (`on_device=True`); nothing waits for
+the graph until the paste's last download. `_paste` dispatches on the face's
+type: a numpy picture takes the CPU paste exactly as it was (the tests, the
+CPU fixtures, `--cpu-paste`); a tensor takes `_paste_gpu`: the mask and the
+hair blend warped on the CPU by the very `cv2.warpAffine` the CPU paste
+uses (so the alpha is the CPU paste's to the bit), the face warped by one
+`grid_sample` on the inverse of the same affine at integer pixel centres,
+the mask-weighted difference and room shrunk to the correction's cells with
+OpenCV's own `INTER_AREA` weights as two small matrix products
+(`_area_weights`, the `computeResizeAreaTab` rule), and the whole colour
+fit on the GPU (`_fit_field_gpu`): the dark cells with numpy's median read
+by a sort and a device-side gather, the plane's sums in float64 and its 3x3
+solve in closed form with the singular fallback chosen by the determinant,
+the edge residual's Gaussian blurs as banded reflect-101 matrices (against
+`cv2.GaussianBlur`: 2e-7), the inertia on a device-side field. The CPU
+keeps what needs no pixel of the face -- the mask's sum and its "too little
+mask" answer, the cell-size coverage by the same `cv2.resize`, the distance
+transform, his features' cells -- and uploads it through pinned memory
+(torch's caching host allocator; a copy from pageable memory makes the
+driver drain the stream first, i.e. wait for the graph). The hairline read
+moved after the render's launch, so its 17-20 ms run while the GPU draws.
+The hair worker gets its picture from a pinned copy the GPU fills
+meanwhile, submitted after the paste; the fold of its newest matte stays
+before the mask, as it was. One wait per frame, at the box's download.
+
+The tolerance, measured on five stills across the clip (frames 330, 450,
+600, 700, 850), the GPU paste against the CPU paste with identical graph
+output: **17-24 pixels a frame differ, every one by 1 grey level**, mean
+difference 0.000, nothing outside the box. The plan allowed 2 at p99 and
+0.5 mean. For scale: the application's *own* run-to-run difference, from
+`cudnn.benchmark` picking kernels anew each start, is ~18,000 pixels a frame
+by 1-3 levels (2% of the frame) -- which is why the hash proofs below run
+with `--deterministic`, and why two live sessions of the unchanged code
+were never byte-identical either.
+
+**Step 3, housekeeping -- folded into step 2.** The pinned uploads, the one
+synchronisation, the CUDA events that time the graph without waiting
+(`model_ms` is now the graph's own time; `launch_ms` the CPU's launch;
+`wait_ms`, `paste_pre/fit/post_ms`, `upload_ms` say where the paste's time
+goes). Not done: the renderer's fresh-canvas copy (0.6 ms, exact to skip
+for a same-size frame, but it is the renderer's race guarantee and stays);
+the drive tensors' ~30 scalar writes vectorised (0.7 ms, on the drive path,
+not worth the risk); a pinned upload of the 256 crop (0.1 ms).
+
+**The proofs, all 601 frames, `--deterministic`:**
+
+| what | result |
+|---|---|
+| the CPU-paste path after every change, against the untouched code's run | **601 of 601 byte-identical** |
+| two threads in lockstep against one thread, CPU paste | **601 of 601** |
+| two threads in lockstep against one thread, GPU paste | **601 of 601** |
+| the GPU paste against the CPU paste, five stills | 17-24 px by 1 level, mean 0.000 |
+| the 440 CPU unit tests | pass |
+
+**The measurement after, the same clip, a 30 fps camera simulated:**
+
+| | one thread, before | one thread, GPU paste (`overlap_tracking = false`) | **two threads, GPU paste** | two threads, hair on |
+|---|---|---|---|---|
+| frame rate | 18.8 fps | 19.4 fps | **29.4 fps** (interval p50 33.3 ms, p90 36.3) | 28.2 fps |
+| render thread per frame | 50-66 ms | 50 ms | **30.5 ms p50, 33.4 p90** | 31.3 / 36.3 |
+| of which the GPU's graph | 28 (waited out) | 26.0 | 26.0 (`model_ms`, events) | 26.0 |
+| CPU before the wait: launch + mask + paste prep + fit enqueue | -- | -- | 2.3 + 2.6 + 1.8 + 5.1 = 11.8, under the graph | the same |
+| the wait and the download | -- | -- | 17.3 | 17.3 |
+| latency, capture to render (the clip; the camera's own 227 ms is on top) | 48.5 ms | 48.5 | **55.3 ms** p50, 70 p90 | 64 |
+| frames dropped at the source | 1 in 3 | 1 in 3 | 100 of 600 (29.4 against 30) | 122 of 600 |
+
+So: the GPU paste alone changes little on one thread (the tracker's 12.7 ms
+still adds to the frame); the two threads alone gave 21.9 fps (the render
+thread was 38 ms); together, 29.4 -- the render thread fits the camera's
+33 ms most of the time. Hair on costs 1.2 fps now, not the 6.6 it did
+before the pinned copy. The latency grew by about seven milliseconds on the
+clip, not the full 33 of the plan: the render starts the moment its frame
+is tracked, and the tracking of the next overlaps the GPU's wait.
+
+**What stands between 29.4 and a locked 30, on this machine:** the GPU's
+graph is 26.0 ms of the 33.3 and the CPU's serial remainder (crop, launch,
+download, the renderer's and the conditioner's copies, the sink's send)
+about 7 -- the render thread is at the budget's edge, so a slow frame drops
+one. Two things would buy the margin, neither exact, neither done without
+his word: `channels_last` for the warping and SPADE networks alone (cuDNN
+spends 2.7 ms a frame converting layouts inside the graph; the motion
+extractor -- the expression -- would stay as it is, the pixels would change
+by fp16 rounding, like the paste's tolerance), and phase 2's TensorRT. The
+exact 0.6 ms of the renderer's copy is there too.
+
+**Observations worth keeping.** The tracker's cost is bimodal across runs
+of identical code (6.5 or 12.7 ms) -- environmental, unexplained; it sits
+on the capture thread now, where it costs no frame rate either way. A
+staging buffer reused by name under a pending transfer corrupted the cached
+blur matrices for one build (two uploads of the same name in one frame);
+torch's pinned allocator tracks the stream and does this right -- never
+hand-roll it. `render_liveportrait.py` unpacks `loaded.last` as three
+items; it has been four since day 20 and is a GPU tensor's face now --
+the script is stale, not touched here.
+
+**Still open from the plan:** step 4's live run with him in frame (the
+counter, hair on and off, and his word on the latency); the portable
+build against the source tree (the expectation stands: the same within a
+frame or two -- the stages are C++ and CUDA either way, and the exe is
+PyInstaller's bytecode of the same interpreter); step 5 on a 4060 Ti /
+5060 Ti-class machine. The stills under `recordings/budget/` were his face
+and are deleted; the JSONs (hashes and timings) stay, gitignored.
+
 ## What is left, in his order (written 2026-09-12 night, after the push)
 
 Everything above is on origin/main at c5eda18. What he wants next, in

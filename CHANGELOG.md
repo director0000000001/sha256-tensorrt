@@ -11,6 +11,22 @@ Versions below `1.0.0` carry no API stability guarantee.
 
 ## [Unreleased]
 
+### Changed
+
+- **The frame rate (2026-10-08, "The fast version").** The real-time loop runs
+  on two threads -- the camera and the tracker on one, the avatar, the output
+  conditioning and the virtual camera on the other, a mailbox of one between
+  them (`PipelineRunner`, `PipelineController.capture_and_track` /
+  `render_tracked`; `performance.overlap_tracking = false` restores the single
+  thread). The neural engine keeps the generated face on the GPU from the
+  graph to the paste: the face is warped, colour-matched and blended there,
+  with the same arithmetic as the CPU paste (17-24 pixels a frame differ, by
+  one grey level), and the CPU waits for the GPU once per frame. On the
+  owner's machine under a 30 fps camera: 18.8 to 29.4 fps; one more frame of
+  latency, about seven milliseconds measured on a clip. The face, the eyes,
+  the brows and the mouth are untouched -- proven byte-identical by replay
+  (`scripts/probes/frame_budget.py`, `--compare`).
+
 ### Added
 
 - **Virtual camera output.** `PyVirtualCameraSink` publishes rendered frames to

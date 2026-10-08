@@ -188,10 +188,25 @@ core code changes.
 
 ---
 
-## 6. Threading — designed, not built
+## 6. Threading — built, in two steps
 
-**Current state:** everything runs on the UI thread. `PipelineController` can
-single-step one frame via `process_once()`. There is no loop.
+**Current state (2026-10-08):** the loop is `PipelineRunner`, on two threads.
+The capture thread reads the camera and tracks the face
+(`PipelineController.capture_and_track`); the render thread draws the avatar,
+conditions the output and sends it (`render_tracked`). Between them is a
+mailbox of one: the newest tracked frame wins, nothing queues, drops are
+counted. The render of frame N overlaps the tracking of N+1 -- one more frame
+of latency, and the frame rate becomes the slower half instead of the sum.
+`performance.overlap_tracking = false` is the single thread of the first
+build. On the render thread the neural engine keeps the face on the GPU from
+the graph to the paste and waits for the GPU once per frame, at the last
+download; the mask, the hairline read and the paste's preparation run on the
+CPU while the GPU draws. Measured in `docs/development/ROADMAP.md`, "The fast
+version": 18.8 to 29.4 fps on the owner's machine under a 30 fps camera.
+`process_once()` is still the single call, the two halves one after the other,
+for tests, probes and replays.
+
+**The original design, kept for the record:**
 
 **Target design:**
 
