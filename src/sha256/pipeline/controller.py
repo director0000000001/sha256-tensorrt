@@ -1,13 +1,14 @@
 """Pipeline lifecycle control.
 
 **Scope:** this is not the real-time loop. It owns component lifecycle
-(start/stop ordering, failure roll-back) and can execute a *single* pass
-through the stages for testing and diagnostics. There is no capture thread, no
-frame queue, and no back-pressure handling yet — those are the next milestone
-and are designed in ``docs/architecture/SYSTEM_ARCHITECTURE.md``.
-
-Separating lifecycle from the loop now means the threading work later changes
-one class rather than rewiring the application.
+(start/stop ordering, failure roll-back) and executes the stages for one
+frame -- as one call (:meth:`PipelineController.process_once`) or as the two
+halves the loop runs on two threads (:meth:`capture_and_track`, then
+:meth:`render_tracked`; see ``pipeline/runner.py``, "The fast version",
+2026-10-08). The threads, the frame hand-over and the pacing live in the
+runner; this class knows nothing of them, which is what keeps the single
+call -- the path the tests, the probes and the replays use -- the same code
+as the two halves.
 """
 
 from __future__ import annotations
@@ -28,9 +29,19 @@ from sha256.core.types import FaceTrackingResult, RenderedFrame, VideoFrame
 from sha256.pipeline.conditioning import TURNED_AWAY_DEGREES, OutputConditioner
 from sha256.utils.logging import get_logger
 
-__all__ = ["PipelineComponents", "PipelineController"]
+__all__ = ["PipelineComponents", "PipelineController", "TrackedFrame"]
 
 _LOG = get_logger(__name__)
+
+
+@dataclass(slots=True, frozen=True)
+class TrackedFrame:
+    """A camera frame with its own tracking -- what the first half of a
+    frame hands the second (2026-10-08). The two travel together so a
+    render can never pair a frame with another frame's landmarks."""
+
+    frame: VideoFrame
+    tracking: FaceTrackingResult
 
 
 @dataclass(slots=True)
@@ -219,14 +230,24 @@ class PipelineController:
         self._state = PipelineState.STOPPED
         _LOG.info("Pipeline stopped")
 
-    # --- single step -------------------------------------------------------
+    # --- one frame, in one call or in two halves ---------------------------
 
     def process_once(self) -> RenderedFrame | None:
         """Run one frame through the stages, or return ``None`` if none is ready.
 
-        Diagnostic and test entry point. The production path will call this
-        logic from a dedicated thread with proper frame pacing.
+        The single-thread path: the tests, the probes and the replays. It is
+        the two halves below, one after the other, so what they do per frame
+        is the same code the loop runs on two threads.
         """
+        tracked = self.capture_and_track()
+        if tracked is None:
+            return None
+        return self.render_tracked(tracked)
+
+    def capture_and_track(self) -> TrackedFrame | None:
+        """The first half: the camera's next frame and its tracking, or
+        ``None`` when no frame is ready. CPU only -- the half the loop runs
+        on its capture thread while the GPU draws the frame before."""
         if not self.is_running:
             return None
 
@@ -243,6 +264,18 @@ class PipelineController:
             tracking = self._components.tracker.process(frame)
         monitor.record_frame(PipelineStage.TRACKING)
         self._last_tracking = tracking
+        return TrackedFrame(frame, tracking)
+
+    def render_tracked(self, tracked: TrackedFrame) -> RenderedFrame | None:
+        """The second half: the avatar drawn over ``tracked``'s frame, the
+        output conditioned and sent. ``None`` only if the pipeline stopped
+        between the halves."""
+        if not self.is_running:
+            return None
+
+        monitor = self._components.monitor
+        frame = tracked.frame
+        tracking = tracked.tracking
 
         engine = self._components.avatars.engine
         active = self._components.avatars.active

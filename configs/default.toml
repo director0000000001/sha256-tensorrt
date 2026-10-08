@@ -164,6 +164,11 @@ enabled = true
 window_size = 240
 sample_system_metrics = false
 system_sample_interval = 1.0
+# Track the next camera frame on a second thread while the GPU draws this
+# one (2026-10-08). The frame rate becomes the slower of the two halves
+# instead of their sum; the price is one frame of latency. false = one
+# thread, as before.
+overlap_tracking = true
 
 [ui]
 # Background photograph for the window. Drop a file at this path and it is

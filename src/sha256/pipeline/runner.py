@@ -17,6 +17,23 @@ decisions recorded there:
     move on; they cannot apply back-pressure, and a slow or absent reader cannot
     stall capture.
 
+**Two threads since 2026-10-08 ("The fast version", step 1).** The neural
+engine changed the arithmetic above: the GPU draws a face in about 26 ms and
+the tracker reads the next frame in about 13 ms on the CPU, and on one thread
+the two wait for each other -- 42-55 ms a frame, 18-23 fps on the owner's
+machine. So the loop is now two halves of :class:`PipelineController` on two
+threads: the *capture* thread reads the camera and tracks the face
+(:meth:`capture_and_track`), the *render* thread draws, conditions and sends
+(:meth:`render_tracked`). Between them is a **mailbox of one**: the capture
+thread overwrites whatever the render thread has not taken yet (counted as
+``dropped_at_capture``), so the render thread always starts on the newest
+tracked frame and nothing queues. The frame and its tracking travel together
+(:class:`TrackedFrame`) and the snapshot is built from that pair, never from a
+"last" the other thread may have moved on. What it costs is one frame of
+latency: the render of frame N overlaps the tracking of N+1. ``overlap=False``
+keeps the single thread, and a controller without the two halves (a test
+double) gets it regardless.
+
 Deliberately free of Qt. The loop is application logic, and keeping it that way
 means it can be driven by a benchmark, a test, or a headless run — not only by a
 window.
@@ -33,7 +50,7 @@ from typing import Any
 
 from sha256.core.enums import PixelFormat
 from sha256.core.types import FaceTrackingResult, RenderedFrame, VideoFrame
-from sha256.pipeline.controller import PipelineController
+from sha256.pipeline.controller import PipelineController, TrackedFrame
 from sha256.utils.logging import get_logger
 from sha256.utils.timing import now
 
@@ -102,13 +119,27 @@ class PipelineRunner:
         controller: PipelineController,
         *,
         on_error: Callable[[str], None] | None = None,
+        overlap: bool = True,
     ) -> None:
         self._controller = controller
         self._on_error = on_error
+        # Two threads (the module docstring) when asked and when the
+        # controller has the two halves; a test double with only
+        # ``process_once`` runs the single thread it always did.
+        self._overlap = overlap and all(
+            callable(getattr(controller, name, None))
+            for name in ("capture_and_track", "render_tracked")
+        )
 
         self._thread: threading.Thread | None = None
+        self._render_thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
+        # The mailbox of one between the two threads, and its own condition
+        # so a reader of ``latest`` never waits on a frame hand-over.
+        self._hand = threading.Condition()
+        self._mailbox: TrackedFrame | None = None
+        self._dropped_at_capture = 0
 
         # The last few seconds of tracking, kept so that "that looked wrong" can
         # become a file. See :meth:`capture`.
@@ -131,7 +162,12 @@ class PipelineRunner:
 
     @property
     def is_running(self) -> bool:
-        return self._thread is not None and self._thread.is_alive()
+        return any(t is not None and t.is_alive() for t in (self._thread, self._render_thread))
+
+    @property
+    def overlapping(self) -> bool:
+        """Whether the loop runs its two halves on two threads."""
+        return self._overlap
 
     @property
     def last_error(self) -> str | None:
@@ -154,6 +190,9 @@ class PipelineRunner:
             self._fps = 0.0
             self._fps_window_started = now()
             self._fps_window_frames = 0
+        with self._hand:
+            self._mailbox = None
+            self._dropped_at_capture = 0
 
         # Before the thread: a component that fails to start must raise to the
         # caller, where the UI can show it, rather than dying quietly on a
@@ -161,21 +200,36 @@ class PipelineRunner:
         self._controller.start()
 
         self._stop_event.clear()
-        self._thread = threading.Thread(target=self._run, name="sha256-pipeline", daemon=True)
-        self._thread.start()
-        _LOG.info("Pipeline loop started")
+        if self._overlap:
+            self._thread = threading.Thread(
+                target=self._run_capture, name="sha256-capture", daemon=True
+            )
+            self._render_thread = threading.Thread(
+                target=self._run_render, name="sha256-render", daemon=True
+            )
+            self._render_thread.start()
+            self._thread.start()
+            _LOG.info("Pipeline loop started on two threads (capture + render)")
+        else:
+            self._thread = threading.Thread(target=self._run, name="sha256-pipeline", daemon=True)
+            self._thread.start()
+            _LOG.info("Pipeline loop started")
 
     def stop(self, *, timeout: float = 2.0) -> None:
         """Stop the loop and the components. Never raises."""
         self._stop_event.set()
+        with self._hand:
+            self._hand.notify_all()
 
-        thread, self._thread = self._thread, None
-        if thread is not None and thread.is_alive():
-            thread.join(timeout=timeout)
-            if thread.is_alive():
-                # The thread is blocked inside a driver call. Say so plainly
-                # rather than pretending the stop was clean.
-                _LOG.warning("Pipeline thread did not stop within %.1fs", timeout)
+        threads = (self._thread, self._render_thread)
+        self._thread = self._render_thread = None
+        for thread in threads:
+            if thread is not None and thread.is_alive():
+                thread.join(timeout=timeout)
+                if thread.is_alive():
+                    # The thread is blocked inside a driver call. Say so plainly
+                    # rather than pretending the stop was clean.
+                    _LOG.warning("%s did not stop within %.1fs", thread.name, timeout)
 
         self._controller.stop()
         _LOG.info("Pipeline loop stopped")
@@ -377,50 +431,115 @@ class PipelineRunner:
     @property
     def stats(self) -> dict[str, int]:
         with self._lock:
-            return {
-                "produced": self._produced,
-                "collected": self._collected,
-                "uncollected": self._uncollected,
-            }
+            produced, collected, uncollected = self._produced, self._collected, self._uncollected
+        with self._hand:
+            dropped = self._dropped_at_capture
+        return {
+            "produced": produced,
+            "collected": collected,
+            "uncollected": uncollected,
+            # Tracked frames the render thread never got to, because a newer
+            # one arrived first (two-thread loop only; always 0 on one).
+            "dropped_at_capture": dropped,
+        }
 
     # --- the loop ----------------------------------------------------------
 
     def _run(self) -> None:
+        """The single thread: one frame, all stages, then the next."""
         while not self._stop_event.is_set():
             try:
                 frame = self._controller.process_once()
             except Exception as exc:
-                # A raising pipeline must not take the process with it, and must
-                # not spin on the same failure either.
-                message = str(exc)
-                _LOG.exception("Pipeline loop failed")
-                # Day 15: the other side sees a dead camera, not the last
-                # avatar frame frozen for the rest of the call. Asked for,
-                # not assumed -- a controller without it (a test double)
-                # simply has nothing to publish.
-                publish_failure = getattr(self._controller, "publish_failure", None)
-                if publish_failure is not None:
-                    try:
-                        publish_failure(message)
-                    except Exception:
-                        _LOG.exception("The black screen could not be published either")
-                with self._lock:
-                    self._last_error = message
-                if self._on_error is not None:
-                    self._on_error(message)
+                self._fail(exc)
                 return
 
             if frame is None:
                 self._stop_event.wait(_IDLE_SLEEP_SECONDS)
                 continue
 
-            self._publish(frame)
+            self._publish(frame, self._controller.last_source_frame, self._controller.last_tracking)
 
-    def _publish(self, frame: RenderedFrame) -> None:
+    def _run_capture(self) -> None:
+        """The capture thread: read, track, into the mailbox -- newest wins."""
+        while not self._stop_event.is_set():
+            try:
+                tracked = self._controller.capture_and_track()
+            except Exception as exc:
+                self._fail(exc)
+                return
+
+            if tracked is None:
+                self._stop_event.wait(_IDLE_SLEEP_SECONDS)
+                continue
+
+            with self._hand:
+                if self._mailbox is not None:
+                    self._dropped_at_capture += 1
+                self._mailbox = tracked
+                self._hand.notify()
+
+    def _run_render(self) -> None:
+        """The render thread: the newest tracked frame drawn, conditioned,
+        sent and published; nothing queues behind it."""
+        while not self._stop_event.is_set():
+            with self._hand:
+                if self._mailbox is None:
+                    self._hand.wait(0.1)
+                tracked, self._mailbox = self._mailbox, None
+            if tracked is None:
+                continue
+
+            try:
+                frame = self._controller.render_tracked(tracked)
+            except Exception as exc:
+                self._fail(exc)
+                return
+
+            if frame is not None:
+                self._publish(frame, tracked.frame, tracked.tracking)
+
+    def _fail(self, exc: Exception) -> None:
+        """The loop stops on an error, on either thread: the other side sees
+        the black screen (day 15), the window hears why, both threads end.
+        A raising pipeline must not take the process with it, and must not
+        spin on the same failure either."""
+        message = str(exc)
+        _LOG.exception("Pipeline loop failed")
+        # Day 15: the other side sees a dead camera, not the last avatar
+        # frame frozen for the rest of the call. Asked for, not assumed --
+        # a controller without it (a test double) simply has nothing to
+        # publish.
+        publish_failure = getattr(self._controller, "publish_failure", None)
+        if publish_failure is not None:
+            try:
+                publish_failure(message)
+            except Exception:
+                _LOG.exception("The black screen could not be published either")
+        with self._lock:
+            self._last_error = message
+        # The other thread ends too: the loop is one loop, on two threads.
+        self._stop_event.set()
+        with self._hand:
+            self._hand.notify_all()
+        if self._on_error is not None:
+            self._on_error(message)
+
+    def _publish(
+        self,
+        frame: RenderedFrame,
+        source: VideoFrame | None = None,
+        tracking: FaceTrackingResult | None = None,
+    ) -> None:
+        if source is None and tracking is None:
+            # The single-thread path, and the tests that publish by hand:
+            # the controller's "last" is this frame's own.
+            source = self._controller.last_source_frame
+            tracking = self._controller.last_tracking
         snapshot = PipelineSnapshot(
             frame=frame,
-            source=self._controller.last_source_frame,
-            tracking=self._controller.last_tracking,
+            source=source,
+            tracking=tracking,
             frame_id=frame.metadata.frame_id,
         )
 

@@ -277,6 +277,14 @@ class PerformanceSettings(_Section):
         description="Poll CPU/GPU/VRAM. Off by default: the probe itself costs time.",
     )
     system_sample_interval: float = Field(default=1.0, gt=0.0, le=60.0)
+    overlap_tracking: bool = Field(
+        default=True,
+        description=(
+            "Track the next camera frame while the GPU draws this one, on a second "
+            "thread (2026-10-08). Off: one thread, one frame at a time -- one frame "
+            "less latency, the stages' sum per frame."
+        ),
+    )
 
 
 class UiSettings(_Section):

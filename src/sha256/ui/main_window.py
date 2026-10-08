@@ -245,7 +245,9 @@ class MainWindow(QMainWindow):
     def __init__(self, context: ApplicationContext) -> None:
         super().__init__()
         self._context = context
-        self._runner = PipelineRunner(context.controller)
+        self._runner = PipelineRunner(
+            context.controller, overlap=context.settings.performance.overlap_tracking
+        )
         # Day 15: his passphrase, and what it unlocks (see sha256.app.owner).
         self._owner = OwnerAccess(context.paths.configs / OWNER_FILENAME)
         # Day 16 evening, his ask: the people at this camera, by name (see
