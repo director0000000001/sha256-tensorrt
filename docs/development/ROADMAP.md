@@ -6655,6 +6655,24 @@ first run (minutes), about 1 GB more in the package, and a new way for a
 user's machine to fail. Expected 1.5-2x on the model. Not for this
 delivery.
 
+**Measured 2026-10-09, on the `tensorrt` branch (a copy of the repo), in
+`docs/benchmarks/B006-tensorrt.md`.** B005's three blockers are gone:
+TensorRT 11.2.1+ runs 3-D GridSample natively (no plugin), the cu12 pip
+wheels (11.3.0.99) load beside torch's cu128 DLLs, Python 3.12 has its
+bindings. The two networks exported as one fused fp16 ONNX (opset 20, 204 MB)
+and built strongly typed in 45 s on the 5070 Ti; the TensorRT enqueue
+captures into the engine's own CUDA graph. The graph's GPU time 25.8 to
+14.3 ms a frame (1.81x; the two networks alone 23.5 to 12.1, 1.94x); the
+render thread 34 to 21.5 ms, 30 fps at the camera with 12 ms to spare. The
+keypoints handed to the warping network are byte-identical over all 601
+frames (the drive path is the same path); the composite differs by fp16
+rounding -- at most 6 grey levels, 99% of the differing pixels within 2,
+mean 0.02 over the frame, 4-5% of the frame's pixels touched -- less than
+torch's own fp16 differs from fp32. Package: about 0.75 GB with prebuilt
+plans per GPU family, about 1 GB building on first run. Stage 2 (the
+integration, the torch path kept as fallback) waits for his word; the
+probe is `scripts/probes/tensorrt_probe.py`.
+
 ### Not in the plan, and why
 
 - **The tracker on a half-size frame** (day 11's 2a): MediaPipe's landmarks
