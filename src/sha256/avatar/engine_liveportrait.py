@@ -76,6 +76,7 @@ network code is vendored under :mod:`sha256.avatar.liveportrait`, MIT.
 
 from __future__ import annotations
 
+import functools
 import math
 import statistics
 from collections import deque
@@ -3738,6 +3739,13 @@ def _dark_cells(
     import cv2
 
     scene = cv2.resize(cv2.multiply(region, alpha3), small, interpolation=cv2.INTER_AREA)
+    return _dark_cells_small(scene, coverage)
+
+
+def _dark_cells_small(scene: np.ndarray, coverage: np.ndarray) -> np.ndarray:
+    """:func:`_dark_cells` from its quarter-scale inputs: ``scene`` is the
+    mask-weighted room at the correction's cell size (the resize already
+    done, on the CPU or the GPU), ``coverage`` the mask at the same size."""
     lightness = scene.mean(axis=2) / np.maximum(coverage, 1e-3)
     core = coverage > 0.9
     if int(core.sum()) < 16:
@@ -3747,6 +3755,38 @@ def _dark_cells(
         np.float32
     )
     return dark
+
+
+@functools.lru_cache(maxsize=1024)
+def _area_weights(n: int, m: int) -> np.ndarray:
+    """OpenCV's ``INTER_AREA`` downscale from ``n`` to ``m`` samples as an
+    ``(m, n)`` weight matrix, so the GPU paste can shrink a box exactly the
+    way ``cv2.resize`` does on the CPU (2026-10-08). The rule is
+    ``computeResizeAreaTab``'s: each output cell spans ``n/m`` input
+    samples; whole samples weigh ``1/cell``, the two partial ones at its
+    ends their overlap over ``cell``. For a whole-number ratio this is the
+    plain box average OpenCV's fast path takes. Applied as ``Wy @ image @
+    Wx.T``, which is how OpenCV applies it too -- rows, then columns."""
+    if m > n:
+        msg = f"area weights shrink only: {n} -> {m}"
+        raise ValueError(msg)
+    scale = n / m
+    weights = np.zeros((m, n), dtype=np.float64)
+    for d in range(m):
+        fs1 = d * scale
+        fs2 = fs1 + scale
+        cell = min(scale, n - fs1)
+        s1 = math.ceil(fs1)
+        s2 = math.floor(fs2)
+        s2 = min(s2, n - 1)
+        s1 = min(s1, s2)
+        if s1 - fs1 > 1e-3:
+            weights[d, s1 - 1] += (s1 - fs1) / cell
+        for s in range(s1, s2):
+            weights[d, s] += 1.0 / cell
+        if fs2 - s2 > 1e-3:
+            weights[d, s2] += min(min(fs2 - s2, 1.0), cell) / cell
+    return weights.astype(np.float32)
 
 
 def _face_colour_correction(
@@ -3796,10 +3836,40 @@ def _face_colour_correction(
         cv2.multiply(cv2.subtract(region, face), alpha3), small, interpolation=cv2.INTER_AREA
     )
     coverage = cv2.resize(weight, small, interpolation=cv2.INTER_AREA)
+    scene = cv2.resize(cv2.multiply(region, alpha3), small, interpolation=cv2.INTER_AREA)
+    field = _correction_field(loaded, difference, coverage, scene, features, (width, height))
+    correction: np.ndarray = cv2.resize(field, (width, height), interpolation=cv2.INTER_LINEAR)
+    return correction
+
+
+def _correction_field(
+    loaded: _Portrait,
+    difference: np.ndarray,
+    coverage: np.ndarray,
+    scene: np.ndarray,
+    features: np.ndarray | None,
+    box_size: tuple[int, int],
+) -> np.ndarray:
+    """The relighting field at the correction's own cell size, from the
+    quarter-scale inputs -- :func:`_face_colour_correction`'s arithmetic
+    from the resizes on, shared since 2026-10-08 by the CPU paste and the
+    GPU one (:meth:`LivePortraitEngine._colour_correction_gpu`), which
+    computes the three inputs on the GPU and hands them over as numpy.
+
+    ``difference`` is the mask-weighted room-minus-face, ``coverage`` the
+    mask, ``scene`` the mask-weighted room, all at the cell size;
+    ``features`` his feature points in the box's own pixels; ``box_size``
+    the box's ``(width, height)`` the cells were shrunk from. The field is
+    carried between frames in ``loaded.correction`` as before.
+    """
+    import cv2
+
+    width, height = box_size
+    small = (coverage.shape[1], coverage.shape[0])
     # Day 16 evening: cells that are not skin -- hair under the edge, a
     # brow's core, lashes -- are unknown to the plane and the residual
     # alike (see _EDGE_DARK_RATIO).
-    dark = _dark_cells(region, alpha3, coverage, small)
+    dark = _dark_cells_small(scene, coverage)
     keep = 1.0 - dark
     field = _fit_lighting_plane(difference * keep[:, :, None], coverage * keep)
     # Day 13: the plane's residual matched at the mask's edge -- see
@@ -3814,12 +3884,14 @@ def _face_colour_correction(
 
     previous = loaded.correction
     if previous is not None:
+        if not isinstance(previous, np.ndarray):
+            # Left by the GPU fit (see _fit_field_gpu): the same field, on
+            # the device, channels first.
+            previous = previous.permute(1, 2, 0).cpu().numpy()
         resized = cv2.resize(previous, (field.shape[1], field.shape[0]))
         field = resized * _CORRECTION_INERTIA + field * (1.0 - _CORRECTION_INERTIA)
     loaded.correction = field
-
-    correction: np.ndarray = cv2.resize(field, (width, height), interpolation=cv2.INTER_LINEAR)
-    return correction
+    return field
 
 
 # ---------------------------------------------------------------------------
@@ -4241,7 +4313,10 @@ class _Portrait:
         # with, for the frames the tracker loses: the face stays, the room
         # keeps moving, and the hold needs the same mask a fresh frame would
         # have built so a lost-tracking frame does not flash a different edge.
-        self.last: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray | None] | None = None
+        # The face is a numpy picture on the CPU path and, since 2026-10-08,
+        # a GPU tensor (3 x 512 x 512 float, the frame's channel order) on
+        # the GPU one -- see LivePortraitEngine._paste.
+        self.last: tuple[Any, np.ndarray, np.ndarray, np.ndarray | None] | None = None
         # The portrait's own oval, feathered, in the 512x512 crop the network
         # always draws into — computed once at load from the portrait's own
         # landmarks and reused every frame as one half of :func:`_frame_mask`.
@@ -4250,7 +4325,9 @@ class _Portrait:
         self.mask_bbox: tuple[int, int, int, int] | None = None
         # The low-frequency relighting field, carried between frames the same
         # way the warp engine carries it — see :data:`_CORRECTION_INERTIA`.
-        self.correction: np.ndarray | None = None
+        # A numpy field on the CPU paste; a device tensor on the GPU one
+        # (2026-10-08, see _fit_field_gpu).
+        self.correction: Any = None
         # Day 8, 2026-09-06: whether the last rendered face is currently
         # being reused rather than redrawn, at a pose too steep for a
         # frontal portrait -- see _should_hold. Starts un-held; reset_anchor
@@ -4308,6 +4385,20 @@ class LivePortraitEngine:
         # How long the last frame's parts took, in ms, for the offline harness
         # and the debug panel. Not a measurement of anything until read.
         self.last_timings: dict[str, float] = {}
+        # 2026-10-08 ("The fast version", step 2): the paste on the GPU when
+        # the engine is on CUDA (see _paste / _paste_gpu); off, the face is
+        # downloaded and pasted on the CPU as before -- the probes compare
+        # the two. The CUDA events time the graph without waiting for it;
+        # the area matrices are the GPU paste's resize weights, per size.
+        self.paste_on_gpu = True
+        self.fit_on_gpu = True
+        self._area_cache: dict[tuple[Any, ...], Any] = {}
+        self._pinned: dict[tuple[str, str], Any] = {}
+        self._model_events: tuple[Any, Any] | None = None
+        self._events_recorded = False
+        self._paste_wait_ms = 0.0
+        self._upload_ms = 0.0
+        self._paste_marks = (0.0, 0.0, 0.0)
 
     # --- Component ---------------------------------------------------------
 
@@ -4526,14 +4617,32 @@ class LivePortraitEngine:
     def _update_hair(self, loaded: _Portrait, face_rgb: np.ndarray) -> None:
         """This frame's render to the worker; the newest matte, if it is
         new and this avatar's, folded into the EMA and its box grown."""
+        if self._submit_hair(loaded, face_rgb):
+            self._fold_hair(loaded)
+
+    def _submit_hair(self, loaded: _Portrait, face_rgb: np.ndarray) -> bool:
+        """This frame's render to the worker, starting it the first time;
+        ``False`` -- and the avatar's hair switched off -- when the
+        segmenter cannot start."""
         worker = self._hair_worker
         if worker is None:
             if not self._start_hair():
                 loaded.hair_on = False
-                return
+                return False
             worker = self._hair_worker
             assert worker is not None
         worker.submit(loaded.descriptor.id, face_rgb)
+        return True
+
+    def _fold_hair(self, loaded: _Portrait) -> None:
+        """The worker's newest matte, if it is new and this avatar's, folded
+        into the EMA and its box grown. On the GPU frame path (2026-10-08)
+        this runs before the paste and the submit after it, from a copy of
+        the face the GPU fills while the CPU builds the mask -- so the
+        frame never waits for the graph on the hair's account."""
+        worker = self._hair_worker
+        if worker is None:
+            return
         got = worker.latest()
         if got is None:
             return
@@ -5160,6 +5269,12 @@ class LivePortraitEngine:
         scene = frame.data
         height, width = scene.shape[:2]
         bgr = frame.pixel_format is PixelFormat.BGR24
+        # 2026-10-08: on CUDA the face stays on the GPU from the graph to the
+        # paste (see _paste_gpu); on the CPU -- the tests' fixtures -- the
+        # frame path is the one it was, to the byte.
+        on_gpu = bool(
+            self.paste_on_gpu and self._device is not None and self._device.type == "cuda"
+        )
 
         target = None
         gaze = None
@@ -5171,6 +5286,7 @@ class LivePortraitEngine:
                 # the face itself uses -- see the GAZE section.
                 gaze = _gaze_offset(normalised[:, :2] * (width, height))
 
+        hair_pending = None
         if target is None:
             # The face is lost: the crop filters forget where it was, so the
             # first frame it is found again is taken as it comes, not
@@ -5229,19 +5345,6 @@ class LivePortraitEngine:
             loaded.features = target[[k for group in _EDGE_FEATURES for k in group]].astype(
                 np.float32
             )
-            # Day 16 (C1): his hairline, on frontal frames, until the anchor
-            # settles the forehead reach from it and the portrait's. Day 17:
-            # read on every Nth frontal frame after that too, for the
-            # calibration (frame_readings["hairline"], the profile's
-            # driver_hairline).
-            if _hairline_frame_ok(tracking.head_pose) and (
-                not loaded.hairline_settled
-                or tracking.metadata.frame_id % _HAIRLINE_READ_EVERY == 0
-            ):
-                reading = _hairline_fraction(_luminance(scene, bgr=bgr), target)
-                loaded.hairline_last = reading
-                if not loaded.hairline_settled:
-                    loaded.hairline_samples.append(reading)
             chin_drop = 0.0
             # Day 16: the anchor gate's word on stillness, read every frame
             # (held or not) so the window is always the last half second;
@@ -5311,7 +5414,7 @@ class LivePortraitEngine:
                     gates = (gates[0] * steep_fade, gates[1] * steep_fade, gates[2] * steep_fade)
                     brow_lift *= steep_fade
                 gaze_fade = steep_fade * _gaze_yaw_fade(loaded, tracking.head_pose)
-                face_rgb = self._render(
+                face_dev = self._render(
                     loaded,
                     small,
                     c_d_eye,
@@ -5331,13 +5434,37 @@ class LivePortraitEngine:
                     chin_sample=c_d_chin,
                     pose_sample=pose_sample,
                     steep_fade=gaze_fade,
+                    on_device=True,
                 )
-                face = cv2.cvtColor(face_rgb, cv2.COLOR_RGB2BGR) if bgr else face_rgb
                 rendered = now()
-                # Day 17 (C1b): this render to the hair segmenter's thread,
-                # and the newest matte folded in -- see _update_hair.
-                if loaded.hair_on:
-                    self._update_hair(loaded, face_rgb)
+                if on_gpu:
+                    # 2026-10-08: the face stays on the GPU -- the frame's
+                    # channel order, 0..255 as float -- for the GPU paste and
+                    # the hold; nothing waits for the graph here (a flip,
+                    # not an index list: a list would be copied up to the
+                    # device, and a copy from unpinned memory waits for the
+                    # stream, graph and all). The CPU sees the picture only
+                    # when the hair worker needs it.
+                    face = face_dev.permute(2, 0, 1)
+                    face = (face.flip(0) if bgr else face).float()
+                    if loaded.hair_on:
+                        # The newest matte folded in now, for this frame's
+                        # paste; this frame's face to the worker after the
+                        # paste, from a pinned copy the GPU fills meanwhile
+                        # (see _fold_hair).
+                        if self._hair_worker is None and not self._start_hair():
+                            loaded.hair_on = False
+                        else:
+                            self._fold_hair(loaded)
+                            hair_pending = self._pinned_picture("hair", face_dev)
+                else:
+                    face_rgb = face_dev.cpu().numpy()
+                    face = cv2.cvtColor(face_rgb, cv2.COLOR_RGB2BGR) if bgr else face_rgb
+                    # Day 17 (C1b): this render to the hair segmenter's
+                    # thread, and the newest matte folded in -- see
+                    # _update_hair.
+                    if loaded.hair_on:
+                        self._update_hair(loaded, face_rgb)
                 haired = now()
                 # Day 13: how far his chin has dropped from rest, in crop
                 # pixels -- what the portrait's oval is let down by below
@@ -5348,6 +5475,23 @@ class LivePortraitEngine:
                 chin_drop = _chin_follow(loaded.options) * _chin_drop(
                     c_d_chin, loaded.rest_chin, loaded.chin_drop_max
                 )
+            # Day 16 (C1): his hairline, on frontal frames, until the anchor
+            # settles the forehead reach from it and the portrait's. Day 17:
+            # read on every Nth frontal frame after that too, for the
+            # calibration (frame_readings["hairline"], the profile's
+            # driver_hairline). Read here, after the render is launched,
+            # since 2026-10-08: the reading feeds nothing the graph takes,
+            # only _settle_forehead below and the calibration, and it costs
+            # the whole frame's luminance -- CPU time the GPU now draws
+            # through instead of waiting for.
+            if _hairline_frame_ok(tracking.head_pose) and (
+                not loaded.hairline_settled
+                or tracking.metadata.frame_id % _HAIRLINE_READ_EVERY == 0
+            ):
+                reading = _hairline_fraction(_luminance(scene, bgr=bgr), target)
+                loaded.hairline_last = reading
+                if not loaded.hairline_settled:
+                    loaded.hairline_samples.append(reading)
             loaded.chin_drop = chin_drop
             if not loaded.hairline_settled and loaded.anchor_seen >= loaded.anchor_wanted:
                 self._settle_forehead(loaded)
@@ -5387,8 +5531,31 @@ class LivePortraitEngine:
             }
 
         pasted = now()
+        self._paste_wait_ms = 0.0
+        self._upload_ms = 0.0
+        self._paste_marks = (0.0, 0.0, 0.0)
         output = self._paste(scene, face, to_frame, loaded, mask, extra=extra)
         self.last_timings["paste_ms"] = (now() - pasted) * 1000.0
+        self.last_timings["wait_ms"] = self._paste_wait_ms
+        self.last_timings["upload_ms"] = self._upload_ms
+        pre, fit, post = self._paste_marks
+        self.last_timings["paste_pre_ms"] = pre
+        self.last_timings["paste_fit_ms"] = fit
+        self.last_timings["paste_post_ms"] = post
+        if hair_pending is not None:
+            # The paste's last download drained the stream: the copy is
+            # whole, and the worker copies it again for itself.
+            self._submit_hair(loaded, hair_pending.numpy())
+        if self._events_recorded:
+            # The graph ran this frame and the paste's download has waited
+            # for it: its time on the GPU is known now. ``launch_ms`` is
+            # what the CPU spent launching it (``model_ms`` was that sum
+            # before 2026-10-08, the CPU waiting the graph out).
+            self._events_recorded = False
+            events = self._model_events
+            if events is not None:
+                self.last_timings["launch_ms"] = self.last_timings.get("model_ms", 0.0)
+                self.last_timings["model_ms"] = float(events[0].elapsed_time(events[1]))
 
         return RenderedFrame(
             data=output,
@@ -5531,8 +5698,14 @@ class LivePortraitEngine:
         chin_sample: float | None = None,
         pose_sample: tuple[float, float] | None = None,
         steep_fade: float = 1.0,
-    ) -> np.ndarray:
-        """The portrait's face with this driver's expression, 512x512 RGB.
+        on_device: bool = False,
+    ) -> Any:
+        """The portrait's face with this driver's expression, 512x512 RGB --
+        a numpy picture, or with ``on_device`` the same ``uint8`` picture as
+        the tensor it is on the network's device (2026-10-08), so the frame
+        path need not wait for the GPU here: the download, and the wait for
+        the graph with it, happen in the paste, after the CPU has built the
+        mask meanwhile.
 
         ``ear``/``mar`` are the driver's own raw readings -- what the
         anchor's rest is learned from, unrelated to the portrait; ``mar`` is
@@ -5612,10 +5785,26 @@ class LivePortraitEngine:
             for k, x_per_unit in _GAZE_KP_X.items():
                 loaded.brow_delta[0, k, 0] = gaze_x * x_per_unit
             loaded.static_in.copy_(image)
+            # The graph's own time on the GPU, read after the frame's last
+            # download (see animate) -- the CPU no longer waits here.
+            events = self._model_events
+            if events is None and self._device.type == "cuda":
+                events = self._model_events = (
+                    torch.cuda.Event(enable_timing=True),
+                    torch.cuda.Event(enable_timing=True),
+                )
+            if events is not None:
+                events[0].record()
             loaded.graph.replay()
+            if events is not None:
+                events[1].record()
+                self._events_recorded = True
             self._track_lip_rest(loaded, gates)
             out = loaded.static_out[0].permute(1, 2, 0).float().clamp_(0.0, 1.0).mul_(255.0)
-            face: np.ndarray = out.to(torch.uint8).cpu().numpy()
+            picture = out.to(torch.uint8)
+            if on_device:
+                return picture
+            face: np.ndarray = picture.cpu().numpy()
         return face
 
     @staticmethod
@@ -6092,13 +6281,19 @@ class LivePortraitEngine:
     def _paste(
         self,
         scene: np.ndarray,
-        face: np.ndarray,
+        face: Any,
         to_frame: np.ndarray,
         loaded: _Portrait,
         mask: np.ndarray,
         extra: np.ndarray | None = None,
     ) -> np.ndarray:
         """The generated face into the frame, under its own oval, colour-matched.
+
+        ``face`` is the 512x512 picture in the frame's channel order: a
+        numpy ``uint8`` one, pasted here on the CPU as it always was, or --
+        since 2026-10-08, the frame path on CUDA -- a ``3 x 512 x 512``
+        float tensor still on the GPU, pasted by :meth:`_paste_gpu` with
+        the same arithmetic; this function then only dispatches.
 
         ``mask`` is this frame's own paste mask -- the portrait's oval
         intersected with the driver's, see :func:`_frame_mask` -- not
@@ -6121,6 +6316,9 @@ class LivePortraitEngine:
         every frame. Frames outside the box are byte-identical to the scene;
         see TestPaste in tests/unit/test_engine_liveportrait.py.
         """
+        if not isinstance(face, np.ndarray):
+            return self._paste_gpu(scene, face, to_frame, loaded, mask, extra=extra)
+
         import cv2
 
         assert loaded.mask_bbox is not None
@@ -6203,6 +6401,450 @@ class LivePortraitEngine:
             delta = cv2.add(delta, correction)
         output[y0:y1, x0:x1] = cv2.add(region, cv2.multiply(delta, alpha3), dtype=cv2.CV_8U)
         return output
+
+    def _paste_gpu(
+        self,
+        scene: np.ndarray,
+        face: Any,
+        to_frame: np.ndarray,
+        loaded: _Portrait,
+        mask: np.ndarray,
+        extra: np.ndarray | None = None,
+    ) -> np.ndarray:
+        """:meth:`_paste` with the face still on the GPU (2026-10-08, "The
+        fast version", step 2) -- the same steps in the same order, the
+        full-box arithmetic on the GPU, the small arithmetic where it was.
+
+        What moved: the three ``warpAffine``s become one ``grid_sample`` over
+        the face, the mask and the hair blend as channels of one tensor,
+        sampled where the inverse of the same affine says, at pixel centres
+        the way OpenCV counts them (``align_corners=True`` on integer
+        coordinates); the mask-weighted difference, the mask and the
+        mask-weighted room are shrunk to the correction's cells with
+        OpenCV's own area weights (:func:`_area_weights`) and *those* small
+        arrays are downloaded -- a few kilobytes -- for the plane fit, the
+        edge residual and the inertia, which run on the CPU unchanged
+        (:func:`_correction_field`); the field comes back up and is widened
+        bilinearly as ``cv2.resize`` would; the one blend and the saturating
+        cast run on the GPU; the box alone is downloaded and written into a
+        copy of the scene. What stays on the CPU besides the fit: the mask's
+        own adjustments (the guard's keep, the turn's room), on the small
+        crop-box patch, as before -- the keep needs the face patch and gets
+        it downloaded on the frames the guard is on, a turn.
+
+        Why it is not byte-identical: OpenCV's warp quantises the sampling
+        position to 1/32 of a pixel and its area resize sums in another
+        order, so a pixel at a gradient lands a grey level off now and then.
+        The bar (the plan): at most 2 at p99 of the pixels that differ,
+        under 0.5 mean over the frame, nothing outside the box.
+
+        The first download (the small arrays) is where the CPU waits for
+        the graph; ``_paste_wait_ms`` says how long.
+        """
+        import cv2
+        import torch.nn.functional as functional
+
+        torch = self._torch
+        device = face.device
+        started = now()
+        assert loaded.mask_bbox is not None
+        height, width = scene.shape[:2]
+        box = loaded.mask_bbox
+        hair = loaded.hair_on and loaded.hair_matte is not None
+        if hair:
+            grown = union_box(box, loaded.hair_box)
+            assert grown is not None
+            box = grown
+        bx0, by0, bx1, by1 = box
+        x0, y0, x1, y1 = _transformed_box(to_frame, box, width, height)
+        output = scene.copy()
+        if x1 - x0 < 2 or y1 - y0 < 2:
+            return output
+
+        shifted = to_frame.copy()
+        shifted[:, 2] = (
+            to_frame[:, :2] @ np.array([bx0, by0], dtype=np.float32) + to_frame[:, 2] - (x0, y0)
+        )
+        w, h = x1 - x0, y1 - y0
+        pw, ph = bx1 - bx0, by1 - by0
+
+        # The mask's patch and its adjustments, as the CPU paste makes them.
+        mask_patch = mask[by0:by1, bx0:bx1, 0]
+        weight = loaded.guard_weight
+        keep = None
+        if loaded.background is not None and (weight > 0.0 or extra is not None):
+            face_patch = face[:, by0:by1, bx0:bx1].to(torch.uint8).permute(1, 2, 0).cpu().numpy()
+            keep = _background_keep(np.ascontiguousarray(face_patch), loaded.background)
+        if keep is not None and weight > 0.0:
+            mask_patch = mask_patch * (1.0 - weight * (1.0 - keep))
+        if extra is not None:
+            extra_patch = extra[by0:by1, bx0:bx1, 0]
+            mask_patch = mask_patch + (extra_patch if keep is None else extra_patch * keep)
+        # The mask -- and the hair blend -- warped on the CPU, by the very
+        # call the CPU paste makes: float, unrounded, so the alpha the GPU
+        # blends with is the CPU paste's to the bit, and its cell-size
+        # resize, its sum and its distance transform can all be had here,
+        # before anything waits for the graph.
+        size = (w, h)
+        alpha_np = cv2.warpAffine(mask_patch, shifted, size, flags=cv2.INTER_LINEAR)
+        blend_np = None
+        if hair:
+            assert loaded.hair_matte is not None
+            matte = loaded.hair_matte
+            matte_patch = matte[by0:by1, bx0:bx1, 0] if matte.ndim == 3 else matte[by0:by1, bx0:bx1]
+            blend_np = cv2.warpAffine(
+                np.maximum(mask_patch, matte_patch), shifted, size, flags=cv2.INTER_LINEAR
+            )
+
+        # The face warped on the GPU: where each output pixel reads in the
+        # patch is the inverse of the same affine, as warpAffine inverts
+        # it, on integer pixel positions.
+        inverse = cv2.invertAffineTransform(shifted.astype(np.float64))
+        xs = torch.arange(w, device=device, dtype=torch.float32)
+        ys = torch.arange(h, device=device, dtype=torch.float32)
+        sx = (
+            float(inverse[0, 0]) * xs[None, :]
+            + float(inverse[0, 1]) * ys[:, None]
+            + float(inverse[0, 2])
+        )
+        sy = (
+            float(inverse[1, 0]) * xs[None, :]
+            + float(inverse[1, 1]) * ys[:, None]
+            + float(inverse[1, 2])
+        )
+        grid = torch.stack(
+            [sx * (2.0 / max(pw - 1, 1)) - 1.0, sy * (2.0 / max(ph - 1, 1)) - 1.0], dim=-1
+        )[None]
+        placed = functional.grid_sample(
+            face[None, :, by0:by1, bx0:bx1],
+            grid,
+            mode="bilinear",
+            padding_mode="zeros",
+            align_corners=True,
+        )[0].round_()  # the uint8 warp rounds
+        alpha = self._upload("alpha", alpha_np, device)[None]
+        blend = alpha if blend_np is None else self._upload("blend", blend_np, device)[None]
+
+        region = self._upload("region", output[y0:y1, x0:x1], device).permute(2, 0, 1).float()
+        enqueued = now()
+        correction = self._colour_correction_gpu(
+            loaded, placed, region, alpha, alpha_np, x0, y0, w, h
+        )
+        fitted = now()
+
+        # The one fused blend of the CPU paste (day 11), and its saturating
+        # cast to bytes.
+        delta = placed - region
+        if correction is not None:
+            delta = delta + correction
+        result = (region + delta * blend).round_().clamp_(0.0, 255.0).to(torch.uint8)
+        output[y0:y1, x0:x1] = result.permute(1, 2, 0).cpu().numpy()
+        # For last_timings: the CPU before the wait, the fit after it, the
+        # blend and the download.
+        self._paste_marks = (
+            (enqueued - started) * 1000.0,
+            (fitted - enqueued) * 1000.0 - self._paste_wait_ms,
+            (now() - fitted) * 1000.0,
+        )
+        return output
+
+    def _colour_correction_gpu(
+        self,
+        loaded: _Portrait,
+        placed: Any,
+        region: Any,
+        alpha: Any,
+        alpha_np: np.ndarray,
+        x0: int,
+        y0: int,
+        w: int,
+        h: int,
+    ) -> Any:
+        """:func:`_face_colour_correction` for the GPU paste. The mask's
+        side of it is the CPU paste's own, computed here from ``alpha_np``
+        (the CPU-warped mask) before anything waits: the full-box sum and
+        its "too little mask" answer, the cell-size coverage by the same
+        ``cv2.resize``, the distance transform for the edge's fade, his
+        features' cells. The face's side -- the mask-weighted difference
+        and room, shrunk to the cells with OpenCV's area weights -- is on
+        the GPU, and so is the fit itself (:meth:`_fit_field_gpu`), so the
+        CPU enqueues the whole correction and waits for the GPU only once,
+        at the paste's last download. ``None`` when the mask covers too
+        little of the box, as the CPU one says. With ``fit_on_gpu`` off,
+        or cells too few for the widest blur, the fit runs on the CPU from
+        downloaded planes (:func:`_correction_field`) -- a wait."""
+        import cv2
+        import torch.nn.functional as functional
+
+        torch = self._torch
+        device = alpha.device
+        if float(alpha_np.sum()) < 32.0:
+            return None
+        small = (max(w // _CORRECTION_DOWNSCALE, 8), max(h // _CORRECTION_DOWNSCALE, 8))
+        sw, sh = small
+        coverage_np = cv2.resize(alpha_np, small, interpolation=cv2.INTER_AREA)
+        features = None if loaded.features is None else loaded.features - (x0, y0)
+        edge = _edge_match(loaded.options)
+
+        rows = self._area_matrix("area_rows", h, sh, device)
+        columns = self._area_matrix("area_columns", w, sw, device)
+        difference = (region - placed) * alpha
+        scene = region * alpha
+        stacked = torch.cat([difference, scene], dim=0)
+        shrunk = torch.matmul(torch.matmul(rows, stacked), columns.T)
+
+        gpu_fit = self.fit_on_gpu and min(sh, sw) > (_EDGE_FILL_BLUR | 1) // 2 + 1
+        if gpu_fit:
+            exclude_t = None
+            weight_t = None
+            if edge > 0.0:
+                if features is not None:
+                    cells = features / (w / sw, h / sh)
+                    zone = _feature_exclusion(cells.astype(np.float32), (sh, sw))
+                    exclude_t = self._upload("exclude", zone, device)
+                inside = (coverage_np > 0.5).astype(np.uint8)
+                distance = cv2.distanceTransform(inside, cv2.DIST_L2, 3)
+                reach = max(float(sh) * _EDGE_REACH, 1.0)
+                weight_np = np.clip(1.0 - distance / reach, 0.0, 1.0).astype(np.float32)
+                weight_t = self._upload("edge_weight", weight_np, device)
+            coverage_t = self._upload("coverage", coverage_np, device)
+            field_t = self._fit_field_gpu(loaded, shrunk, coverage_t, exclude_t, weight_t, edge)
+        else:
+            waited = now()
+            planes = shrunk.cpu().numpy()
+            self._paste_wait_ms = (now() - waited) * 1000.0
+            difference_small = np.ascontiguousarray(planes[:3].transpose(1, 2, 0))
+            scene_small = np.ascontiguousarray(planes[3:6].transpose(1, 2, 0))
+            field = _correction_field(
+                loaded, difference_small, coverage_np, scene_small, features, (w, h)
+            )
+            field_t = self._upload("field", field, device).permute(2, 0, 1)
+        return functional.interpolate(
+            field_t[None], size=(h, w), mode="bilinear", align_corners=False
+        )[0]
+
+    def _fit_field_gpu(
+        self,
+        loaded: _Portrait,
+        shrunk: Any,
+        coverage: Any,
+        exclude: Any,
+        weight: Any,
+        edge: float,
+    ) -> Any:
+        """:func:`_correction_field` on the GPU (2026-10-08): the dark
+        cells, the plane, the edge residual and the inertia as tensor
+        arithmetic on the cell planes already there, nothing of it waiting
+        for the GPU -- the CPU enqueues it and goes on to the paste's last
+        download. ``shrunk`` is the mask-weighted difference and room at
+        the cell size (6 planes); ``coverage``, ``exclude`` and ``weight``
+        come from the CPU, the CPU paste's own values. The median of the
+        core cells is read without a boolean index (a sort, and a gather by
+        a device-side count); the 3x3 plane solve is the closed form, with
+        numpy's singular-matrix fallback chosen by the determinant; the
+        blurs are the same Gaussian kernels as banded matrices over the
+        reflect-101 border (against ``cv2.GaussianBlur``: 2e-7). The field
+        is kept on the device for the next frame's inertia."""
+        import torch.nn.functional as functional
+
+        torch = self._torch
+        device = shrunk.device
+        difference = shrunk[:3]
+        scene = shrunk[3:6]
+        sh, sw = coverage.shape
+
+        # _dark_cells_small, with numpy's median of the core cells: the two
+        # middle values of the sorted core, averaged.
+        lightness = scene.mean(dim=0) / coverage.clamp_min(1e-3)
+        core = coverage > 0.9
+        count = core.sum()
+        ordered = torch.where(core, lightness, torch.full_like(lightness, math.inf))
+        ordered = ordered.flatten().sort().values
+        # Gathered by device-side indices: a plain ``tensor[index_tensor]``
+        # would read the index back to the host and wait for the GPU.
+        middle = torch.stack([torch.clamp(count - 1, min=0) // 2, count // 2])
+        lower, upper = ordered.index_select(0, middle)
+        median = (lower + upper) * 0.5
+        dark = ((lightness < _EDGE_DARK_RATIO * median) & (coverage > 0.05)).float()
+        dark = torch.where(count >= 16, dark, torch.zeros_like(dark))
+        keep = 1.0 - dark
+
+        # _fit_lighting_plane: the sums, and the 3x3 solve in closed form
+        # (the adjugate over the determinant), in float64 on the GPU; a
+        # zero determinant takes numpy's fallback -- the mean where there
+        # is any mask, zeros where there is none.
+        basis, pairs = self._plane_basis(sh, sw, device)
+        weighted = coverage * keep
+        target = difference * keep
+        n = (pairs * weighted).double().sum(dim=(2, 3))
+        targets = (basis[:, None] * target[None]).double().sum(dim=(2, 3))
+        total = weighted.double().sum()
+        channel_sums = target.double().sum(dim=(1, 2))
+        c00 = n[1, 1] * n[2, 2] - n[1, 2] * n[2, 1]
+        c01 = n[1, 2] * n[2, 0] - n[1, 0] * n[2, 2]
+        c02 = n[1, 0] * n[2, 1] - n[1, 1] * n[2, 0]
+        det = n[0, 0] * c00 + n[0, 1] * c01 + n[0, 2] * c02
+        adjugate = torch.stack(
+            [
+                torch.stack(
+                    [
+                        c00,
+                        n[0, 2] * n[2, 1] - n[0, 1] * n[2, 2],
+                        n[0, 1] * n[1, 2] - n[0, 2] * n[1, 1],
+                    ]
+                ),
+                torch.stack(
+                    [
+                        c01,
+                        n[0, 0] * n[2, 2] - n[0, 2] * n[2, 0],
+                        n[0, 2] * n[1, 0] - n[0, 0] * n[1, 2],
+                    ]
+                ),
+                torch.stack(
+                    [
+                        c02,
+                        n[0, 1] * n[2, 0] - n[0, 0] * n[2, 1],
+                        n[0, 0] * n[1, 1] - n[0, 1] * n[1, 0],
+                    ]
+                ),
+            ]
+        )
+        safe_det = torch.where(det != 0.0, det, torch.ones_like(det))
+        solution = torch.matmul(adjugate, targets) / safe_det
+        fallback = torch.zeros_like(solution)
+        fallback[0] = torch.where(
+            total >= 1e-6, channel_sums / total.clamp_min(1e-6), torch.zeros_like(channel_sums)
+        )
+        coefficients = torch.where(det != 0.0, solution, fallback).float()
+        field = torch.einsum("kij,kc->cij", basis, coefficients)
+
+        # _edge_residual, with the exclusion always present as there (the
+        # dark cells at least); the residual and its weight blurred
+        # together, as four planes, narrow and wide.
+        if edge > 0.0:
+            assert weight is not None
+            zone = dark if exclude is None else torch.maximum(dark, exclude)
+            keep_zone = 1.0 - zone
+            residual = (difference - field * coverage) * keep_zone
+            planes = torch.cat([residual, (coverage * keep_zone)[None]], dim=0)
+            narrow = self._blur(planes, _EDGE_BLUR | 1)
+            wide = self._blur(planes, _EDGE_FILL_BLUR | 1)
+            smooth = narrow[:3] / narrow[3:4].clamp_min(1e-3)
+            filled = wide[:3] / wide[3:4].clamp_min(1e-3)
+            soften = self._blur(zone[None], _EDGE_EXCLUDE_SOFTEN | 1)
+            smooth = smooth * (1.0 - soften) + filled * soften
+            field = field + smooth * weight * edge
+
+        previous = loaded.correction
+        if previous is not None:
+            if isinstance(previous, np.ndarray):
+                previous = self._upload("previous", previous, device).permute(2, 0, 1)
+            if tuple(previous.shape[1:]) != (sh, sw):
+                previous = functional.interpolate(
+                    previous[None], size=(sh, sw), mode="bilinear", align_corners=False
+                )[0]
+            field = previous * _CORRECTION_INERTIA + field * (1.0 - _CORRECTION_INERTIA)
+        loaded.correction = field
+        return field
+
+    def _blur(self, planes: Any, size: int) -> Any:
+        """``cv2.GaussianBlur(planes, (size, size), 0)`` on the GPU, for
+        ``(C, H, W)`` planes: the same kernel (``getGaussianKernel``) with
+        the reflect-101 border, as two banded matrices -- rows, then
+        columns -- so it is two small matrix products, not a convolution
+        whose plan cuDNN would search for anew at every new box size."""
+        _count, height, width = planes.shape
+        along_width = self._blur_matrix(width, size, planes.device)
+        along_height = self._blur_matrix(height, size, planes.device)
+        rows = self._torch.matmul(planes, along_width.T)
+        return self._torch.matmul(along_height, rows)
+
+    def _blur_matrix(self, n: int, size: int, device: Any) -> Any:
+        """The 1-D Gaussian of ``size`` taps over ``n`` samples with OpenCV's
+        default border (reflect-101) as an ``(n, n)`` matrix, kept per size."""
+        key = ("blur", n, size, str(device))
+        matrix = self._area_cache.get(key)
+        if matrix is None:
+            import cv2
+
+            taps = cv2.getGaussianKernel(size, 0).astype(np.float64).ravel()
+            radius = size // 2
+            weights = np.zeros((n, n), dtype=np.float64)
+            for i in range(n):
+                for t in range(size):
+                    j = i + t - radius
+                    # reflect-101: ... 2 1 | 0 1 2 ... n-2 n-1 | n-2 n-3 ...
+                    while j < 0 or j >= n:
+                        j = -j if j < 0 else 2 * n - 2 - j
+                    weights[i, j] += taps[t]
+            matrix = self._upload("blur_matrix", weights.astype(np.float32), device)
+            self._area_cache[key] = matrix
+        return matrix
+
+    def _plane_basis(self, height: int, width: int, device: Any) -> tuple[Any, Any]:
+        """:func:`_fit_lighting_plane`'s ``(1, x, y)`` basis for a cell
+        grid -- the same values -- and its pairwise products for the normal
+        matrix, kept on the device per size."""
+        key = ("basis", height, width, str(device))
+        cached = self._area_cache.get(key)
+        if cached is None:
+            ys, xs = np.mgrid[0:height, 0:width].astype(np.float32)
+            xs = xs * (2.0 / max(width - 1, 1)) - 1.0
+            ys = ys * (2.0 / max(height - 1, 1)) - 1.0
+            stacked = np.stack((np.ones_like(xs), xs, ys)).astype(np.float32)
+            basis = self._upload("basis", stacked, device)
+            cached = (basis, basis[:, None] * basis[None, :])
+            self._area_cache[key] = cached
+        return cached
+
+    def _upload(self, name: str, array: np.ndarray, device: Any) -> Any:
+        """``array`` onto ``device`` without waiting for the GPU: through
+        pinned memory, since a copy from ordinary (pageable) memory makes
+        the driver drain the stream first -- the whole graph -- before it
+        moves a byte, which is the wait the GPU paste exists to avoid. The
+        pinned block comes from torch's caching host allocator, which does
+        not hand it out again until the transfer has read it (a staging
+        buffer of our own, reused by name, was overwritten under a pending
+        transfer when two uploads shared a name in one frame -- the blur
+        matrices -- and corrupted what the cache kept). ``name`` is kept
+        for the timing's sake only."""
+        del name
+        torch = self._torch
+        started = now()
+        source = torch.from_numpy(np.ascontiguousarray(array))
+        if getattr(device, "type", str(device)) != "cuda":
+            # No device to move to (the CPU tests): a copy of its own.
+            moved = source.clone()
+        else:
+            moved = source.pin_memory().to(device, non_blocking=True)
+        self._upload_ms += (now() - started) * 1000.0
+        return moved
+
+    def _pinned_picture(self, name: str, picture: Any) -> Any:
+        """``picture`` (a device tensor) copied down into pinned memory
+        without waiting: whole once the stream next drains, which every
+        frame's paste does at its last download. The block is the host
+        allocator's, fresh per call and recycled by it."""
+        del name
+        torch = self._torch
+        staging = torch.empty(picture.shape, dtype=picture.dtype, device="cpu", pin_memory=True)
+        staging.copy_(picture, non_blocking=True)
+        return staging
+
+    def _area_matrix(self, name: str, n: int, m: int, device: Any) -> Any:
+        """:func:`_area_weights` as a tensor on ``device``, kept per size:
+        the box's size changes a little with the face's, so a few dozen
+        sizes recur for a whole session. A new size goes up through the
+        pinned staging under ``name`` (see _upload), so the frame that
+        first meets it does not wait for the graph on its account."""
+        key = ("area", n, m, str(device))
+        matrix = self._area_cache.get(key)
+        if matrix is None:
+            if len(self._area_cache) > 1024:
+                self._area_cache.clear()
+            matrix = self._upload(name, _area_weights(n, m), device)
+            self._area_cache[key] = matrix
+        return matrix
 
     @staticmethod
     def _passthrough(
