@@ -54,6 +54,8 @@ models/checkpoints/
 # relying on the extension patterns below, because they also carry a plugin DLL.
 models/liveportrait/
 models/liveportrait_onnx/
+# The TensorRT experiment's ONNX exports, engines and their build records (B006).
+models/tensorrt/
 
 *.onnx
 *.engine
