@@ -11,8 +11,9 @@ there, what does the engine give in milliseconds, and what does it do to the pix
 (1.81x; the two networks alone 23.5 to 12.1 ms, 1.94x), the expression is untouched to the
 byte, and the drawn pixels differ by fp16 rounding -- less than torch's own fp16 differs
 from fp32.** Everything below is measured on this machine; the estimates for other GPUs are
-marked as such. Nothing in `engine_liveportrait.py` was changed; stage 2 (integration) is a
-separate decision.
+marked as such. Sections 1-8 are stage 1, the measurement, with
+`engine_liveportrait.py` untouched; section 9 is stage 2, the integration, built the same
+evening on his word.
 
 The instrument is `scripts/probes/tensorrt_probe.py` (export, build, check, clip, bench,
 diff, kp). Its JSONs are under `recordings/budget/trt/` (gitignored), the ONNX files and
@@ -293,6 +294,90 @@ The pixel change this buys is fp16 rounding, measured: at most 6 grey levels in 
 composite on nine stills, 99% of the differing pixels within 2, a mean of 0.02 over the
 frame; and it is the only change -- the keypoints are the same bytes. His own look at the
 live picture is still the last word, as it was for the GPU paste.
+
+## 9. Stage 2 -- the integration (built the same day, 2026-10-09)
+
+His word in the evening: "tell me the next stage, then start." Built and
+measured, on the `tensorrt` branch:
+
+**What.** `sha256.avatar.liveportrait_tensorrt`: the engine's file name
+(`liveportrait-pixels-fp16-sm120-trt11.3.0.99.plan` -- the GPU family and the
+TensorRT version, since a plan serves one of each), the export and the build
+(the probe's, moved in), `PixelEngine` (the enqueue on torch's current stream,
+static output buffers) and `pixel_nets` (the two `_nets` entries, the picture
+cloned so each avatar's graph owns its own). `LivePortraitEngine.start()`
+resolves `pixel_backend` -- `auto` (the engine when it is there for this GPU
+and TensorRT version), `tensorrt` (an error without it), `torch` (never looks)
+-- and swaps `_nets["warping"]` / `_nets["decoder"]` before any avatar loads,
+so `_capture` records each graph around the TensorRT enqueue; every failure to
+load falls back to the torch modules with a log line. `engine.pixel_backend =
+"auto"` in `configs/default.toml` (the application's default; a machine
+without the package or the plan runs torch, unchanged); the engine's own
+constructor defaults to `torch`, so every script and test reads the path it
+always did unless it asks (`frame_budget.py --pixel-backend`).
+`scripts/build_tensorrt_engine.py` exports (6.5 s, 204.0 MB) and builds
+(66.9 s this time, 44.9 in section 2 -- the builder's timing runs are
+sensitive to what else the machine does) the plan for the GPU it runs on, once.
+
+**The proofs, `frame_budget.py`, the application's own tool, 601 frames,
+`--deterministic`:**
+
+| what | result |
+|---|---|
+| the torch path after the integration (`--pixel-backend torch`) against `det-gpufit3.json` | **601 of 601 byte-identical** |
+| the integrated TensorRT path against the probe's own path on the *same* production plan (`tensorrt_probe.py clip --nets trt --plan ...`) | **601 of 601 byte-identical** -- the integration is the measured path |
+| the integrated path against the probe's run of section 3 (a *different build* of the same ONNX) | 0 of 601 -- see below |
+
+A second build of the same ONNX does not reproduce the first to the bit: the
+builder times kernels and picks tactics, and two builds pick differently. The
+production plan against the probe's plan, over the 601 recorded keypoint
+sets: at most 23 grey levels (per-frame max p50 8), mean 0.081, 18.0% of the
+face's pixels; each against torch fp16: 0.095 mean, 20.7% -- the same fp16
+rounding, placed differently. A plan is therefore reproducible run to run
+(section 3) but not build to build, and the pixel proof for a new plan is the
+probe's run on that plan, not a stored hash.
+
+**The hairline read, exact.** Section 4.3's leftover. The read took the
+luminance of the whole 1280x720 frame (6 ms) and then walked its patches in
+Python; now `_hairline_window` cuts the frame to the union of the patches the
+read touches, clamped to the frame as the read clamps them (0.1 ms of
+luminance), the patch geometry is computed once for the window and the read,
+and the three-value median per step is Python's `(a + b) / 2.0` instead of
+`np.median` -- the same float64 numpy does. On the clip's 125 hairline frames
+the windowed reading equals the whole-frame reading on every one; the torch
+path's 601 hashes are the reference's; the unit tests put faces at the frame's
+edges and off it. The read on a hairline frame: ~17-20 ms before 2026-10-08,
+10.3 after the window alone, **~6 ms** now (geometry 1.9, window 0.3,
+luminance 0.1, the loop 3.7); the `mask` stage's p90 12.4 to 8.7 ms.
+
+**Measured, the integrated path, `frame_budget.py`, hair off:**
+
+| | torch (`--pixel-backend torch`) | **TensorRT (`auto`, the production plan)** |
+|---|---|---|
+| one thread, `model` (the graph's GPU time) p50 / p90 | 26.37 / 26.90 | **14.49 / 14.97** |
+| one thread, frame total p50 / p90 | 49.30 / 50.18 | **37.69 / 38.66** |
+| two threads at a 30 fps camera: frame rate (the 2026-10-08 formula) | 28.5 fps (27.6 in a first run) | **30.0 fps** (twice) |
+| frames published of 600 (dropped at capture) | 484 (116) | **515 (85)**; the drops are the first four seconds, before the anchor settles |
+| render thread per frame p50 / p90 / p99 | 32.5 / 34.5 / 35.6 | **21.5 / 22.6 / 23.4** |
+| render frames over 33.3 ms, after warm-up | 267 of 438 | **0 of 482** |
+| latency, capture to render, p50 / p90 (the camera's own 227 ms on top) | 58.6 / 75.9 | **37.3 / 38.4** |
+
+So on this machine the render thread sits at 21.5 ms with 12 of margin, no
+frame over the budget after warm-up, and the latency 21 ms shorter. The
+tracker was at its slow mode (12.7-13.1 ms) throughout this session, on the
+capture thread, where it costs nothing.
+
+**Tests.** `tests/unit/test_engine_tensorrt.py` (the backend resolution, the
+engine's name, the two modules on a fake engine, the construction, the
+setting, the hairline window at the frame's edges and off it, the median) --
+1373 unit tests pass, no GPU and no `tensorrt` package needed.
+
+**Still open.** How the plan reaches a user's machine (built at first run by
+the installer or a background step, 45-70 s and a 400 MB builder DLL per GPU
+family; or shipped prebuilt per family, 328 MB each) -- the delivery plan's
+call. TensorRT 11.4's Windows wheel, when it comes, means a rebuild (and the
+`tensorrt-cu12==11.3.0.99` pin in the docs moves). Step 5's machine. His look
+at the live picture.
 
 ## Appendix: how to repeat it
 

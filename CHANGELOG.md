@@ -13,6 +13,20 @@ Versions below `1.0.0` carry no API stability guarantee.
 
 ### Changed
 
+- **The face's pixels on TensorRT (2026-10-09, `docs/benchmarks/B006-tensorrt.md`).**
+  LivePortrait's warping module and SPADE decoder -- the networks that draw
+  the pixels -- run as one TensorRT fp16 engine when `engine.pixel_backend`
+  (`auto`, the default) finds one built for this GPU and TensorRT version
+  under `models/tensorrt/` (`scripts/build_tensorrt_engine.py`, about a
+  minute, once); the torch networks otherwise, unchanged. The motion
+  extractor and the expression stay in torch, bit for bit (the keypoints
+  byte-identical over 601 frames); the drawn pixels differ by fp16 rounding
+  (at most 6 grey levels in the composite, mean 0.02). On the owner's RTX
+  5070 Ti the model's GPU time 25.8 to 14.3 ms a frame, the render thread
+  32.5 to 21.5 ms, 30 fps at the camera with no frame over the budget,
+  latency 21 ms shorter. The hairline read is taken from the window it
+  touches instead of the whole frame -- the same reading to the bit, 17-20
+  to about 6 ms.
 - **The frame rate (2026-10-08, "The fast version").** The real-time loop runs
   on two threads -- the camera and the tracker on one, the avatar, the output
   conditioning and the virtual camera on the other, a mailbox of one between

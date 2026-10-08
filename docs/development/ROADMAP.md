@@ -6673,6 +6673,19 @@ plans per GPU family, about 1 GB building on first run. Stage 2 (the
 integration, the torch path kept as fallback) waits for his word; the
 probe is `scripts/probes/tensorrt_probe.py`.
 
+**Stage 2 built the same evening (B006 section 9):** `engine.pixel_backend`
+(`auto` by default: the TensorRT engine when one is built for this GPU and
+TensorRT version under `models/tensorrt/`, the torch networks otherwise;
+`torch` never looks; `tensorrt` insists), `sha256.avatar.liveportrait_tensorrt`,
+`scripts/build_tensorrt_engine.py`. The integrated path is the probe's
+measured path to the byte (601 of 601 on the same plan); the torch path is
+the reference's (601 of 601). The hairline read is cut to the window it
+touches, exactly (125 of 125 readings the same), ~17-20 to ~6 ms. On this
+machine: the render thread 21.5 ms p50 / 23.4 p99, no frame over 33 ms after
+warm-up, 30.0 fps at the camera, latency 37 ms. Two builds of the same ONNX
+differ by fp16 rounding (0.08 mean), so a new plan is proven by the probe's
+run on it, not by a stored hash.
+
 ### Not in the plan, and why
 
 - **The tracker on a half-size frame** (day 11's 2a): MediaPipe's landmarks
