@@ -90,7 +90,9 @@ def lay_out(avatars: list[str], switch_url: str | None) -> Path:
         if not source.is_dir():
             raise SystemExit(f"avatar {avatar_id!r} is not in {REPO_ROOT / 'avatars'}")
         shutil.copytree(
-            source, library / avatar_id, ignore=shutil.ignore_patterns("cache", "frames")
+            source,
+            library / avatar_id,
+            ignore=shutil.ignore_patterns("cache", "frames", "superseded*"),
         )
 
     configs = PORTABLE / "configs"
