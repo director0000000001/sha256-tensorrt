@@ -376,8 +376,25 @@ setting, the hairline window at the frame's edges and off it, the median) --
 the installer or a background step, 45-70 s and a 400 MB builder DLL per GPU
 family; or shipped prebuilt per family, 328 MB each) -- the delivery plan's
 call. TensorRT 11.4's Windows wheel, when it comes, means a rebuild (and the
-`tensorrt-cu12==11.3.0.99` pin in the docs moves). Step 5's machine. His look
-at the live picture.
+`tensorrt-cu12==11.3.0.99` pin in the docs moves). Step 5's machine.
+
+**His look at the live picture (2026-10-09, 05:00, both avatars; the log's
+`The face is drawn by TensorRT 11.3.0.99`, loaded in 0.19 s):** the face
+and the expression as before on both; on woman_person the jaw held on an
+open mouth with a slight smile. That is `mouth_smile_opening` 0.5 (set
+2026-09-12 for the toothy smile: the width gate, full at 11% over the
+resting width on his profile, halves the lips' opening), not TensorRT --
+on the clip's open-jaw segment (frames 860-1110, the mouth up to 4.4x the
+300-900 median) the keypoints handed to the warping network are
+byte-identical on 251 of 251 frames and the composite differs by at most
+10 grey levels on six stills (900-1090; p99 of the frame 1, mean 0.03):
+the jaw is drawn where torch draws it. Set to 0.7 on his word (the
+2026-09-12 replay: 1.34x his parting at 0.7, 1.62x at 1.0, 1.00x at 0.5).
+The stills of his face were deleted when read. GPU memory, the
+whole-GPU rise while `frame_budget.py` ran one avatar over 261 frames:
+**1.28 GB on TensorRT against 2.80 GB on torch** -- the torch graph's
+private pool holds the two networks' 5-D intermediates, the engine's
+180 MB of activations stand in for them.
 
 ## Appendix: how to repeat it
 

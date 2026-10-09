@@ -92,7 +92,7 @@
     "lip_rest_tracking": 100,
     "mask_chin_reach": "auto",
     "brow_mouth_leak": 1.0,
-    "mouth_smile_opening": 0.5,
+    "mouth_smile_opening": 0.7,
     "blink_brow_hold": 0.01,
     "blink_mouth_hold": -0.004,
     "blink_mouth_lift": 0.007
