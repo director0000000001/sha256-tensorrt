@@ -13,6 +13,12 @@ Versions below `1.0.0` carry no API stability guarantee.
 
 ### Changed
 
+- **Add avatar and Delete avatar without a login (2026-10-09, the owner's
+  ask).** Both entries are in the Menu for whoever uses the application; the
+  owner's passphrase (`sha256.app.owner`, Menu -> Login) is removed, with its
+  tests. An avatar stays a folder under `avatars/` on the user's own computer;
+  nothing is uploaded. A `configs/local.owner.json` left from before is no
+  longer read.
 - **The frame rate (2026-10-08, "The fast version").** The real-time loop runs
   on two threads -- the camera and the tracker on one, the avatar, the output
   conditioning and the virtual camera on the other, a mailbox of one between

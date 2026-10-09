@@ -68,11 +68,13 @@ All of this page, and every button explained, is inside the app too:
   frame on screen and the camera frame at that instant, under `captures/`,
   so the moment can be studied.
 
-## Adding an avatar (the owner only)
+## Adding and deleting an avatar
 
-**Menu → Login** takes the owner's passphrase; then **Add avatar** and
-**Delete avatar** appear in the menu (Delete removes the avatar chosen in
-the bar from this computer, for good, after a question; stop first). A
+**Menu → Add avatar** makes a new avatar from one photograph; **Menu →
+Delete avatar** removes the avatar chosen in the bar from this computer,
+for good, after a question (stop first). Both are there for whoever uses
+the application -- no login. An avatar is a folder under `avatars/` next
+to the application, on this computer only; nothing is uploaded. A
 good photograph: one face looking straight at the camera, eyes open, lips
 closed or barely parted (a grin becomes the avatar's resting face), even
 light, no glasses, hair off the forehead, and room below the chin. The app

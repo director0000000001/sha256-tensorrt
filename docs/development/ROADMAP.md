@@ -6475,6 +6475,124 @@ His decisions: the expiry lengths (14 / 30 days); whether the last
 build is unlocked at all; the host; whether step 2 is worth its two days
 against the sum at stake. Nothing here is built until his word.
 
+### Option (b) in plain words, and the host (2026-10-09, still a plan, nothing built)
+
+He asked whether the application could be "deployed" so that a server
+switches it off directly. Two readings were put to him: (a) the whole
+application runs on a rented GPU server and the client gets only the
+video -- safest, but a GPU server per client every month, the network's
+delay inside every call, weeks of work and a paid account in a name;
+(b) the application stays on the client's PC and asks a host for
+permission -- step 1 above. He chose to have (b) explained; this is the
+explanation he asked for, written for a fifteen-year-old.
+
+One refinement proposed on top of step 1, **his decision, not yet
+taken**: tell two cases apart. *No answer* from the host (bad internet)
+keeps the hour's grace, so a call is never cut by a flaky line. *A signed
+"off"* from the host stops the application within five minutes, even in
+the middle of a call. Step 1 as first written only refuses the next
+Start.
+
+**The process, step by step (the text he can hand on):**
+
+*The idea in one sentence.* The app runs on the client's computer, but
+before it starts it reads a small note on our website that says "you may
+run" or "you may not run". We control the note, so we control the app.
+
+*Part 1 -- one-time setup, done once by us.*
+
+1. We make two keys, born together as a pair. The **private key** is
+   like a stamp: only we have it, kept in two safe places, and only it
+   can sign the note. The **public key** is like a picture of the stamp:
+   it is built into every copy of the app, which uses it to check that
+   the note was really stamped by us. It cannot stamp anything, so it is
+   not secret.
+2. We choose a **host**: a place on the internet where the note lives.
+   Because the note is stamped, nobody can fake it, even if they get
+   into the host.
+
+*Part 2 -- making a copy for a client.*
+
+1. We give the copy a neutral name, for example `copy-03`.
+2. We build the app. Inside it we lock in its name, the address of the
+   note, the public key and an end date (for example 30 days).
+3. We add one line to the note: `copy-03: allowed until <date>`.
+4. We stamp the note with the private key and upload it.
+5. We send the client the app and the usage rules.
+
+*Part 3 -- what happens on the client's computer.*
+
+1. **Start:** the app downloads the note, checks the stamp, finds its own
+   name and checks the date. All three fine -- it starts. Otherwise it
+   shows "Could not confirm the licence. Check the internet."
+2. **While running:** every five minutes it checks the note again,
+   quietly. The face, the speed and the quality do not change.
+3. **If the internet drops:** the call keeps going; one hour of grace.
+   After that the app does not start again until it can reach the note.
+
+*Part 4 -- what we can do from our side.*
+
+- **Extend:** change the date in the note, stamp, upload. No new app
+  needed, until the end date built into the app.
+- **Switch one client off:** write `off` next to their name, stamp,
+  upload. Their app stops (at the next Start, or within five minutes if
+  the refinement above is taken). Everyone else keeps working.
+- **Find a leaked copy:** every copy carries its own name, so we know
+  whose copy it is and switch off only that one.
+- **An end date in every version:** even if the note says "allowed",
+  each version stops on its own end date; a new version comes from us.
+
+*Part 5 -- if someone tries to cheat.*
+
+- They turn the internet off: the app does not start.
+- They write their own note saying "allowed": the stamp does not match,
+  the app does not start.
+- They change the app itself: the only way around it, which is why the
+  app is also scrambled (step 2, PyArmor or Nuitka) -- days or weeks of
+  expert work instead of an afternoon.
+
+*What can go wrong for us.*
+
+- The host is down: calls continue for an hour, new Starts wait until
+  the host is back -- so the host must be a reliable one.
+- We lose the private key: no new note can be stamped, and every copy
+  stops at its end date. That is why it is kept in two places.
+
+**The host -- what it is and how it is made.** A host is only a place on
+the internet from which one file is read by its link; no server is
+bought or rented, and one file is free to keep. Recommended: **GitHub
+Pages on the anonymous account he already uses** (no new sign-up, no new
+trace), about ten minutes:
+
+1. On GitHub, a new repository, for example `licence`. It must be
+   **public** -- Pages from a private repository is not free -- which is
+   harmless: it holds only the signed note, never code.
+2. Upload the note to it.
+3. Settings -> Pages -> the `main` branch -> Save.
+4. The note appears at `https://<account>.github.io/licence/licence.json`;
+   that address is what goes into the executable.
+
+Cloudflare Pages or Netlify work the same way and are free too. One rule
+follows from the note being public: **copies get neutral names**
+(`c7f2`, `copy-03`), never a client's real name; who is which stays in
+his own notes only.
+
+**Where the client downloads it, and who adds avatars (answered and
+built 2026-10-09).** The 3.8 GB zip goes on a cloud link on the anonymous
+account (Google Drive or Cloudflare R2; GitHub Releases refuses a file
+over 2 GB) or a USB stick; with the lock built, a leaked link runs
+nothing. A thought for his decision on the expiry: a 30-day expiry *in
+the build* means a 3.8 GB download every month -- a longer build expiry
+(six months, say) with the monthly control in the note's date costs
+nobody a download. **Avatars are the clients' own now, on his word:**
+Menu -> Login and the passphrase are gone; Add avatar and Delete avatar
+are in the Menu for everyone. An avatar is a folder under `avatars/` next
+to `sha256.exe`, on the client's computer only. The cost, said to him: a
+client can also delete the avatars shipped with the package, and a poor
+photograph gives a poorer avatar (the importer's checks and the photo
+guide catch what can be measured; the rest comes back to him as a
+message).
+
 ## The fast version: the same face in fewer milliseconds (planned and built 2026-10-08; his live look pending)
 
 His ask (2026-10-08): "write the plan for what the maximally optimised

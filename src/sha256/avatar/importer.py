@@ -417,7 +417,7 @@ class PortraitProfile:
 
 
 def remove_avatar(library: Path, avatar_id: str) -> Path:
-    """The owner's delete, the counterpart of :func:`import_portrait` (day
+    """The delete, the counterpart of :func:`import_portrait` (day
     17, his ask): the avatar's whole directory under ``library`` -- portrait,
     manifest, profile -- removed for good. The repository stays read-only
     (see ``AvatarRepository``); this is the gated path beside it. Refuses
