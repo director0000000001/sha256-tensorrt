@@ -11,6 +11,7 @@ dependency on a specific tracker or engine behind your back.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -166,6 +167,7 @@ def build_application(
     settings: Settings | None = None,
     paths: AppPaths | None = None,
     setup_logging: bool = True,
+    progress: Callable[[str], None] | None = None,
 ) -> ApplicationContext:
     """Construct a fully wired application.
 
@@ -174,10 +176,16 @@ def build_application(
         paths: Pre-resolved paths. Resolved when omitted.
         setup_logging: Configure the root logger. Tests pass ``False`` to keep
             pytest's own capture intact.
+        progress: Told, in a sentence, what the start is doing -- the
+            start-up window (2026-10-09); the neural engine says the most
+            (the networks loading; at the first start on a machine, the
+            fast engine being built for its graphics card, minutes).
     """
     paths = paths or AppPaths.resolve()
     paths.ensure()
     settings = settings or load_settings(paths)
+    if progress is not None:
+        progress("Starting")
 
     if setup_logging:
         configure_logging(
@@ -216,7 +224,7 @@ def build_application(
         height=settings.rendering.output_height,
     )
     virtual_camera: VirtualCameraSink = _create_virtual_camera(registries, settings)
-    engine, notes = _start_engine_with_fallback(registries, settings, paths)
+    engine, notes = _start_engine_with_fallback(registries, settings, paths, progress=progress)
     driver_profile = apply_driver_profile(engine, paths.configs / PROFILE_FILENAME)
     kill_switch = KillSwitch(
         settings.kill_switch.url,
@@ -224,6 +232,8 @@ def build_application(
         timeout=settings.kill_switch.timeout_seconds,
     )
 
+    if progress is not None:
+        progress("Loading the avatar")
     avatars = _build_avatar_manager(settings, paths, engine)
 
     output = settings.output
@@ -273,7 +283,11 @@ def build_application(
 
 
 def _start_engine_with_fallback(
-    registries: Registries, settings: Settings, paths: AppPaths
+    registries: Registries,
+    settings: Settings,
+    paths: AppPaths,
+    *,
+    progress: Callable[[str], None] | None = None,
 ) -> tuple[AvatarEngine, list[str]]:
     """Start the configured engine; when the neural engine cannot (no
     NVIDIA GPU, no CUDA, the weights missing), start the photograph
@@ -282,7 +296,7 @@ def _start_engine_with_fallback(
     still open. Also a note when the card is smaller than the neural
     avatars want."""
     notes: list[str] = []
-    engine: AvatarEngine = _create_engine(registries, settings, paths)
+    engine: AvatarEngine = _create_engine(registries, settings, paths, progress=progress)
     try:
         engine.start()
     except EngineError as exc:
@@ -381,7 +395,12 @@ def _create_virtual_camera(registries: Registries, settings: Settings) -> Virtua
     return sink
 
 
-def _create_engine(registries: Registries, settings: Settings, paths: AppPaths) -> AvatarEngine:
+def _create_engine(
+    registries: Registries,
+    settings: Settings,
+    paths: AppPaths,
+    progress: Callable[[str], None] | None = None,
+) -> AvatarEngine:
     """Build the configured avatar engine.
 
     The warp engine needs the face-landmark model to read the avatar's own
@@ -403,6 +422,7 @@ def _create_engine(registries: Registries, settings: Settings, paths: AppPaths) 
             # setting and the engine under models/tensorrt/ allow.
             pixel_backend=settings.engine.pixel_backend,
             engines=models_root / TENSORRT_RELATIVE_DIR,
+            progress=progress,
         )
         return neural
     if settings.engine.backend != "warp":

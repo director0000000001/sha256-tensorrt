@@ -43,14 +43,30 @@ def main(argv: list[str] | None = None) -> int:
     from sha256.app.bootstrap import build_application
 
     overrides = {"log_level": args.log_level} if args.log_level else None
-    if overrides:
-        from sha256.config.loader import load_settings
-        from sha256.config.paths import AppPaths
+    # 2026-10-09: the start takes twenty seconds, and minutes the first time
+    # on a machine (the fast engine built for its graphics card), so a small
+    # window says what is happening before the main one exists. Not for
+    # --check, which must run where Qt cannot open a display.
+    splash = None
+    if not args.check:
+        from sha256.ui.splash import StartupSplash
 
-        paths = AppPaths.resolve()
-        context = build_application(settings=load_settings(paths, overrides=overrides), paths=paths)
-    else:
-        context = build_application()
+        splash = StartupSplash.open()
+    progress = splash.say if splash is not None else None
+    try:
+        if overrides:
+            from sha256.config.loader import load_settings
+            from sha256.config.paths import AppPaths
+
+            paths = AppPaths.resolve()
+            context = build_application(
+                settings=load_settings(paths, overrides=overrides), paths=paths, progress=progress
+            )
+        else:
+            context = build_application(progress=progress)
+    finally:
+        if splash is not None:
+            splash.close()
 
     try:
         if args.check:

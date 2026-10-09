@@ -11,7 +11,11 @@ What the folder holds, and why each part is where it is:
 * ``models/`` -- the face landmarker and LivePortrait's weights, copied from
   this checkout's ``models/`` (fetched by ``scripts/fetch_face_landmarker.py``
   and ``scripts/fetch_liveportrait.py``). Never in git, so never in the
-  bundle: copied at build time.
+  bundle: copied at build time. With them, when this checkout has them, the
+  fast engine's files under ``models/tensorrt/`` (2026-10-09): the ONNX
+  export every machine builds its engine from at the first start, and every
+  engine already built here, so that GPU family skips the build. The
+  TensorRT DLLs themselves travel inside ``_internal`` (the spec).
 * ``avatars/`` -- the neural avatars named on the command line (``--avatar``),
   each directory whole (portrait, manifest, profile). None by default: a
   portrait is the owner's to hand out.
@@ -82,6 +86,20 @@ def lay_out(avatars: list[str], switch_url: str | None) -> Path:
             raise SystemExit(f"{source} is missing -- run the fetch scripts first")
         shutil.copytree(source, PORTABLE / "models" / name)
 
+    engines = models / "tensorrt"
+    if engines.is_dir():
+        target = PORTABLE / "models" / "tensorrt"
+        target.mkdir(parents=True, exist_ok=True)
+        for pattern in (
+            "liveportrait-pixels-fp16.onnx*",
+            "liveportrait-pixels-fp16-sm*-trt*.plan*",
+        ):
+            for file in sorted(engines.glob(pattern)):
+                if ".failed." in file.name or file.name.endswith(".part"):
+                    continue
+                shutil.copy2(file, target / file.name)
+                print(f"fast engine file: {file.name} ({file.stat().st_size / 1e6:.0f} MB)")
+
     library = PORTABLE / "avatars"
     library.mkdir(exist_ok=True)
     shutil.copy2(REPO_ROOT / "avatars" / "README.md", library / "README.md")
@@ -90,7 +108,9 @@ def lay_out(avatars: list[str], switch_url: str | None) -> Path:
         if not source.is_dir():
             raise SystemExit(f"avatar {avatar_id!r} is not in {REPO_ROOT / 'avatars'}")
         shutil.copytree(
-            source, library / avatar_id, ignore=shutil.ignore_patterns("cache", "frames")
+            source,
+            library / avatar_id,
+            ignore=shutil.ignore_patterns("cache", "frames", "superseded*"),
         )
 
     configs = PORTABLE / "configs"

@@ -80,7 +80,7 @@ import functools
 import math
 import statistics
 from collections import deque
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -4443,6 +4443,7 @@ class LivePortraitEngine:
         hair_model: Path | str | None = None,
         pixel_backend: str = "torch",
         engines: Path | str | None = None,
+        progress: Callable[[str], None] | None = None,
     ) -> None:
         # The face-landmark model, to read the portrait's own face at load and
         # to name the driver's crop; the same one the tracker uses.
@@ -4462,6 +4463,11 @@ class LivePortraitEngine:
         self._engines = Path(engines) if engines is not None else None
         self._pixel_engine: Any = None
         self._torch_pixel_nets: tuple[Any, Any] | None = None
+        # Stage 3 (2026-10-09): what the start is doing, in a sentence, for
+        # the start-up window -- the networks loading, the engine being
+        # built at the first start (minutes), the engine loading. None in
+        # scripts and tests: the log says the same.
+        self._progress = progress
         # Day 17 (C1b): the hair segmenter's model, beside the landmarker by
         # default (see sha256.avatar.hair); started the first time an
         # avatar's hair is asked for, never before.
@@ -4532,6 +4538,7 @@ class LivePortraitEngine:
         self._torch = torch
         self._device = torch.device("cuda")
         torch.backends.cudnn.benchmark = True
+        self._say(f"Loading the neural networks on {torch.cuda.get_device_name(0)}")
         self._nets = self._load_networks()
         self._start_pixel_backend()
         self._running = True
@@ -4566,6 +4573,11 @@ class LivePortraitEngine:
     def _engines_root(self) -> Path:
         return self._engines or (Path("models") / TENSORRT_RELATIVE_DIR)
 
+    def _say(self, text: str) -> None:
+        """A sentence for the start-up window, when there is one."""
+        if self._progress is not None:
+            self._progress(text)
+
     def _start_pixel_backend(self) -> None:
         """Phase 2 (2026-10-09, B006): the warping module and the SPADE
         decoder on TensorRT when asked for and available -- the two ``_nets``
@@ -4582,20 +4594,65 @@ class LivePortraitEngine:
         wanted = self._pixel_backend_wanted
         version = None if wanted == "torch" else trt_backend.tensorrt_version()
         plan: Path | None = None
+        onnx: Path | None = None
+        failed: Path | None = None
+        builder = False
         if version is not None:
-            plan = self._engines_root() / trt_backend.engine_name(
-                tuple(torch.cuda.get_device_capability(0)), version
-            )
+            capability = tuple(torch.cuda.get_device_capability(0))
+            family = (int(capability[0]), int(capability[1]))
+            plan = self._engines_root() / trt_backend.engine_name(family, version)
+            onnx = self._engines_root() / trt_backend.ONNX_NAME
+            failed = trt_backend.failed_marker(plan)
+            builder = trt_backend.has_builder(family, version, trt_backend.libs_dir())
         try:
-            backend, reason = trt_backend.resolve_pixel_backend(wanted, version=version, plan=plan)
+            backend, reason = trt_backend.resolve_pixel_backend(
+                wanted, version=version, plan=plan, onnx=onnx, builder=builder, failed=failed
+            )
         except RuntimeError as exc:
             msg = f"pixel_backend = tensorrt was asked for and cannot run: {exc}"
             raise EngineError(msg) from exc
+        if backend == "build":
+            # Stage 3 (2026-10-09): the first start on this machine builds
+            # the engine for its GPU -- minutes, once; the start-up window
+            # counts the seconds. A failure is recorded beside the plan and
+            # the torch networks draw the face, this start and the next.
+            assert plan is not None and onnx is not None and failed is not None
+            gpu = torch.cuda.get_device_name(0)
+            _LOG.info(
+                "Building the TensorRT engine for %s (%s) from %s -- once, a few minutes",
+                gpu,
+                plan.name,
+                onnx.name,
+            )
+            head = (
+                f"Preparing the fast engine for {gpu}. "
+                "This happens once on this computer and takes one to three minutes."
+            )
+            self._say(head)
+            try:
+                meta = trt_backend.build_engine_watched(
+                    onnx, plan, lambda seconds: self._say(f"{head} {seconds:.0f} s")
+                )
+            except Exception as exc:
+                marker = trt_backend.record_failure(plan, exc, onnx)
+                if wanted == "tensorrt":
+                    msg = f"the TensorRT engine could not be built here: {exc}"
+                    raise EngineError(msg) from exc
+                _LOG.warning(
+                    "The TensorRT engine could not be built here (%s); the torch networks "
+                    "draw the face. %s records it; delete that file to try again",
+                    exc,
+                    marker.name,
+                )
+                return
+            _LOG.info("Built %s in %.0f s; loading it", plan.name, float(meta.get("build_s", 0.0)))
+            backend = "tensorrt"
         if backend != "tensorrt":
             if wanted != "torch":
                 _LOG.info("The face is drawn by the torch networks: %s", reason)
             return
         assert plan is not None
+        self._say("Loading the fast engine")
         try:
             engine = trt_backend.PixelEngine(plan, self._device)
         except Exception as exc:

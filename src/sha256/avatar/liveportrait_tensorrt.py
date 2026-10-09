@@ -23,6 +23,17 @@ torch networks: ``engine.pixel_backend = "auto"`` (the default) falls back
 and says so in the log; ``"tensorrt"`` refuses to start without it;
 ``"torch"`` never looks.
 
+Stage 3 (2026-10-09, the portable build): the engine is built on the
+user's machine at the first start. The package carries the ONNX export
+(the same on every machine) and TensorRT's builder resource for the GPU
+families it supports; when ``auto`` finds no plan for this GPU but the
+export and the builder are there, :func:`resolve_pixel_backend` answers
+``"build"`` and the engine builds the plan on a worker thread while the
+start-up window counts the seconds (:func:`build_engine_watched`). A build
+that fails leaves a record beside the plan (:func:`failed_marker`) so the
+next start does not spend the minutes again -- delete it to retry -- and
+the torch networks draw the face as before.
+
 Install (this project's venv, outside the lock like torch itself)::
 
     uv pip install "tensorrt-cu12==11.3.0.99" --extra-index-url https://pypi.nvidia.com
@@ -31,8 +42,11 @@ Install (this project's venv, outside the lock like torch itself)::
 
 from __future__ import annotations
 
+import importlib.util
 import json
+import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -45,9 +59,15 @@ __all__ = [
     "TENSORRT_RELATIVE_DIR",
     "PixelEngine",
     "build_engine",
+    "build_engine_watched",
+    "builder_resource_name",
     "engine_name",
     "export_onnx",
+    "failed_marker",
+    "has_builder",
+    "libs_dir",
     "pixel_nets",
+    "record_failure",
     "resolve_pixel_backend",
     "tensorrt_version",
 ]
@@ -73,7 +93,8 @@ def tensorrt_version() -> str | None:
     importable (the usual state of a machine without the extra)."""
     try:
         import tensorrt as trt
-    except Exception:
+    except Exception as exc:  # not installed, or its DLLs cannot be loaded here
+        _LOG.info("The tensorrt package could not be imported: %s: %s", type(exc).__name__, exc)
         return None
     return str(trt.__version__)
 
@@ -85,13 +106,76 @@ def engine_name(compute_capability: tuple[int, int], version: str) -> str:
     return f"{ENGINE_STEM}-sm{major}{minor}-trt{version}.plan"
 
 
+def builder_resource_name(compute_capability: tuple[int, int], version: str) -> str:
+    """``nvinfer_builder_resource_sm120_11.dll``: the builder tactics for
+    one GPU family, one DLL each, named by the library's major version.
+    The runtime (``nvinfer_11.dll``) loads any engine; *building* one needs
+    the resource for the GPU it runs on, so a package ships one per family
+    it supports (see ``packaging/sha256.spec``)."""
+    major, minor = compute_capability
+    return f"nvinfer_builder_resource_sm{major}{minor}_{version.split('.')[0]}.dll"
+
+
+def libs_dir() -> Path | None:
+    """The folder of TensorRT's DLLs (the ``tensorrt_libs`` package, in a
+    venv or in the frozen build's ``_internal``), or ``None`` without it.
+    Found by its spec, not imported: importing it loads every DLL."""
+    try:
+        spec = importlib.util.find_spec("tensorrt_libs")
+    except Exception:
+        return None
+    if spec is None or not spec.origin:
+        return None
+    return Path(spec.origin).resolve().parent
+
+
+def has_builder(compute_capability: tuple[int, int], version: str, libs: Path | None) -> bool:
+    """Whether an engine can be built *here*: the builder resource for this
+    GPU family is in ``libs``."""
+    if libs is None:
+        return False
+    return (libs / builder_resource_name(compute_capability, version)).is_file()
+
+
+def failed_marker(plan: Path) -> Path:
+    """Beside the plan: the record of a build that failed on this machine
+    (:func:`record_failure`), so the next start does not spend the minutes
+    again. Delete it to try again."""
+    return plan.with_name(plan.name + ".failed.json")
+
+
+def record_failure(plan: Path, error: BaseException, onnx: Path | None) -> Path:
+    """Write the failed marker for ``plan``: what went wrong, when, from
+    which export."""
+    marker = failed_marker(plan)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    record: dict[str, Any] = {
+        "plan": plan.name,
+        "onnx": onnx.name if onnx is not None else None,
+        "error": f"{type(error).__name__}: {error}",
+        "when": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "note": "Delete this file to let the application try the build again.",
+    }
+    marker.write_text(json.dumps(record, indent=1), encoding="utf-8")
+    return marker
+
+
 def resolve_pixel_backend(
-    wanted: str, *, version: str | None, plan: Path | None
+    wanted: str,
+    *,
+    version: str | None,
+    plan: Path | None,
+    onnx: Path | None = None,
+    builder: bool = False,
+    failed: Path | None = None,
 ) -> tuple[str, str]:
-    """Which networks draw the face, and why: ``("tensorrt", reason)`` or
-    ``("torch", reason)``. Pure, so it is tested without a GPU. ``wanted``
-    is the setting; ``version`` the installed TensorRT or ``None``; ``plan``
-    the engine file for this GPU and version, or ``None``.
+    """Which networks draw the face, and why: ``("tensorrt", reason)``,
+    ``("build", reason)`` -- no engine yet, but the export ``onnx`` and the
+    ``builder`` for this GPU are here and no ``failed`` record stands in the
+    way, so the caller builds one now -- or ``("torch", reason)``. Pure, so
+    it is tested without a GPU. ``wanted`` is the setting; ``version`` the
+    installed TensorRT or ``None``; ``plan`` the engine file for this GPU
+    and version, or ``None``.
 
     Raises ``RuntimeError`` when ``"tensorrt"`` was asked for outright and is
     not there -- the caller turns that into its own error."""
@@ -103,11 +187,24 @@ def resolve_pixel_backend(
     if version is None:
         reason = "the tensorrt package is not installed"
     elif plan is None or not plan.is_file():
+        failed_here = failed is not None and failed.is_file()
+        export_here = onnx is not None and onnx.is_file()
+        if plan is not None and onnx is not None and export_here and builder and not failed_here:
+            return (
+                "build",
+                f"no engine for this GPU and TensorRT {version} yet; built from {onnx.name}",
+            )
         reason = (
             f"no engine for this GPU and TensorRT {version}"
             + (f" at {plan}" if plan is not None else "")
             + "; build one with scripts/build_tensorrt_engine.py"
         )
+        if failed_here and failed is not None:
+            reason += f" (the last build here failed -- see {failed.name}; delete it to try again)"
+        elif not export_here:
+            reason += " (no ONNX export to build from)"
+        elif not builder:
+            reason += " (no builder for this GPU family shipped)"
     else:
         return "tensorrt", f"TensorRT {version}, {plan.name}"
     if wanted == "tensorrt":
@@ -335,7 +432,11 @@ def build_engine(onnx_path: Path, target: Path) -> dict[str, Any]:
         raise RuntimeError(msg)
     target = Path(target)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(bytes(serialized))
+    # Written beside and renamed into place: a start killed mid-write must
+    # not leave a half plan that the next start would try to load.
+    partial = target.with_name(target.name + ".part")
+    partial.write_bytes(bytes(serialized))
+    partial.replace(target)
     meta: dict[str, Any] = {
         "onnx": Path(onnx_path).name,
         "plan": target.name,
@@ -357,3 +458,38 @@ def build_engine(onnx_path: Path, target: Path) -> dict[str, Any]:
         meta["gpu"],
     )
     return meta
+
+
+def build_engine_watched(
+    onnx_path: Path,
+    target: Path,
+    progress: Callable[[float], None] | None = None,
+    *,
+    poll_s: float = 0.5,
+    build: Callable[[Path, Path], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """:func:`build_engine` on a worker thread, the caller's ``progress``
+    told the elapsed seconds every ``poll_s`` from the calling thread -- the
+    start-up window pumps its events there. The builder gives no progress
+    of its own; the seconds are the whole story. An error on the worker is
+    raised here. ``build`` replaces the builder in tests."""
+    builder = build_engine if build is None else build
+    result: dict[str, Any] = {}
+    errors: list[BaseException] = []
+
+    def work() -> None:
+        try:
+            result.update(builder(onnx_path, target))
+        except BaseException as exc:  # carried to the caller's thread
+            errors.append(exc)
+
+    thread = threading.Thread(target=work, name="tensorrt-build", daemon=True)
+    started = time.perf_counter()
+    thread.start()
+    while thread.is_alive():
+        thread.join(poll_s)
+        if progress is not None:
+            progress(time.perf_counter() - started)
+    if errors:
+        raise errors[0]
+    return result
