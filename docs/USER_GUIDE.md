@@ -21,7 +21,11 @@ All of this page, and every button explained, is inside the app too:
 ## The first time
 
 1. Start `sha256.exe`. If Windows warns about an unknown publisher, choose
-   *More info → Run anyway* — the build is not signed, on purpose. The bar
+   *More info → Run anyway* — the build is not signed, on purpose. A small
+   window says what the start is doing. The very first start on a computer
+   also prepares the fast engine for its graphics card: one to three
+   minutes, once, the seconds counted on that window. Every later start
+   takes about twenty seconds. The bar
    along the bottom has what a call needs: **Start**, **Stop**, the
    **Camera**, the **Avatar**, **Virtual camera** and the red button.
    Everything else is under **Menu**, at the bar's right end.

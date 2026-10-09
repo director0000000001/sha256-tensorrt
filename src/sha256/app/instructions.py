@@ -48,6 +48,10 @@ _FIRST_TIME = """\
 
   1. Start the application. If Windows warns about an unknown publisher,
      choose More info -> Run anyway; the build is not signed, on purpose.
+     A small window says what the start is doing. The very first start on
+     a computer also prepares the fast engine for its graphics card: one
+     to three minutes, once, the seconds counted on that window. Every
+     later start takes about twenty seconds.
   2. Pick your Camera and an Avatar on the bar, press Start.
   3. Sit still and look at the camera for a second. The status line
      counts the frames and says when the avatar has centred on you.
@@ -226,6 +230,12 @@ _TROUBLE = """\
   "no usable NVIDIA GPU" at start
         The photograph avatar is running instead; the neural avatar needs
         an NVIDIA card.
+  The first start takes minutes
+        The fast engine is being prepared for this graphics card; the
+        start-up window counts the seconds. Once only. If it cannot be
+        prepared, the application runs the same face a little slower and
+        leaves a note under models\tensorrt (a .failed.json file); delete
+        that file to let it try again.
   The avatar stays a still picture after Start
         It is waiting to centre on you: sit still and look at the camera
         for a second (the status line counts to 15).

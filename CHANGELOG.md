@@ -13,6 +13,18 @@ Versions below `1.0.0` carry no API stability guarantee.
 
 ### Changed
 
+- **The fast engine on the user's machine, and a start-up window (2026-10-09,
+  the second package; `docs/benchmarks/B006-tensorrt.md` section 10).** The
+  portable build carries TensorRT's runtime, the ONNX export and the builder
+  resources for RTX 30 / 40 / 50 cards. At the first start on a computer with
+  no engine for its graphics card, the application builds one -- one to three
+  minutes, once -- while a small start-up window counts the seconds; every
+  later start loads it in a fraction of a second. A build that fails is
+  recorded beside the plan (`*.failed.json`, delete to retry) and the torch
+  networks draw the face as before. The window also covers the ordinary
+  twenty-second start, which showed nothing until now. `scripts/build_exe.py`
+  ships the export and every engine built here, and leaves an avatar's
+  `superseded*` folders out.
 - **The face's pixels on TensorRT (2026-10-09, `docs/benchmarks/B006-tensorrt.md`).**
   LivePortrait's warping module and SPADE decoder -- the networks that draw
   the pixels -- run as one TensorRT fp16 engine when `engine.pixel_backend`

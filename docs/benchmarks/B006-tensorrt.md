@@ -396,6 +396,81 @@ whole-GPU rise while `frame_budget.py` ran one avatar over 261 frames:
 private pool holds the two networks' 5-D intermediates, the engine's
 180 MB of activations stand in for them.
 
+## 10. Stage 3 -- the engine on the user's machine, in the portable build (2026-10-09, evening)
+
+His word: two packages. The first is the ordinary build from `main` (torch,
+`dist/sha256-portable-2026-10-09.zip` there, built the same afternoon). The
+second is this branch's: the fast engine, for the computers in the 4000 GEL
+class. Section 9's open question -- how the plan reaches a user's machine --
+is answered the first way it listed: **built at the first start, on the
+user's own card**, with the RTX 50 family's plan shipped ready since it is
+built here.
+
+**What was built.**
+
+- `resolve_pixel_backend` has a fourth answer, `"build"`: no plan for this
+  GPU and version, but the ONNX export is beside it, the builder resource
+  for this GPU family is in `tensorrt_libs`, and no record of a failed build
+  stands there. `has_builder` / `builder_resource_name` make the check
+  (`nvinfer_builder_resource_sm{major}{minor}_{trt major}.dll`);
+  `failed_marker` / `record_failure` keep the record (`<plan>.failed.json`:
+  the error, the time, the export; delete it to try again).
+- `build_engine_watched`: the build on a worker thread, the caller told the
+  elapsed seconds twice a second on its own thread. `build_engine` writes
+  the plan beside itself (`.part`) and renames it into place.
+- `LivePortraitEngine(progress=...)`: a sentence for each step of the start
+  (the networks loading, the engine being built with the seconds, the engine
+  loading); `build_application(progress=...)` passes it through and adds its
+  own two. `sha256.ui.splash.StartupSplash`: the window that shows them --
+  small, frameless, on top, an indeterminate bar -- opened by `__main__`
+  before the start and closed after it (not for `--check`). Until now the
+  ordinary twenty-second start showed nothing at all.
+- `packaging/sha256.spec`: PyInstaller's own hook for `tensorrt_libs`
+  collects every DLL of the package (3.4 GB); the spec keeps five --
+  `nvinfer_11.dll` (420 MB), `nvinfer_plugin_11.dll` (58 MB),
+  `nvonnxparser_11.dll` (2 MB) and the builder resources for sm86 (RTX 30,
+  255 MB) and sm89 (RTX 40, 268 MB) -- and drops the rest. The plugin
+  library is not optional after all (section 6 said "not used by these
+  engines"): the bindings module links all three, and without it `import
+  tensorrt` fails with "DLL load failed", which the application reads as
+  "not installed" (the reason is now in the log). The sm120 builder is left
+  out on purpose: the sm120 plan ships. `onnx` and `onnxscript` are excluded;
+  the export travels as a file.
+- `scripts/build_exe.py` copies `models/tensorrt/liveportrait-pixels-fp16.onnx`
+  and every `liveportrait-pixels-fp16-sm*-trt*.plan` built here, and leaves
+  an avatar's `superseded*` folders out (1.4 GB of my_avatar's old ladders).
+- Tests: `tests/unit/test_engine_tensorrt_firstrun.py` (the decision in
+  every state, the builder name and check, the failure record, the watched
+  build on a fake builder with the seconds on the caller's thread and an
+  error carried over, the progress hook), `tests/unit/test_ui_splash.py`.
+  1387 unit tests pass.
+
+**Measured on the frozen build (`dist/sha256-portable`, 7.4 GB, this
+machine), three starts:**
+
+| start | what the log says | time to "UI started" |
+|---|---|---|
+| the shipped sm120 plan in place | `The face is drawn by TensorRT 11.3.0.99: ... loaded in 0.26 s` | **9 s** (torch: 18-21 s -- the avatar's graph captures in 3 s instead of 14) |
+| the plan removed, the shipped DLL set (no sm120 builder) | `drawn by the torch networks: ... (no builder for this GPU family shipped)` | 18 s |
+| the plan removed, the sm120 builder lent for the test | `Building the TensorRT engine ... -- once, a few minutes` → `built ... 328.1 MB in 45.5 s` → `drawn by TensorRT` | **57 s**, the plan written and loaded |
+
+The third row is the path an RTX 30 or 40 machine takes with its own
+shipped builder: the first start builds, every later start is the first
+row. An RTX 50 machine takes the first row at once. A card of another
+family (RTX 20, GTX) takes the second and runs the torch networks, as
+before.
+
+**Package.** `_internal/tensorrt_libs` 1.0 GB, `models/tensorrt` 0.53 GB
+(the export 204 MB, the sm120 plan 328 MB): the fast package is 7.4 GB
+against the torch package's 5.9. The `.failed.json` record and the start-up
+window's sentence are in the guide and in Menu -> Instructions (sections 2
+and 7).
+
+**Not measured.** The first-start build on an actual RTX 30 or 40 card (its
+duration, and that the builder resource shipped is the one TensorRT asks
+for) -- the friend's test machine is the first; and the frame rate on it.
+Section 7's estimates stand until then.
+
 ## Appendix: how to repeat it
 
 ```
