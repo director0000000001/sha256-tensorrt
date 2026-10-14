@@ -11,7 +11,67 @@ Versions below `1.0.0` carry no API stability guarantee.
 
 ## [Unreleased]
 
+### Added
+
+- **The skin's tone matched (2026-10-14, after the friend test).** Before the
+  lighting plane, the neural engine gives the rendered face the person's own
+  skin tone: on the cells that are skin on both sides (the mask's core, less
+  the dark cells of either picture and the person's brows, eyes and mouth) the
+  mean and the spread of each channel are read for the room and for the
+  render, and the render gets, per channel, a CAST -- the room's mean over
+  the render's, the room's white balance multiplied into every pixel, which
+  moves a dark pixel by little and a skin pixel by the whole of it, so the
+  irises, the brows and a beard keep their look while the skin takes the
+  room's tone -- and a CONTRAST about the room's skin mean that gives the
+  skin the room's spread, applied to each pixel by its own lightness against
+  the render's skin (none under 0.7 of it, all from 0.9), both within
+  0.7..1.4. (A gain and an additive offset on every pixel had turned the
+  woman's avatar's brown irises blue-grey; the tone spared on dark pixels had
+  left the avatar's stubble pale over hers; an additive chroma had turned the
+  beard orange: five replays of her capture.) The plane then fits the light's
+  gradient as before, the edge residual as before. Read one frame in four
+  (the reading is 2 ms of the render thread's CPU, the apply 0.2), carried by
+  an EMA, held with a held face. `skin_match` in `engine_options` (0..1,
+  default 1; 0 is the paste before this day, to the byte -- proven 601/601
+  on the owner's clip). On the GPU paste it is tensor sums on the device,
+  nothing waiting; `tests/unit/test_engine_skin_tone.py`.
+- **The forehead to the person's own hairline (2026-10-14).** The join sits
+  slightly below where the PERSON's hair starts, and the avatar's upper
+  forehead (above 0.3 of a forehead over the brows, past any brow raise) is
+  drawn taller to reach it -- moderately, `forehead_stretch_max` 1.25 by
+  default, "a medium height" -- its own hair roots' shadow kept out of the
+  join by `hair_root_margin` (0.15 of its forehead). A person whose hairline
+  cannot be read (bald, or hair past the walk) gets the whole moderate stretch
+  and no bound from their side. The stretch is the paste's alone (the render
+  sampled closer to the anchor row above it, on the CPU and the GPU alike);
+  the drive is untouched. `_forehead_plan`, settled at the anchor with the
+  driver's own forehead height against the portrait's;
+  `tests/unit/test_engine_forehead_stretch.py`.
+- **The head guide in Calibrate me (2026-10-14).** An oval on the preview
+  where the head should be -- the distance of every good session (the face
+  0.38..0.60 of the frame's height), centred, facing the camera -- amber with
+  one line of what to do ("Come closer", "Move back", "Put your head in the
+  oval", "Face the camera"), green with "Good. Hold still."; the session's
+  clock starts once it has been green for a second (`sha256.ui.head_guide`,
+  the preview's `guide`, the window's placing phase). The person is told the
+  one thing to fix, so the still step and everything after it are measured
+  from the right place. `tests/unit/test_head_guide.py` and the UI tests.
+
 ### Changed
+
+- **The forehead join's rule.** Until today the reach took the LOWER of the
+  two hairlines less a clearance, so a person with a taller forehead than the
+  portrait's got the join on the avatar's hair roots, in the middle of their
+  bare forehead -- the stripe of the friend test. Now the driver's oval goes
+  to their own hairline less `hairline_clearance`, the portrait's to its
+  clean skin (see above), and the paste to the lower of the two as ever. The
+  engine's log says both reaches and the stretch at the settle.
+  `hairline_clearance` defaults to 0.12 of a forehead now (was 0.04): under
+  the person's own hair roots, swept on two captures with the forehead band
+  (0.04 / 0.08 / 0.12 -> 4.1 / 3.5 / 3.0 grey levels on the woman's, 8.9 /
+  8.4 / 7.5 on his; the untouched build 2.7 / 7.5).
+- **`scripts/probes/jaw_band.py`** reads the engine's four-part `last` again
+  (the turn's room of day 20 had broken its capture re-render).
 
 - **Add avatar and Delete avatar without a login (2026-10-09, the owner's
   ask).** Both entries are in the Menu for whoever uses the application; the

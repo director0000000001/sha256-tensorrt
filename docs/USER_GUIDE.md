@@ -28,11 +28,14 @@ All of this page, and every button explained, is inside the app too:
 2. Pick your **Camera** and an **Avatar**, press **Start**. Sit still and
    look at the camera for a second: the status line counts the frames and
    says when the avatar has centred on you.
-3. Open **Menu → Calibrate me**. Say yes, follow the large instructions for
-   about a minute and a half (sit still, blink, open your mouth, talk,
-   smile, raise your eyebrows, glance left and right, turn your head).
-   Each one is read aloud and shown with a few seconds to get ready, then
-   a countdown while you do it. At the end the app asks your name, keeps
+3. Open **Menu → Calibrate me**. Say yes. An oval appears on the picture:
+   sit so your head fills it — not too far from the camera, not too close,
+   in the middle, facing it. It turns green and says *Good. Hold still.*;
+   a second later the instructions begin. Follow them for about a minute
+   and a half (sit still, blink, open your mouth, talk, smile, raise your
+   eyebrows, glance left and right, turn your head). Each one is read
+   aloud and shown with a few seconds to get ready, then a countdown while
+   you do it. At the end the app asks your name, keeps
    your profile under it (`configs/drivers/`), reloads the avatar with it
    and shows what it measured. This is what makes the avatar follow
    *your* face rather than the owner's. The session is recorded under

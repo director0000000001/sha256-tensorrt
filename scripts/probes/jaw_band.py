@@ -264,7 +264,7 @@ def run_clip(args: argparse.Namespace) -> int:
             if index >= args.first:
                 state = engine._loaded[args.avatar].last
                 if state is not None:
-                    _, to_frame, mask = state
+                    _, to_frame, mask, *_ = state  # day 20: the turn room rides along
                     height, width = image.shape[:2]
                     alpha = cv2.warpAffine(
                         mask[:, :, 0], to_frame, (width, height), flags=cv2.INTER_LINEAR
@@ -342,7 +342,7 @@ def run_capture(args: argparse.Namespace) -> int:
             engine.stop()
         if state is None:
             raise SystemExit(f"{args.capture}: nothing rendered")
-        _, to_frame, mask = state
+        _, to_frame, mask, *_ = state  # day 20: the turn room rides along
         seen = np.ascontiguousarray(out.data)
         anchor_note = "the session's own" if anchor is not None else "learned or none"
         what = (
