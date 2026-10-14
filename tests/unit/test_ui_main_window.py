@@ -199,11 +199,11 @@ class TestBlackScreenUnmirrored:
         window._runner = StillRunner(tracking(face=True))
 
         window._refresh_preview()
-        assert shown[-1] == {"mirror": None}
+        assert shown[-1] == {"mirror": None, "guide": None}
 
         conditioner.set_manual(True)
         window._refresh_preview()
-        assert shown[-1] == {"mirror": False}
+        assert shown[-1] == {"mirror": False, "guide": None}
         conditioner.set_manual(False)
 
 
@@ -634,3 +634,28 @@ class TestInstructions:
         window._on_instructions()
         assert opened and "3. THE BAR" in opened[0] and "Calibrate me" in opened[0]
         assert window._instructions_action.text() == "Instructions"
+
+
+class TestHeadGuideInThePreview:
+    """Day 21: while Calibrate me is on, every preview frame carries the
+    head guide and its fit, read off the snapshot's tracking."""
+
+    def test_the_guide_rides_with_the_frame_while_calibrating(self, window):
+        from sha256.ui.head_guide import GuideFit, GuideState, HeadGuide
+
+        shown: list[dict] = []
+        window._preview.show_frame = lambda data, fmt, tracking=None, **kw: shown.append(kw)
+        window._runner = StillRunner(tracking(face=True))
+
+        window._refresh_preview()
+        assert shown[-1]["guide"] is None and window._guide_fit is None
+
+        window._calibration = object()  # a session, as far as the preview cares
+        try:
+            window._refresh_preview()
+            guide, fit = shown[-1]["guide"]
+            assert isinstance(guide, HeadGuide) and isinstance(fit, GuideFit)
+            # all-zero landmarks: no face to speak of
+            assert fit.state is GuideState.NO_FACE and window._guide_fit is fit
+        finally:
+            window._calibration = None

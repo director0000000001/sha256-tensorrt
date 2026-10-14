@@ -43,6 +43,10 @@ class FakeSession:
         self.directory.mkdir(parents=True, exist_ok=True)
 
     @property
+    def started(self) -> bool:
+        return self.started_
+
+    @property
     def finished(self) -> bool:
         return self.finished_flag
 
@@ -150,8 +154,22 @@ class TestRefusals:
         assert not FakeSession.instances and window._calibration is None
 
 
+def good_fit(*args, **kwargs):
+    from sha256.ui.head_guide import GuideFit, GuideState
+
+    return GuideFit(GuideState.GOOD, "Good. Hold still.")
+
+
+def far_fit(*args, **kwargs):
+    from sha256.ui.head_guide import GuideFit, GuideState
+
+    return GuideFit(GuideState.CLOSER, "Come closer")
+
+
 class TestTheRun:
-    def _start(self, window, monkeypatch):
+    def _start(self, window, monkeypatch, *, place: bool = True):
+        """Press Calibrate me; with ``place``, sit in the green oval for the
+        second the placing phase wants, so the session's clock starts."""
         from sha256.ui import main_window as module
 
         FakeSession.instances.clear()
@@ -161,14 +179,63 @@ class TestTheRun:
         )
         window._on_start()
         window._on_calibrate()
+        if place:
+            # The preview reads the fit off the runner's snapshot each tick
+            # (_refresh_preview); here it is set by hand, as a good one.
+            for _ in range(module._PLACING_GOOD_TICKS):
+                window._guide_fit = good_fit()
+                window._tick_calibration()
         return FakeSession.instances[-1]
+
+    def test_the_clock_waits_for_the_head_in_the_green_oval(
+        self, window, calibratable, monkeypatch
+    ):
+        """Day 21: the session is made at the press but started only once
+        the guide has read the head as placed for a second; the guide is
+        drawn meanwhile, and the one line of what to do is shown and said."""
+        from sha256.ui import main_window as module
+
+        session = self._start(window, monkeypatch, place=False)
+        try:
+            assert window._calibration is session and not session.started
+            assert window._calibrate_action.text() == "Stop calibrating"
+            assert module._PLACING_TEXT in window._instruction.text()
+            assert FakeSpeaker.instances[-1].said == [module._PLACING_TEXT]
+
+            window._guide_fit = far_fit()
+            window._tick_calibration()
+            assert not session.started
+            assert "Come closer" in window._instruction.text()
+
+            for _ in range(module._PLACING_GOOD_TICKS - 1):
+                window._guide_fit = good_fit()
+                window._tick_calibration()
+            assert not session.started  # not a second yet
+            assert "Starting" in window._instruction.text()
+            # a bad frame starts the second over
+            window._guide_fit = far_fit()
+            window._tick_calibration()
+            assert not session.started and window._placing_good == 0
+
+            for _ in range(module._PLACING_GOOD_TICKS):
+                window._guide_fit = good_fit()
+                window._tick_calibration()
+            assert session.started
+            window._tick_calibration()
+            assert STEPS[2].instruction in window._instruction.text()
+            # the guide is gone with the session
+            window._cancel_calibration()
+            assert window._guide_fit is None and window._placing_good == 0
+        finally:
+            window._cancel_calibration()
+            window._on_stop()
 
     def test_the_instruction_shows_and_the_button_becomes_stop(
         self, window, calibratable, monkeypatch
     ):
         session = self._start(window, monkeypatch)
         try:
-            assert session.started_ and window._calibration is session
+            assert session.started and window._calibration is session
             assert session.avatar_id == "avatar_001"
             assert (
                 "recordings" in str(session.directory) and "calibration-" in session.directory.name
@@ -177,10 +244,12 @@ class TestTheRun:
             assert not window._instruction.isHidden()
             assert STEPS[2].instruction in window._instruction.text()
             assert "Get ready" in window._instruction.text()
-            # Spoken once per step, not once per tick.
+            # Spoken once per step, not once per tick -- after the placing
+            # line (day 21), said once at the press.
             window._tick_calibration()
             assert FakeSpeaker.instances and FakeSpeaker.instances[-1].said == [
-                STEPS[2].instruction
+                "Put your head in the green oval",
+                STEPS[2].instruction,
             ]
             window._refresh_status()
             assert "Calibrating" in window._status_line.text()

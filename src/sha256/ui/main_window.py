@@ -69,6 +69,7 @@ from sha256.pipeline.conditioning import QUALITY_NAMES, OutputConditioner
 from sha256.pipeline.runner import PipelineRunner
 from sha256.tracking.mediapipe_tracker import DEFAULT_MODEL_RELATIVE_PATH, MediaPipeFaceTracker
 from sha256.ui.background import BackgroundPanel
+from sha256.ui.head_guide import GuideFit, HeadGuide, fit_head
 from sha256.ui.hotkey import GlobalHotkey
 from sha256.ui.instructions_dialog import InstructionsDialog
 from sha256.ui.panels.debug_panel import DebugPanel
@@ -131,6 +132,10 @@ _PREVIEW_INTERVAL_MS = 33
 _STATUS_INTERVAL_MS = 500
 # The calibration's instruction and its countdown are redrawn this often.
 _CALIBRATION_TICK_MS = 100
+# Day 21: the head guide. The calibration's clock starts once the head has
+# sat in the green oval for this many ticks -- a second.
+_PLACING_GOOD_TICKS = 10
+_PLACING_TEXT = "Put your head in the green oval"
 # The Person menu's entry for no profile at all: the avatar's own values.
 _NO_PERSON = "Nobody (the avatar's own values)"
 
@@ -297,6 +302,12 @@ class MainWindow(QMainWindow):
         self._calibration_timer = QTimer(self)
         self._calibration_timer.setInterval(_CALIBRATION_TICK_MS)
         self._calibration_timer.timeout.connect(self._tick_calibration)
+        # Day 21: the head guide drawn over the preview while Calibrate me
+        # is on, its latest fit (read by the placing phase), and how many
+        # ticks in a row the fit has been good.
+        self._guide = HeadGuide()
+        self._guide_fit: GuideFit | None = None
+        self._placing_good = 0
 
         self._populate_avatars()
         self._populate_cameras()
@@ -934,25 +945,54 @@ class MainWindow(QMainWindow):
             output_tracker_factory=self._output_tracker,
             fps=self._context.settings.camera.target_fps,
         )
+        # Day 21: the clock does not start yet -- the head guide is shown
+        # and the session starts once the head has sat in it (see
+        # _tick_placing), so the still step and everything after it are
+        # measured from the right distance, centred, facing the camera.
+        self._calibration = session
+        self._guide_fit = None
+        self._placing_good = 0
+        self._spoken_step = -1
+        if self._speaker is None:
+            self._speaker = self._speaker_factory()
+        self._calibrate_action.setText("Stop calibrating")
+        self._instruction.setText(_PLACING_TEXT)
+        self._instruction.show()
+        if self._speaker is not None:
+            self._speaker.say(_PLACING_TEXT)
+        self._calibration_timer.start()
+        self._tick_calibration()
+
+    def _tick_placing(self, session: Any) -> bool:
+        """Before the clock: the guide's latest fit on the instruction, and
+        the session started once it has been good for a second -- True on
+        the tick that starts it, so the step's own instruction follows at
+        once."""
+        fit = self._guide_fit
+        good = fit is not None and fit.good
+        self._placing_good = self._placing_good + 1 if good else 0
+        line = _PLACING_TEXT if fit is None else fit.message
+        self._instruction.setText(
+            f"{line}\n{'Starting...' if good else 'Sit so the oval turns green'}"
+        )
+        if self._placing_good < _PLACING_GOOD_TICKS:
+            return False
         try:
             session.start()
         except Exception as exc:
             _LOG.exception("Calibration could not start")
             QMessageBox.critical(self, "Calibrate me", f"Could not start: {exc}")
+            self._end_calibration_ui()
             session.cancel()
-            return
-        self._calibration = session
+            return False
         self._spoken_step = -1
-        if self._speaker is None:
-            self._speaker = self._speaker_factory()
-        self._calibrate_action.setText("Stop calibrating")
-        self._instruction.show()
-        self._calibration_timer.start()
-        self._tick_calibration()
+        return True
 
     def _tick_calibration(self) -> None:
         session = self._calibration
         if session is None:
+            return
+        if not session.started and not self._tick_placing(session):
             return
         if session.finished:
             self._finish_calibration()
@@ -972,6 +1012,8 @@ class MainWindow(QMainWindow):
 
     def _end_calibration_ui(self) -> None:
         self._calibration = None
+        self._guide_fit = None
+        self._placing_good = 0
         self._calibration_timer.stop()
         if self._speaker is not None:
             self._speaker.stop()
@@ -1311,9 +1353,16 @@ class MainWindow(QMainWindow):
         if snapshot is None:
             return
 
+        # Day 21: the head guide while Calibrate me is on, over whichever
+        # view is shown -- the fit read off this snapshot's tracking.
+        guide = None
+        if self._calibration is not None:
+            self._guide_fit = fit_head(snapshot.tracking, self._guide)
+            guide = (self._guide, self._guide_fit)
+
         if self._view_camera_action.isChecked() and snapshot.source is not None:
             self._preview.show_frame(
-                snapshot.source.data, snapshot.source.pixel_format, snapshot.tracking
+                snapshot.source.data, snapshot.source.pixel_format, snapshot.tracking, guide=guide
             )
         elif snapshot.frame is not None:
             # The rendered frame is already composited; landmarks would be drawn
@@ -1326,6 +1375,7 @@ class MainWindow(QMainWindow):
                 snapshot.frame.pixel_format,
                 None,
                 mirror=False if unmirrored else None,
+                guide=guide,
             )
 
     def _refresh_status(self) -> None:
