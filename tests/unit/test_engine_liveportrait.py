@@ -50,6 +50,7 @@ from sha256.avatar.engine_liveportrait import (
     _MOUTH_SMILE,
     _RIGID_POINTS,
     _ROTATION_PIVOTS,
+    _TONE_IDENTITY,
     _WIDTH_PER_DEGREE_YAW,
     BROW_KEYPOINTS,
     CROP_SCALE,
@@ -4911,6 +4912,8 @@ class TestTurnRoom:
 
         def paste(**kwargs):
             loaded.correction = None
+            loaded.tone = _TONE_IDENTITY.copy()  # day 21: the paste's other state
+            loaded.tone_frames = 0
             return engine._paste(scene, face, to_frame, loaded, mask, **kwargs)
 
         def changed(image, x0, x1, y0=82, y1=108):

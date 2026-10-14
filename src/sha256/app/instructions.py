@@ -55,11 +55,14 @@ _FIRST_TIME = """\
   2. Pick your Camera and an Avatar on the bar, press Start.
   3. Sit still and look at the camera for a second. The status line
      counts the frames and says when the avatar has centred on you.
-  4. Menu -> Calibrate me. Say yes, follow the large instructions for
-     about a minute and a half (sit still, blink, close your eyes, open
-     your mouth, talk, smile, raise your eyebrows, glance left and right,
-     turn your head). Each one is read aloud and shown with a few seconds
-     to get ready, then a countdown while you do it. At the end the
+  4. Menu -> Calibrate me. Say yes. An oval appears on the picture: sit
+     so your head fills it -- not too far from the camera, not too
+     close, in the middle, facing it. It turns green and says "Good.
+     Hold still."; a second later the instructions begin. Follow them
+     for about a minute and a half (sit still, blink, close your eyes,
+     open your mouth, talk, smile, raise your eyebrows, glance left and
+     right, turn your head). Each one is read aloud and shown with a few
+     seconds to get ready, then a countdown while you do it. At the end the
      application asks your name, keeps your profile under it and reloads
      the avatar with it. This is what makes the avatar follow YOUR face
      rather than someone else's.
@@ -142,8 +145,9 @@ _THE_MENU = """\
                               me adds you to this list; choose your name
                               when you sit down. Nobody runs the avatar
                               with its own values.
-  Calibrate me                The guided minute and a half of section 2,
-                              measured into your own profile. The session
+  Calibrate me                The guided minute and a half of section 2
+                              (the oval first, then the steps), measured
+                              into your own profile. The session
                               is recorded (your camera frames and their
                               tracking) under recordings/ on this
                               computer only, after you say yes; you can
@@ -151,16 +155,14 @@ _THE_MENU = """\
                               runs the entry reads "Stop calibrating":
                               choosing it cancels and deletes the
                               recording.
-  Login / Owner               The owner's passphrase (set the first time,
-                              asked for after). Unlocks Add avatar and
-                              Delete avatar.
-  Add avatar                  The owner only. Makes a new avatar from one
-                              photograph: a window first tells what the
-                              photograph must be, with prompts for an
-                              image generator, then the file is chosen,
-                              checked and added to the Avatar list.
-  Delete avatar               The owner only. Removes the avatar chosen
-                              in the bar from this computer, for good --
+  Add avatar                  Makes a new avatar from one photograph: a
+                              window first tells what the photograph must
+                              be, with prompts for an image generator,
+                              then the file is chosen, checked and added
+                              to the Avatar list. The avatar is kept on
+                              this computer only, in the avatars folder.
+  Delete avatar               Removes the avatar chosen in the bar from
+                              this computer, for good --
                               its photograph, settings and profile. It
                               asks first; stop the application before.
   Instructions                This text.
@@ -180,7 +182,9 @@ _STATUS_LINE = """\
         down. The other side sees the last picture, still, for up to
         eight seconds; the avatar is back the moment the face is.
   "Calibrating -- follow the instruction above"
-        Calibrate me is running.
+        Calibrate me is running. Until the oval on the picture is green
+        the instruction is the one thing to fix: come closer, move back,
+        put your head in the oval, face the camera.
   "BLACK SCREEN -- the other side sees 'Camera battery died' (...)"
         The black screen is on: by the button, or because the face was
         lost.

@@ -199,11 +199,11 @@ class TestBlackScreenUnmirrored:
         window._runner = StillRunner(tracking(face=True))
 
         window._refresh_preview()
-        assert shown[-1] == {"mirror": None}
+        assert shown[-1] == {"mirror": None, "guide": None}
 
         conditioner.set_manual(True)
         window._refresh_preview()
-        assert shown[-1] == {"mirror": False}
+        assert shown[-1] == {"mirror": False, "guide": None}
         conditioner.set_manual(False)
 
 
@@ -219,36 +219,24 @@ def guide_accepted(monkeypatch):
     )
 
 
-class TestOwnerAndAddAvatar:
-    """Day 15: "Add avatar" appears only behind the owner's passphrase; the
-    passphrase is set on the first login; the import is checked and the
-    library re-read. Day 16: the photo guide comes first."""
+class TestAddAndDeleteAvatar:
+    """Day 15: the import is checked and the library re-read. Day 16: the
+    photo guide comes first. 2026-10-09, his ask: no Login any more -- Add
+    avatar and Delete avatar are in the menu for whoever uses the app."""
 
-    def test_add_avatar_is_hidden_until_the_owner_logs_in(self, window, monkeypatch):
-        from sha256.ui import main_window as module
-
-        assert not window._add_avatar_action.isVisible()
-        assert window._login_action.text() == "Login"
-        assert not window._owner.is_configured
-
-        answers = iter([("open sesame", True), ("open sesame", True)])
-        monkeypatch.setattr(module.QInputDialog, "getText", lambda *a, **k: next(answers))
-        monkeypatch.setattr(module.QMessageBox, "information", lambda *a, **k: None)
-
-        window._on_login()
-
-        assert window._owner.is_configured and window._owner.is_unlocked
-        assert window._login_action.text() == "Owner" and not window._login_action.isEnabled()
+    def test_add_and_delete_are_there_without_a_login(self, window):
+        entries = [action.text() for action in window._menu.actions() if not action.isSeparator()]
+        assert "Add avatar" in entries and "Delete avatar" in entries
+        assert "Login" not in entries and "Owner" not in entries
         assert window._add_avatar_action.isVisible()
-        assert window._delete_avatar_action.isVisible()  # day 17
+        assert window._delete_avatar_action.isVisible()
+        assert not hasattr(window, "_owner") and not hasattr(window, "_login_action")
 
     def test_deleting_an_avatar_asks_removes_and_refills_the_bar(self, window, monkeypatch):
-        """Day 17, his ask: the owner removes the avatar chosen in the bar,
-        after a question, with the pipeline stopped."""
+        """Day 17, his ask: the avatar chosen in the bar is removed after a
+        question, with the pipeline stopped."""
         from sha256.ui import main_window as module
 
-        window._owner.set_passphrase("open sesame")
-        window._refresh_owner_state()
         library = window._context.paths.avatars
         index = window._avatar_combo.findData("avatar_001")
         assert index >= 0
@@ -274,41 +262,20 @@ class TestOwnerAndAddAvatar:
         assert window._avatar_combo.findData("avatar_001") < 0
         assert window._context.avatars.active_id != "avatar_001"
 
-    def test_delete_is_the_owners_and_wants_an_avatar_chosen(self, window, monkeypatch):
+    def test_delete_wants_an_avatar_chosen(self, window, monkeypatch):
         from sha256.ui import main_window as module
 
         library = window._context.paths.avatars
         window._avatar_combo.setCurrentIndex(0)  # none
-        window._on_delete_avatar()  # locked: nothing happens
-        assert (library / "avatar_001").is_dir()
-        window._owner.set_passphrase("open sesame")
-        window._refresh_owner_state()
         told: list[str] = []
         monkeypatch.setattr(module.QMessageBox, "information", lambda *a, **k: told.append(a[2]))
         window._on_delete_avatar()
         assert told and "Choose" in told[0]
         assert (library / "avatar_001").is_dir()
 
-    def test_a_wrong_passphrase_unlocks_nothing(self, window, monkeypatch):
-        from sha256.ui import main_window as module
-
-        window._owner.set_passphrase("open sesame")
-        window._owner.lock()
-        window._refresh_owner_state()
-        warned: list[str] = []
-        monkeypatch.setattr(module.QInputDialog, "getText", lambda *a, **k: ("nope", True))
-        monkeypatch.setattr(module.QMessageBox, "warning", lambda *a, **k: warned.append(a[2]))
-
-        window._on_login()
-
-        assert not window._owner.is_unlocked and not window._add_avatar_action.isVisible()
-        assert warned and "not the passphrase" in warned[0]
-
     def test_the_guide_can_be_declined(self, window, monkeypatch):
         from sha256.ui import main_window as module
 
-        window._owner.set_passphrase("open sesame")
-        window._refresh_owner_state()
         monkeypatch.setattr(
             module.PhotoGuideDialog,
             "exec",
@@ -336,8 +303,6 @@ class TestOwnerAndAddAvatar:
     ):
         from sha256.ui import main_window as module
 
-        window._owner.set_passphrase("open sesame")
-        window._refresh_owner_state()
         library = window._context.paths.avatars
         calls: list[dict] = []
 
@@ -376,8 +341,6 @@ class TestOwnerAndAddAvatar:
         from sha256.avatar.importer import AvatarImportError
         from sha256.ui import main_window as module
 
-        window._owner.set_passphrase("open sesame")
-        window._refresh_owner_state()
         warned: list[str] = []
 
         def refuse(*a, **k):
@@ -395,14 +358,6 @@ class TestOwnerAndAddAvatar:
 
         assert warned and "no face found" in warned[0]
         assert window._avatar_combo.count() == before
-
-    def test_locked_the_button_does_nothing(self, window, monkeypatch):
-        from sha256.ui import main_window as module
-
-        opened: list[int] = []
-        monkeypatch.setattr(module.QFileDialog, "getOpenFileName", lambda *a, **k: opened.append(1))
-        window._on_add_avatar()
-        assert not opened
 
 
 class TestTheBarAndTheMenu:
@@ -437,7 +392,6 @@ class TestTheBarAndTheMenu:
             "Re-centre",
             "Person",
             "Calibrate me",
-            "Login",
             "Add avatar",
             "Delete avatar",
             "Instructions",
@@ -680,3 +634,28 @@ class TestInstructions:
         window._on_instructions()
         assert opened and "3. THE BAR" in opened[0] and "Calibrate me" in opened[0]
         assert window._instructions_action.text() == "Instructions"
+
+
+class TestHeadGuideInThePreview:
+    """Day 21: while Calibrate me is on, every preview frame carries the
+    head guide and its fit, read off the snapshot's tracking."""
+
+    def test_the_guide_rides_with_the_frame_while_calibrating(self, window):
+        from sha256.ui.head_guide import GuideFit, GuideState, HeadGuide
+
+        shown: list[dict] = []
+        window._preview.show_frame = lambda data, fmt, tracking=None, **kw: shown.append(kw)
+        window._runner = StillRunner(tracking(face=True))
+
+        window._refresh_preview()
+        assert shown[-1]["guide"] is None and window._guide_fit is None
+
+        window._calibration = object()  # a session, as far as the preview cares
+        try:
+            window._refresh_preview()
+            guide, fit = shown[-1]["guide"]
+            assert isinstance(guide, HeadGuide) and isinstance(fit, GuideFit)
+            # all-zero landmarks: no face to speak of
+            assert fit.state is GuideState.NO_FACE and window._guide_fit is fit
+        finally:
+            window._calibration = None

@@ -26,7 +26,6 @@ CONTROLS = (
     "Nobody",
     "Calibrate me",
     "Stop calibrating",
-    "Login",
     "Add avatar",
     "Delete avatar",
     "Instructions",
@@ -37,6 +36,12 @@ def test_every_control_is_explained():
     text = instructions_text()
     for control in CONTROLS:
         assert control in text, control
+
+
+def test_no_login_is_explained_any_more():
+    """2026-10-09, his ask: Add avatar and Delete avatar are for everyone."""
+    text = instructions_text()
+    assert "Login" not in text and "passphrase" not in text
 
 
 def test_the_sections_come_in_order_and_say_what_a_person_asks_first():

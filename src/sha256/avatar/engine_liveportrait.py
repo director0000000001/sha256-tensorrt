@@ -258,6 +258,11 @@ PORTRAIT_OPTION_KEYS: frozenset[str] = frozenset(
         "blink_brow_hold",
         "blink_mouth_hold",
         "blink_mouth_lift",
+        # Day 21 (2026-10-14): the skin's tone matched before the plane;
+        # the forehead's moderate stretch and the roots' margin.
+        "skin_match",
+        "forehead_stretch_max",
+        "hair_root_margin",
     }
 )
 
@@ -1367,8 +1372,17 @@ _HAIRLINE_STEP_PX = 2.0
 _HAIRLINE_SEARCH = 3.0  # of the forehead height, how far up the walk goes
 # The clearance under the lower hairline, an option since day 17
 # (``hairline_clearance``; his "cover a bit more" -- 0.08 left a tenth of
-# his forehead his own).
-_HAIRLINE_CLEARANCE = 0.04  # of the forehead height, kept below the hairline
+# his forehead his own, and 0.04 was kept). Day 21: it is the clearance
+# under the PERSON's hairline now (see _forehead_plan; the avatar's own
+# roots have their margin), and swept on the two captures with the
+# forehead band (jaw_band --capture --render, the top fifth of the mask's
+# rows, grey levels; the woman's 200754 / his 105750): 0.04 -> 4.08 /
+# 8.89, 0.08 -> 3.50 / 8.42, 0.12 -> 2.99 / 7.48 -- the untouched build
+# read 2.70 / 7.51. At 0.04 the avatar's clean skin lay over the person's
+# own hair roots; 0.12 of a forehead (six to ten pixels) is still
+# "slightly below where the hair starts", his words. His eye may put it
+# back.
+_HAIRLINE_CLEARANCE = 0.12  # of the forehead height, kept below the hairline
 _HAIRLINE_CLEARANCE_MAX = 0.3
 _HAIRLINE_MODE = "hairline"
 # Day 17 (2026-09-13): "hairline" is the default -- the whole forehead is
@@ -1581,6 +1595,101 @@ def _hairline_reach(
     limits = [h - clearance for h in (portrait, driver) if h is not None]
     reach = min(limits) if limits else unknown
     return float(min(max(reach, _FOREHEAD_REACH_MIN), _FOREHEAD_REACH_MAX))
+
+
+# Day 21 (2026-10-14), the friend test: two foreheads taller than the
+# avatar's (one bald, one with the hair pulled back). The reach above
+# took the LOWER of the two hairlines less a clearance, and with the
+# person's hair higher than the portrait's that was always the portrait's
+# own hairline: the join sat on the avatar's hair roots -- a band of
+# darkening skin (measured on his portrait: the luminance leaves the
+# forehead's by 5% at 1.40 of the forehead, 10% at 1.44, 30% -- the
+# reader's word for hair -- at 1.52; the woman's 10% at 1.90, 30% at
+# 2.06; a tenth to a sixth of a forehead of shadow under the hairline) in
+# the middle of the person's bare forehead, with their own skin above it.
+# That was the stripe. His decision: the forehead should end slightly
+# below where the PERSON's hair starts; the avatar's forehead may be
+# stretched to reach it, moderately -- "a medium height", not a tall one
+# -- and its hair is never pasted (the hair switch stays, off).
+#
+# So the plan at the settle (:func:`_forehead_plan`): the join the person's
+# side wants is their hairline less the clearance, in crop pixels; the
+# avatar's clean skin reaches its hairline less _HAIR_ROOT_MARGIN; and the
+# render's rows above _STRETCH_ANCHOR foreheads over the brow line (above
+# where a brow raise reaches, so the brows are never stretched) are
+# stretched by what it takes for the clean skin to reach the join, within
+# [1, forehead_stretch_max] -- 1.25 by default, "medium". The portrait's
+# oval goes to the stretched clean skin's top, the driver's to their own
+# hairline less the clearance, the paste to the lower of the two as ever.
+# A person whose hairline could not be read (bald, or hair past the walk)
+# gets the whole moderate stretch and no bound from their side.
+#
+# The stretch is the paste's alone: the render is sampled closer to the
+# anchor row above it (see _paste / _paste_gpu), the drive untouched; at
+# forehead_stretch_max 1.0 nothing is stretched and the join is as before
+# less the roots' margin.
+_FOREHEAD_STRETCH_MAX = 1.25
+_FOREHEAD_STRETCH_BOUND = 2.0
+_STRETCH_ANCHOR = 0.3
+_HAIR_ROOT_MARGIN = 0.15
+_HAIR_ROOT_MARGIN_MAX = 0.5
+
+
+def _forehead_stretch_max(options: dict[str, Any]) -> float:
+    """``forehead_stretch_max`` in ``[1, 2]``, default
+    :data:`_FOREHEAD_STRETCH_MAX`: how far the avatar's upper forehead may
+    be stretched toward the person's hairline; 1 is none."""
+    value = float(options.get("forehead_stretch_max", _FOREHEAD_STRETCH_MAX))
+    if not 1.0 <= value <= _FOREHEAD_STRETCH_BOUND:
+        msg = f"forehead_stretch_max must be in [1, {_FOREHEAD_STRETCH_BOUND}], got {value}"
+        raise ValueError(msg)
+    return value
+
+
+def _hair_root_margin(options: dict[str, Any]) -> float:
+    """``hair_root_margin`` in ``[0, 0.5]``, default :data:`_HAIR_ROOT_MARGIN`:
+    how far under the avatar's own hairline its skin counts as clean, as a
+    fraction of its forehead height."""
+    value = float(options.get("hair_root_margin", _HAIR_ROOT_MARGIN))
+    if not 0.0 <= value <= _HAIR_ROOT_MARGIN_MAX:
+        msg = f"hair_root_margin must be in [0, {_HAIR_ROOT_MARGIN_MAX}], got {value}"
+        raise ValueError(msg)
+    return value
+
+
+def _forehead_plan(
+    portrait_hairline: float | None,
+    driver_hairline: float | None,
+    portrait_forehead: float,
+    driver_forehead: float,
+    *,
+    clearance: float = _HAIRLINE_CLEARANCE,
+    margin: float = _HAIR_ROOT_MARGIN,
+    stretch_max: float = _FOREHEAD_STRETCH_MAX,
+    anchor: float = _STRETCH_ANCHOR,
+) -> tuple[float, float, float]:
+    """The forehead at the settle (day 21): ``(portrait_reach, driver_reach,
+    stretch)`` -- the portrait oval's reach (of its forehead), the driver
+    oval's (of theirs) and the render's stretch above the anchor row -- from
+    the two hairlines (fractions of each forehead; ``None`` unread), the two
+    foreheads' heights in crop pixels, the clearance under the driver's
+    hairline, the roots' margin under the portrait's and the stretch's cap.
+    The reaches are within [_FOREHEAD_REACH_MIN, _FOREHEAD_REACH_MAX]."""
+    skin_top = _HAIRLINE_CEILING if portrait_hairline is None else portrait_hairline
+    span = max(skin_top - anchor, 0.1)
+    if driver_hairline is None:
+        stretch = stretch_max
+        driver_reach = _FOREHEAD_REACH_MAX
+    else:
+        driver_reach = driver_hairline - clearance
+        wanted = driver_reach * driver_forehead / max(portrait_forehead, 1.0)
+        stretch = min(max((wanted + margin - anchor) / span, 1.0), stretch_max)
+    portrait_reach = anchor + stretch * span - margin
+
+    def bound(reach: float) -> float:
+        return float(min(max(reach, _FOREHEAD_REACH_MIN), _FOREHEAD_REACH_MAX))
+
+    return bound(portrait_reach), bound(driver_reach), float(stretch)
 
 
 def _hairline_clearance(options: dict[str, Any]) -> float:
@@ -3842,6 +3951,232 @@ def _dark_cells_small(scene: np.ndarray, coverage: np.ndarray) -> np.ndarray:
     return dark
 
 
+# ---------------------------------------------------------------------------
+# The skin's tone (day 21, 2026-10-14)
+# ---------------------------------------------------------------------------
+#
+# The friend test of 2026-10-13: two faces the avatar had never met, one
+# bald, one with the hair pulled back, neither calibrated -- "a stripe on
+# the forehead, the skin colour differed from the avatar's". The lighting
+# plane and the edge residual above match the ROOM's light: a brightness
+# and a gradient per channel over the whole face, and what that leaves at
+# the join, faded over a fifth of the box. Neither matches the SKIN: a
+# face paler, pinker or flatter-lit than the portrait's keeps the avatar's
+# own tone in its middle, and meets the person's own skin -- above the
+# join on a tall forehead, at the neck, the ears -- with a step in tone.
+#
+# So, before the plane, the render's skin is given the person's tone. On
+# the cells of the correction's own grid that are skin on BOTH sides (the
+# mask's core; not the scene's dark cells, not the render's dark cells --
+# its brows, eyes, nostrils -- and not his feature zone, _EDGE_FEATURES),
+# the mean and the spread of each channel are read for the room and for
+# the render, and the render gets, per channel, a CAST -- ``mean_room /
+# mean_render``, the room's white balance over the render, multiplied
+# into every pixel -- and a CONTRAST about the room's skin mean --
+# ``spread_room / (cast * spread_render)`` -- both within [_SKIN_GAIN_MIN,
+# _SKIN_GAIN_MAX] (a dark room must not bleach the avatar, a shine must
+# not blow it out), the contrast 1 when either spread is under
+# _SKIN_SPREAD_MIN (a flat picture has no spread to match). The plane
+# then has only the light's gradient left to fit, on its own cells as
+# before; the residual is as before. The nine numbers (the cast, the
+# contrast, the room's skin mean) are read one frame in
+# _SKIN_TONE_EVERY -- the reading is two sorts and a few dozen small
+# kernels, 2 ms of the render thread's CPU when it ran every frame
+# (measured 2026-10-14) -- and carried by an EMA (_SKIN_TONE_INERTIA per
+# reading) so a camera hunting its exposure cannot make the face pulse;
+# the identity until the first reading with enough skin cells, not read
+# while the face is held (the mask then sits where the face was); the
+# tone is APPLIED on every frame. ``skin_match`` in ``engine_options``,
+# 0..1, is how much is applied: 0 is the paste before this day to the
+# byte (nothing of it is computed), 1 the whole match.
+#
+# What it cannot do: a shine (a bald scalp, a lit forehead) is texture,
+# not tone; the plane and the residual still carry that.
+#
+# Where it is applied, settled over five replays of the woman's capture
+# of 2026-09-12 20:07. A gain and an ADDITIVE offset per channel, on
+# every pixel, turned the avatar's brown irises blue-grey: the channels'
+# offsets differ, and an offset that is a tone on skin is a hue on a dark
+# iris. The whole tone spared on the dark pixels (each pixel's lightness
+# against the render's skin) left the avatar's stubble pale over hers
+# (the jaw band +5.8 -> +11.1 grey levels) and the brows pale. The
+# offset's luminance everywhere and its chroma by lightness brought the
+# irises back and turned her avatar's beard orange: her warmer skin's
+# chroma, added whole to the beard's mid-lit hairs. What is right is the
+# room's WHITE BALANCE: a cast MULTIPLIED into every pixel moves a dark
+# pixel by little and a skin pixel by the whole of it, so an iris, a
+# brow, a beard keep their look while the skin takes the room's tone --
+# the physics of a colour cast. The contrast (a spread matched on skin,
+# a fact about skin's shading and not about a brow's darkness) goes to
+# each pixel by its own lightness against the render's skin (the median
+# of the core cells, the dark-cell rule's own number): all of it from
+# _TONE_DARK_HIGH of the skin's lightness up, nothing under
+# _TONE_DARK_LOW, linear between -- the bounds above the dark-cell rule's
+# 0.55, since a brown brow's lit hairs read 0.5-0.7 of the skin and took
+# a contrast under 1 (her flat-lit face against the portrait's studio
+# shading) as a fading. (The feature zone's geometry was tried too: grown
+# and softened it left the tone off exactly the cells it had been read
+# from, and the plane put it back everywhere.)
+_SKIN_MATCH_DEFAULT = 1.0
+_TONE_DARK_LOW = 0.7
+_TONE_DARK_HIGH = 0.9
+_SKIN_GAIN_MIN = 0.7
+_SKIN_GAIN_MAX = 1.4
+# One reading in this many frames, and what the previous reading keeps
+# at each: 0.66 a reading at one in four is 0.9 a frame, a time constant
+# of about ten frames.
+_SKIN_TONE_EVERY = 4
+_SKIN_TONE_INERTIA = 0.66
+# Cells of skin on both sides under which nothing is learnt this frame
+# (the previous tone stays): a face mostly hair, or mostly turned away.
+_SKIN_CELLS_MIN = 24
+# A spread (grey levels, either side) under which there is no spread to
+# match -- a flat picture, the tests' uniform faces -- and the gain is 1;
+# the means are still matched.
+_SKIN_SPREAD_MIN = 2.0
+# The tone before any measurement: no cast, no contrast, no room skin
+# mean yet (the rows). The first measurement is taken whole (no fade from
+# here), the EMA runs from then.
+_TONE_IDENTITY = np.array([[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [0.0, 0.0, 0.0]], dtype=np.float32)
+
+
+def _skin_match(options: dict[str, Any]) -> float:
+    """``skin_match`` in ``[0, 1]``, default :data:`_SKIN_MATCH_DEFAULT`:
+    how much of the skin-tone match is applied to the render before the
+    lighting plane (see the section comment). 0 is the paste before day
+    21, to the byte."""
+    value = float(options.get("skin_match", _SKIN_MATCH_DEFAULT))
+    if not 0.0 <= value <= 1.0:
+        raise ValueError(f"skin_match must be in [0, 1], got {value}")
+    return value
+
+
+def _skin_cells(
+    face: np.ndarray, scene: np.ndarray, coverage: np.ndarray, zone: np.ndarray | None
+) -> np.ndarray:
+    """The cells that are skin on both sides, 1.0 / 0.0: the mask's core
+    (coverage over 0.9) less the scene's dark cells and the render's
+    (:func:`_dark_cells_small` on each) and his feature zone (``zone``,
+    :func:`_feature_exclusion`; ``None`` for none). ``face`` and ``scene``
+    are mask-weighted, at the cell size."""
+    skin: np.ndarray = (coverage > 0.9).astype(np.float32)
+    skin = skin * (1.0 - _dark_cells_small(scene, coverage))
+    skin = skin * (1.0 - _dark_cells_small(face, coverage))
+    if zone is not None:
+        skin = skin * (1.0 - zone)
+    return skin.astype(np.float32)
+
+
+def _skin_tone(
+    face: np.ndarray, scene: np.ndarray, coverage: np.ndarray, skin: np.ndarray
+) -> np.ndarray | None:
+    """The per-channel ``(cast, contrast, room skin mean)`` -- a ``(3, 3)``
+    float32: the cast that gives the render's skin the room's mean, the
+    contrast about that mean that gives it the room's spread, and the
+    room's skin mean -- from the mask-weighted ``face`` and ``scene`` at
+    the cell size over the ``skin`` cells; ``None`` under
+    :data:`_SKIN_CELLS_MIN` cells."""
+    count = float(skin.sum())
+    if count < _SKIN_CELLS_MIN:
+        return None
+    weight = np.maximum(coverage, 1e-3)[:, :, None]
+    w = skin[:, :, None]
+    x = scene / weight
+    y = face / weight
+    mean_s = (x * w).sum(axis=(0, 1)) / count
+    mean_f = (y * w).sum(axis=(0, 1)) / count
+    var_s = (((x - mean_s) ** 2) * w).sum(axis=(0, 1)) / count
+    var_f = (((y - mean_f) ** 2) * w).sum(axis=(0, 1)) / count
+    cast = np.clip(mean_s / np.maximum(mean_f, 1.0), _SKIN_GAIN_MIN, _SKIN_GAIN_MAX)
+    floor = _SKIN_SPREAD_MIN**2
+    ratio = np.clip(
+        np.sqrt(var_s) / (cast * np.sqrt(np.maximum(var_f, 1e-6))), _SKIN_GAIN_MIN, _SKIN_GAIN_MAX
+    )
+    contrast = np.where((var_s >= floor) & (var_f >= floor), ratio, 1.0)
+    return np.stack([cast, contrast, mean_s]).astype(np.float32)
+
+
+def _tone_follow(previous: np.ndarray, measured: np.ndarray | None) -> np.ndarray:
+    """The tone carried to the next frame: the EMA of the measured one
+    over the previous (:data:`_SKIN_TONE_INERTIA`); the measured one whole
+    when the previous is still the identity (nothing measured yet, so
+    nothing to fade from); the previous alone when nothing was measured."""
+    if measured is None:
+        return previous
+    if np.array_equal(previous[:2], _TONE_IDENTITY[:2]):
+        return measured.astype(np.float32)
+    followed: np.ndarray = previous * _SKIN_TONE_INERTIA + measured * (1.0 - _SKIN_TONE_INERTIA)
+    return followed.astype(np.float32)
+
+
+def _core_median(planes: np.ndarray, coverage: np.ndarray) -> float:
+    """The median lightness of the cells the mask covers whole (coverage
+    over 0.9) of a mask-weighted picture at the cell size -- the dark-cell
+    rule's own reference; 0.0 when fewer than 16 cells are covered whole."""
+    lightness = planes.mean(axis=2) / np.maximum(coverage, 1e-3)
+    core = coverage > 0.9
+    if int(core.sum()) < 16:
+        return 0.0
+    return float(np.median(lightness[core]))
+
+
+def _tone_weight(placed: np.ndarray, level: float) -> np.ndarray | None:
+    """How much of the tone each pixel of the render takes, by its own
+    lightness against ``level`` (the render's skin, :func:`_core_median`):
+    nothing under :data:`_TONE_DARK_LOW` of it, all of it from
+    :data:`_TONE_DARK_HIGH`, linear between; ``None`` (everywhere) when
+    the level is unknown."""
+    if level <= 0.0:
+        return None
+    lightness = placed.mean(axis=2) / level
+    weight: np.ndarray = np.clip(
+        (lightness - _TONE_DARK_LOW) / (_TONE_DARK_HIGH - _TONE_DARK_LOW), 0.0, 1.0
+    )
+    return weight.astype(np.float32)
+
+
+def _tone_on_skin(
+    placed: np.ndarray,
+    cast: np.ndarray,
+    contrast: np.ndarray,
+    mean: np.ndarray,
+    weight: np.ndarray | None,
+) -> np.ndarray:
+    """The render with the tone applied (see the section comment): the
+    cast multiplied into every pixel, the contrast about the room's skin
+    mean ``mean`` by ``weight`` (:func:`_tone_weight`; ``None`` is
+    everywhere)."""
+    casted = placed * cast
+    deepened = (contrast - 1.0) * (casted - mean)
+    if weight is not None:
+        deepened = deepened * weight[:, :, None]
+    toned: np.ndarray = (casted + deepened).astype(np.float32)
+    return toned
+
+
+def _as_numpy_tone(tone: Any) -> np.ndarray:
+    """The tone as a ``(2, 3)`` numpy array -- it is one already on the CPU
+    paste; the GPU paste keeps it on the device (a read waits for it)."""
+    if isinstance(tone, np.ndarray):
+        return tone
+    out: np.ndarray = tone.detach().float().cpu().numpy()
+    return out
+
+
+# The frame the tone is logged on: by then the EMA (0.9 a frame) has
+# taken all but a percent of the first measurement's distance.
+_TONE_LOG_FRAME = 60
+
+
+def _tone_applied(tone: np.ndarray, amount: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """``(cast, contrast, room skin mean)`` with ``amount`` (``skin_match``)
+    of ``tone``: the cast and the contrast pulled toward 1 by ``1 -
+    amount``; the mean as read."""
+    cast = 1.0 + (tone[0] - 1.0) * amount
+    contrast = 1.0 + (tone[1] - 1.0) * amount
+    return cast.astype(np.float32), contrast.astype(np.float32), tone[2].astype(np.float32)
+
+
 @functools.lru_cache(maxsize=1024)
 def _area_weights(n: int, m: int) -> np.ndarray:
     """OpenCV's ``INTER_AREA`` downscale from ``n`` to ``m`` samples as an
@@ -4012,6 +4347,7 @@ class _Portrait:
         "crop_points",
         "crop_shift_x",
         "descriptor",
+        "driver_reach",
         "ear_recent",
         "exp_d0",
         "exp_prev",
@@ -4022,6 +4358,7 @@ class _Portrait:
         "face_height_rest",
         "features",
         "forehead_reach",
+        "forehead_stretch",
         "gate",
         "gate_brow_prev",
         "gate_mouth_prev",
@@ -4084,11 +4421,16 @@ class _Portrait:
         "static_in",
         "static_out",
         "steep_clamp",
+        "stretch_row",
         "t_d0",
         "t_gain",
         "t_prev",
         "t_s",
         "thresholds",
+        "tone",
+        "tone_frames",
+        "tone_level",
+        "tone_logged",
         "vram_mb",
         "width_prev",
         "x_c_s",
@@ -4179,6 +4521,13 @@ class _Portrait:
         self.hairline_driver: float | None = _driver_hairline(self.options)
         self.hairline_last: float | None = None
         self.hairline_clearance: float = _hairline_clearance(self.options)
+        # Day 21: the driver oval's own reach once the forehead is settled
+        # (None: the portrait's, as before the settle), the render's stretch
+        # above ``stretch_row`` (a crop row; None: no stretch) -- see
+        # _forehead_plan.
+        self.driver_reach: float | None = None
+        self.forehead_stretch: float = 1.0
+        self.stretch_row: float | None = None
         # Day 17 (C1b): the avatar's hair. ``hair_on`` is the mode in force
         # (the ``hair`` option, or set_hair's word); ``hair_matte`` the EMA
         # of the rendered crop's hair alpha, (512, 512, 1) float32 like
@@ -4413,6 +4762,20 @@ class _Portrait:
         # A numpy field on the CPU paste; a device tensor on the GPU one
         # (2026-10-08, see _fit_field_gpu).
         self.correction: Any = None
+        # Day 21: the skin's tone in force -- the cast, the contrast and the
+        # room's skin mean, per channel in the frame's channel order, a
+        # (3, 3) array: numpy on the CPU paste, a device tensor on the GPU
+        # one; the identity until the first frame with enough skin on both
+        # sides, then an EMA (see _skin_tone). ``tone_logged``: the one log
+        # line, written once the EMA has settled.
+        self.tone: Any = _TONE_IDENTITY.copy()
+        # The render's skin level (its core median) from the last reading,
+        # for the contrast's weight on every frame -- a float on the CPU
+        # paste, a device scalar on the GPU one; 0.0 is "unknown"; and
+        # how many frames this paste has seen, for the readings' cadence.
+        self.tone_level: Any = 0.0
+        self.tone_frames: int = 0
+        self.tone_logged: bool = False
         # Day 8, 2026-09-06: whether the last rendered face is currently
         # being reused rather than redrawn, at a pose too steep for a
         # frontal portrait -- see _should_hold. Starts un-held; reset_anchor
@@ -5263,6 +5626,9 @@ class LivePortraitEngine:
             loaded.lip_rest_run = 0
             loaded.lip_rest_steps = 0
             loaded.hairline_samples = []
+            loaded.driver_reach = None
+            loaded.forehead_stretch = 1.0
+            loaded.stretch_row = None
             # Day 17: with the hair on the reach is the portrait's own
             # hairline plus the overlap, settled at load -- nothing to
             # measure again (see _enable_hair).
@@ -5416,6 +5782,15 @@ class LivePortraitEngine:
         gaze = loaded.rest_gaze
         readings["rest_gaze_x"] = math.nan if gaze is None else float(gaze[0])
         readings["rest_gaze_y"] = math.nan if gaze is None else float(gaze[1])
+        # Day 21: the skin's tone in force (the cast and the contrast, the
+        # mean over the channels); the forehead's plan once settled.
+        tone = _as_numpy_tone(loaded.tone)
+        readings["tone_cast"] = float(tone[0].mean())
+        readings["tone_contrast"] = float(tone[1].mean())
+        readings["forehead_stretch"] = float(loaded.forehead_stretch)
+        readings["driver_reach"] = (
+            math.nan if loaded.driver_reach is None else float(loaded.driver_reach)
+        )
         if loaded.exp_prev is not None and loaded.exp_d0 is not None:
             exp = loaded.exp_prev.detach().float().cpu().numpy().reshape(NUM_KP, 3)
             anchor = loaded.exp_d0.detach().float().cpu().numpy().reshape(NUM_KP, 3)
@@ -5427,11 +5802,16 @@ class LivePortraitEngine:
         return readings
 
     @staticmethod
-    def _settle_forehead(loaded: _Portrait) -> None:
+    def _settle_forehead(loaded: _Portrait, driver_crop_points: np.ndarray | None = None) -> None:
         """With ``mask_forehead_reach = "hairline"``, once the anchor is frozen
-        and enough frontal frames were read: the reach from the two
-        hairlines (:func:`_hairline_reach`), the portrait's mask and its box
-        rebuilt with it, and nothing measured again until a re-centre."""
+        and enough frontal frames were read: the forehead's plan from the
+        two hairlines (:func:`_forehead_plan`, day 21; before it
+        :func:`_hairline_reach`) -- the portrait's mask and its box rebuilt
+        at its reach, the driver oval's own reach and the render's stretch
+        kept on ``loaded`` -- and nothing measured again until a re-centre.
+        ``driver_crop_points`` are the driver's points in this frame's crop,
+        for their forehead's height against the portrait's; without them the
+        two are taken as equal."""
         if loaded.hairline_settled or loaded.crop_points is None:
             return
         # Day 17: the profile's word (Calibrate me) settles at once; else
@@ -5447,21 +5827,45 @@ class LivePortraitEngine:
                 float(np.median(found)) if len(found) * 2 >= len(loaded.hairline_samples) else None
             )
             source = f"{len(loaded.hairline_samples)} live frames"
-        LivePortraitEngine._apply_forehead_reach(
-            loaded,
-            _hairline_reach(loaded.hairline_portrait, driver, clearance=loaded.hairline_clearance),
+        brow_top, portrait_forehead = _forehead_geometry(loaded.crop_points)
+        driver_forehead = (
+            portrait_forehead
+            if driver_crop_points is None
+            else _forehead_geometry(driver_crop_points)[1]
+        )
+        portrait_reach, driver_reach, stretch = _forehead_plan(
+            loaded.hairline_portrait,
+            driver,
+            portrait_forehead,
+            driver_forehead,
+            clearance=loaded.hairline_clearance,
+            margin=_hair_root_margin(loaded.options),
+            stretch_max=_forehead_stretch_max(loaded.options),
+        )
+        LivePortraitEngine._apply_forehead_reach(loaded, portrait_reach)
+        loaded.driver_reach = driver_reach
+        loaded.forehead_stretch = stretch
+        loaded.stretch_row = (
+            float(brow_top[1]) - _STRETCH_ANCHOR * portrait_forehead if stretch > 1.0 else None
         )
         loaded.hairline_settled = True
         loaded.hairline_samples = []
         _LOG.info(
-            "Avatar %s: forehead reach settled at %.2f (portrait hairline %s, his %s from %s, "
-            "clearance %.2f)",
+            "Avatar %s: forehead settled -- the portrait's oval to %.2f of its forehead, "
+            "the driver's to %.2f of theirs, the render stretched x%.2f above the brows "
+            "(portrait hairline %s, theirs %s from %s, foreheads %.0f / %.0f crop px, "
+            "clearance %.2f, roots' margin %.2f)",
             loaded.descriptor.id,
             loaded.forehead_reach,
+            driver_reach,
+            stretch,
             "?" if loaded.hairline_portrait is None else f"{loaded.hairline_portrait:.2f}",
             "?" if driver is None else f"{driver:.2f}",
             source,
+            portrait_forehead,
+            driver_forehead,
             loaded.hairline_clearance,
+            _hair_root_margin(loaded.options),
         )
 
     @staticmethod
@@ -5740,7 +6144,7 @@ class LivePortraitEngine:
                     loaded.hairline_samples.append(reading)
             loaded.chin_drop = chin_drop
             if not loaded.hairline_settled and loaded.anchor_seen >= loaded.anchor_wanted:
-                self._settle_forehead(loaded)
+                self._settle_forehead(loaded, crop_points)
 
             # The driver's own oval, in the same crop the portrait's was built
             # in -- and, under an open mouth, the portrait's own let down to
@@ -5758,7 +6162,11 @@ class LivePortraitEngine:
                 # oval must not stop the paste at HIS hairline -- a band of
                 # his hair showed between the avatar's forehead and its hair
                 # -- so his oval reaches as high as the portrait's may.
-                driver_forehead_reach=_FOREHEAD_REACH_MAX if loaded.hair_on else None,
+                # Day 21: else the driver oval's own reach from the forehead's
+                # plan (None before the settle: the portrait's).
+                driver_forehead_reach=_FOREHEAD_REACH_MAX
+                if loaded.hair_on
+                else loaded.driver_reach,
             )
             masked = now()
 
@@ -5782,6 +6190,21 @@ class LivePortraitEngine:
         self._paste_marks = (0.0, 0.0, 0.0)
         output = self._paste(scene, face, to_frame, loaded, mask, extra=extra)
         self.last_timings["paste_ms"] = (now() - pasted) * 1000.0
+        if not loaded.tone_logged and tracking.metadata.frame_id >= _TONE_LOG_FRAME:
+            # Day 21: once, after the EMA has settled -- one read of the
+            # six numbers (a wait for the GPU on this frame alone).
+            loaded.tone_logged = True
+            if _skin_match(loaded.options) > 0.0:
+                tone = _as_numpy_tone(loaded.tone)
+                _LOG.info(
+                    "Avatar %s: skin tone matched -- cast %s, contrast %s, the room's skin %s "
+                    "(skin_match %.2f)",
+                    avatar_id,
+                    np.round(tone[0], 3).tolist(),
+                    np.round(tone[1], 3).tolist(),
+                    np.round(tone[2], 0).tolist(),
+                    _skin_match(loaded.options),
+                )
         self.last_timings["wait_ms"] = self._paste_wait_ms
         self.last_timings["upload_ms"] = self._upload_ms
         pre, fit, post = self._paste_marks
@@ -6615,9 +7038,7 @@ class LivePortraitEngine:
             extra_patch = extra[by0:by1, bx0:bx1, 0]
             mask_patch = mask_patch + (extra_patch if keep is None else extra_patch * keep)
 
-        placed = cv2.warpAffine(face_patch, shifted, size, flags=cv2.INTER_LINEAR).astype(
-            np.float32
-        )
+        placed = self._warp_face(face_patch, shifted, size, loaded, by0)
         mask = cv2.warpAffine(mask_patch, shifted, size, flags=cv2.INTER_LINEAR)[:, :, None]
 
         region = output[y0:y1, x0:x1].astype(np.float32)
@@ -6632,6 +7053,39 @@ class LivePortraitEngine:
             )
             alpha3 = cv2.merge((blend, blend, blend))
         features = None if loaded.features is None else loaded.features - (x0, y0)
+        # Day 21: the render's skin given the room's tone before the plane
+        # (see _skin_tone); at skin_match 0 nothing here runs and the
+        # paste is the one before this day, to the byte.
+        amount = _skin_match(loaded.options)
+        if amount > 0.0:
+            measure = loaded.tone_frames % _SKIN_TONE_EVERY == 0 and not loaded.holding
+            loaded.tone_frames += 1
+            if measure:
+                small = (
+                    max(size[0] // _CORRECTION_DOWNSCALE, 8),
+                    max(size[1] // _CORRECTION_DOWNSCALE, 8),
+                )
+                face_small = cv2.resize(
+                    cv2.multiply(placed, fit3), small, interpolation=cv2.INTER_AREA
+                )
+                scene_small = cv2.resize(
+                    cv2.multiply(region, fit3), small, interpolation=cv2.INTER_AREA
+                )
+                coverage = cv2.resize(mask[:, :, 0], small, interpolation=cv2.INTER_AREA)
+                zone = None
+                if features is not None:
+                    cells = features / (size[0] / small[0], size[1] / small[1])
+                    zone = _feature_exclusion(cells.astype(np.float32), coverage.shape)
+                skin = _skin_cells(face_small, scene_small, coverage, zone)
+                loaded.tone = _tone_follow(
+                    _as_numpy_tone(loaded.tone), _skin_tone(face_small, scene_small, coverage, skin)
+                )
+                loaded.tone_level = _core_median(face_small, coverage)
+            cast, contrast, mean = _tone_applied(_as_numpy_tone(loaded.tone), amount)
+            level = loaded.tone_level
+            if not isinstance(level, float):
+                level = float(level)
+            placed = _tone_on_skin(placed, cast, contrast, mean, _tone_weight(placed, level))
         correction = _face_colour_correction(loaded, placed, region, mask, fit3, features)
 
         # Day 11 (fps): one fused blend. region + alpha * (face + correction
@@ -6647,6 +7101,47 @@ class LivePortraitEngine:
             delta = cv2.add(delta, correction)
         output[y0:y1, x0:x1] = cv2.add(region, cv2.multiply(delta, alpha3), dtype=cv2.CV_8U)
         return output
+
+    @staticmethod
+    def _warp_face(
+        face_patch: np.ndarray,
+        shifted: np.ndarray,
+        size: tuple[int, int],
+        loaded: _Portrait,
+        patch_top: int,
+    ) -> np.ndarray:
+        """The face patch warped into the paste box, float32: ``warpAffine``
+        as ever -- or, with the forehead stretched (day 21,
+        ``loaded.forehead_stretch`` over 1 and a ``stretch_row``), a remap
+        by the same affine's inverse with the rows above the anchor row
+        sampled closer to it, so the render above it is drawn
+        ``forehead_stretch`` times taller; nothing below the row moves.
+        ``patch_top`` is the patch's first crop row (the anchor row is a
+        crop row)."""
+        import cv2
+
+        stretch = loaded.forehead_stretch
+        row = loaded.stretch_row
+        if stretch <= 1.0 or row is None:
+            warped: np.ndarray = cv2.warpAffine(
+                face_patch, shifted, size, flags=cv2.INTER_LINEAR
+            ).astype(np.float32)
+            return warped
+        inverse = cv2.invertAffineTransform(shifted.astype(np.float64))
+        xs, ys = np.meshgrid(
+            np.arange(size[0], dtype=np.float32), np.arange(size[1], dtype=np.float32)
+        )
+        source_x = (inverse[0, 0] * xs + inverse[0, 1] * ys + inverse[0, 2]).astype(np.float32)
+        source_y = (inverse[1, 0] * xs + inverse[1, 1] * ys + inverse[1, 2]).astype(np.float32)
+        anchor = float(row - patch_top)
+        above = source_y < anchor
+        source_y = np.where(above, anchor - (anchor - source_y) / stretch, source_y).astype(
+            np.float32
+        )
+        remapped: np.ndarray = cv2.remap(
+            face_patch, source_x, source_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT
+        ).astype(np.float32)
+        return remapped
 
     def _paste_gpu(
         self,
@@ -6758,6 +7253,11 @@ class LivePortraitEngine:
             + float(inverse[1, 1]) * ys[:, None]
             + float(inverse[1, 2])
         )
+        if loaded.forehead_stretch > 1.0 and loaded.stretch_row is not None:
+            # Day 21: the rows above the anchor row sampled closer to it
+            # (see _warp_face) -- the forehead drawn taller.
+            anchor = float(loaded.stretch_row - by0)
+            sy = torch.where(sy < anchor, anchor - (anchor - sy) / loaded.forehead_stretch, sy)
         grid = torch.stack(
             [sx * (2.0 / max(pw - 1, 1)) - 1.0, sy * (2.0 / max(ph - 1, 1)) - 1.0], dim=-1
         )[None]
@@ -6773,6 +7273,15 @@ class LivePortraitEngine:
 
         region = self._upload("region", output[y0:y1, x0:x1], device).permute(2, 0, 1).float()
         enqueued = now()
+        # Day 21: the skin's tone, on the device (see _skin_tone_gpu) --
+        # read one frame in _SKIN_TONE_EVERY, applied on every one.
+        amount = _skin_match(loaded.options)
+        if amount > 0.0:
+            measure = loaded.tone_frames % _SKIN_TONE_EVERY == 0 and not loaded.holding
+            loaded.tone_frames += 1
+            placed = self._skin_tone_gpu(
+                loaded, placed, region, alpha, alpha_np, amount, x0, y0, w, h, measure=measure
+            )
         correction = self._colour_correction_gpu(
             loaded, placed, region, alpha, alpha_np, x0, y0, w, h
         )
@@ -6899,20 +7408,7 @@ class LivePortraitEngine:
         scene = shrunk[3:6]
         sh, sw = coverage.shape
 
-        # _dark_cells_small, with numpy's median of the core cells: the two
-        # middle values of the sorted core, averaged.
-        lightness = scene.mean(dim=0) / coverage.clamp_min(1e-3)
-        core = coverage > 0.9
-        count = core.sum()
-        ordered = torch.where(core, lightness, torch.full_like(lightness, math.inf))
-        ordered = ordered.flatten().sort().values
-        # Gathered by device-side indices: a plain ``tensor[index_tensor]``
-        # would read the index back to the host and wait for the GPU.
-        middle = torch.stack([torch.clamp(count - 1, min=0) // 2, count // 2])
-        lower, upper = ordered.index_select(0, middle)
-        median = (lower + upper) * 0.5
-        dark = ((lightness < _EDGE_DARK_RATIO * median) & (coverage > 0.05)).float()
-        dark = torch.where(count >= 16, dark, torch.zeros_like(dark))
+        dark = self._dark_cells_gpu(scene, coverage)
         keep = 1.0 - dark
 
         # _fit_lighting_plane: the sums, and the 3x3 solve in closed form
@@ -6992,6 +7488,141 @@ class LivePortraitEngine:
             field = previous * _CORRECTION_INERTIA + field * (1.0 - _CORRECTION_INERTIA)
         loaded.correction = field
         return field
+
+    def _tone_identity(self, device: Any) -> Any:
+        """:data:`_TONE_IDENTITY` on ``device``, kept."""
+        key = ("tone_identity", str(device))
+        identity = self._area_cache.get(key)
+        if identity is None:
+            identity = self._upload("tone_identity", _TONE_IDENTITY, device)
+            self._area_cache[key] = identity
+        return identity
+
+    def _dark_cells_gpu(self, scene: Any, coverage: Any) -> Any:
+        """:func:`_dark_cells_small` on the device (see :meth:`_core_median_gpu`
+        for the median)."""
+        return self._dark_cells_and_level_gpu(scene, coverage)[0]
+
+    def _dark_cells_and_level_gpu(self, scene: Any, coverage: Any) -> tuple[Any, Any]:
+        """:func:`_dark_cells_small` and :func:`_core_median` on the device,
+        nothing of it waiting: the median of the core cells is numpy's --
+        the two middle values of the sorted core, averaged -- gathered by
+        device-side indices (a plain ``tensor[index_tensor]`` would read
+        the index back to the host and wait for the GPU). The level is 0
+        under 16 core cells, as the CPU's."""
+        torch = self._torch
+        lightness = scene.mean(dim=0) / coverage.clamp_min(1e-3)
+        core = coverage > 0.9
+        count = core.sum()
+        ordered = torch.where(core, lightness, torch.full_like(lightness, math.inf))
+        ordered = ordered.flatten().sort().values
+        middle = torch.stack([torch.clamp(count - 1, min=0) // 2, count // 2])
+        lower, upper = ordered.index_select(0, middle)
+        median = (lower + upper) * 0.5
+        dark = ((lightness < _EDGE_DARK_RATIO * median) & (coverage > 0.05)).float()
+        dark = torch.where(count >= 16, dark, torch.zeros_like(dark))
+        level = torch.where(count >= 16, median, torch.zeros_like(median))
+        return dark, level
+
+    def _skin_tone_gpu(
+        self,
+        loaded: _Portrait,
+        placed: Any,
+        region: Any,
+        alpha: Any,
+        alpha_np: np.ndarray,
+        amount: float,
+        x0: int,
+        y0: int,
+        w: int,
+        h: int,
+        measure: bool = True,
+    ) -> Any:
+        """:func:`_skin_cells`, :func:`_skin_tone`, :func:`_tone_follow` and
+        :func:`_tone_applied` for the GPU paste (day 21): with ``measure``,
+        the mask-weighted render and room shrunk to the correction's cells
+        with the same area weights the correction uses, the skin cells and
+        the nine numbers as tensor sums, the EMA state and the render's
+        skin level kept on the device -- nothing of it waiting for the GPU;
+        the "too few cells" rule a device-side ``where`` (the previous tone
+        stays). Without it, the tone in force applied alone. Returns the
+        render with the tone applied."""
+        import cv2
+
+        torch = self._torch
+        device = alpha.device
+        previous = loaded.tone
+        if isinstance(previous, np.ndarray):
+            previous = self._upload("tone", previous, device)
+        level = loaded.tone_level
+        if isinstance(level, float):
+            level = torch.tensor(level, device=device)  # once: "unknown", before a reading
+        if measure:
+            small = (max(w // _CORRECTION_DOWNSCALE, 8), max(h // _CORRECTION_DOWNSCALE, 8))
+            sw, sh = small
+            coverage = self._upload(
+                "tone_coverage", cv2.resize(alpha_np, small, interpolation=cv2.INTER_AREA), device
+            )
+            zone = None
+            if loaded.features is not None:
+                cells = (loaded.features - (x0, y0)) / (w / sw, h / sh)
+                zone = self._upload(
+                    "tone_zone", _feature_exclusion(cells.astype(np.float32), (sh, sw)), device
+                )
+            rows = self._area_matrix("area_rows", h, sh, device)
+            columns = self._area_matrix("area_columns", w, sw, device)
+            stacked = torch.cat([placed * alpha, region * alpha], dim=0)
+            shrunk = torch.matmul(torch.matmul(rows, stacked), columns.T)
+            face_s = shrunk[:3]
+            scene_s = shrunk[3:6]
+            skin = (coverage > 0.9).float()
+            skin = skin * (1.0 - self._dark_cells_gpu(scene_s, coverage))
+            dark_face, level = self._dark_cells_and_level_gpu(face_s, coverage)
+            skin = skin * (1.0 - dark_face)
+            if zone is not None:
+                skin = skin * (1.0 - zone)
+            count = skin.sum()
+            safe = count.clamp_min(1.0)
+            weight = coverage.clamp_min(1e-3)
+            x = scene_s / weight
+            y = face_s / weight
+            mean_s = (x * skin).sum(dim=(1, 2)) / safe
+            mean_f = (y * skin).sum(dim=(1, 2)) / safe
+            var_s = (((x - mean_s[:, None, None]) ** 2) * skin).sum(dim=(1, 2)) / safe
+            var_f = (((y - mean_f[:, None, None]) ** 2) * skin).sum(dim=(1, 2)) / safe
+            cast = (mean_s / mean_f.clamp_min(1.0)).clamp(_SKIN_GAIN_MIN, _SKIN_GAIN_MAX)
+            ratio = (var_s.sqrt() / (cast * var_f.clamp_min(1e-6).sqrt())).clamp(
+                _SKIN_GAIN_MIN, _SKIN_GAIN_MAX
+            )
+            floor = _SKIN_SPREAD_MIN**2
+            contrast = torch.where(
+                (var_s >= floor) & (var_f >= floor), ratio, torch.ones_like(ratio)
+            )
+            measured = torch.stack([cast, contrast, mean_s])
+            # _tone_follow: whole on the first measurement (the previous
+            # still the identity), the EMA from then -- the inertia itself
+            # a device-side choice, so nothing here waits.
+            identity = self._tone_identity(device)
+            started = (previous[:2] != identity[:2]).any()
+            inertia = torch.where(started, _SKIN_TONE_INERTIA, 0.0)
+            followed = previous * inertia + measured * (1.0 - inertia)
+            previous = torch.where(count >= _SKIN_CELLS_MIN, followed, previous)
+            loaded.tone = previous
+            loaded.tone_level = level
+        cast_applied = 1.0 + (previous[0] - 1.0) * amount
+        contrast_applied = 1.0 + (previous[1] - 1.0) * amount
+        mean = previous[2]
+        # _tone_on_skin: the cast into every pixel, the contrast about the
+        # room's skin mean by each pixel's lightness against the render's
+        # skin (_tone_weight); an unknown level (0) is everywhere, as on
+        # the CPU.
+        casted = placed * cast_applied[:, None, None]
+        deepened = (contrast_applied - 1.0)[:, None, None] * (casted - mean[:, None, None])
+        lightness = placed.mean(dim=0) / level.clamp_min(1e-3)
+        weight = ((lightness - _TONE_DARK_LOW) / (_TONE_DARK_HIGH - _TONE_DARK_LOW)).clamp(0.0, 1.0)
+        weight = torch.where(level > 0.0, weight, torch.ones_like(weight))
+        placed = casted + deepened * weight[None]
+        return placed
 
     def _blur(self, planes: Any, size: int) -> Any:
         """``cv2.GaussianBlur(planes, (size, size), 0)`` on the GPU, for

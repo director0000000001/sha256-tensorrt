@@ -201,7 +201,11 @@ of latency, and the frame rate becomes the slower half instead of the sum.
 build. On the render thread the neural engine keeps the face on the GPU from
 the graph to the paste and waits for the GPU once per frame, at the last
 download; the mask, the hairline read and the paste's preparation run on the
-CPU while the GPU draws. Measured in `docs/development/ROADMAP.md`, "The fast
+CPU while the GPU draws. The paste itself (2026-10-14): the render's skin is
+given the room's tone (a gain and an offset per channel, read off the cells
+that are skin on both sides), the lighting plane and the edge residual relight
+it, and above the brows it is drawn taller to meet the person's own hairline
+-- all of it on the GPU, the drive untouched. Measured in `docs/development/ROADMAP.md`, "The fast
 version": 18.8 to 29.4 fps on the owner's machine under a 30 fps camera.
 `process_once()` is still the single call, the two halves one after the other,
 for tests, probes and replays.

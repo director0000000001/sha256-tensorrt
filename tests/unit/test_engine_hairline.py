@@ -12,6 +12,7 @@ import pytest
 from sha256.avatar.engine_liveportrait import (
     _FOREHEAD_REACH_MAX,
     _FOREHEAD_REACH_MIN,
+    _HAIR_ROOT_MARGIN,
     _HAIRLINE_CEILING,
     _HAIRLINE_CLEARANCE,
     _HAIRLINE_MIN_SAMPLES,
@@ -152,7 +153,13 @@ class TestSettleAtTheAnchor:
         engine._settle_forehead(loaded)
 
         assert loaded.hairline_settled
-        assert loaded.forehead_reach == pytest.approx(0.72 - _HAIRLINE_CLEARANCE, abs=0.01)
+        # Day 21 (_forehead_plan): the driver's oval to their hairline less
+        # the clearance; the portrait's to its own clean skin -- its
+        # hairline less the roots' margin -- with no stretch, since the
+        # driver's hairline is the lower.
+        assert loaded.driver_reach == pytest.approx(0.72 - _HAIRLINE_CLEARANCE, abs=0.01)
+        assert loaded.forehead_reach == pytest.approx(1.5 - _HAIR_ROOT_MARGIN, abs=0.01)
+        assert loaded.forehead_stretch == 1.0 and loaded.stretch_row is None
         assert not np.array_equal(before, loaded.mask)
         assert loaded.mask_bbox is not None and loaded.hairline_samples == []
 
@@ -173,7 +180,8 @@ class TestSettleAtTheAnchor:
         engine._settle_forehead(loaded)
 
         assert loaded.hairline_settled
-        assert loaded.forehead_reach == pytest.approx(1.2 - 0.1)
+        assert loaded.driver_reach == pytest.approx(1.2 - 0.1)
+        assert loaded.forehead_reach == pytest.approx(1.5 - _HAIR_ROOT_MARGIN)
         plain = _Portrait(descriptor(tmp_path))
         assert plain.hairline_driver is None and plain.hairline_clearance == _HAIRLINE_CLEARANCE
         with_profile = descriptor(tmp_path)

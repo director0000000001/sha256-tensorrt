@@ -65,6 +65,11 @@ def green_pixels(pixels: np.ndarray) -> int:
     return int((((green - red) > 25) & ((green - blue) > 25)).sum())
 
 
+def amber_pixels(pixels: np.ndarray) -> int:
+    red, green, blue = (pixels[:, :, i].astype(np.int16) for i in range(3))
+    return int((((red - blue) > 120) & ((green - blue) > 80)).sum())
+
+
 def make_frame(colour: tuple[int, int, int], size: tuple[int, int] = (48, 64)) -> np.ndarray:
     data = np.zeros((*size, 3), dtype=np.uint8)
     data[:, :] = colour
@@ -218,3 +223,49 @@ class TestMirrorOverride:
         image = preview._pixmap.toImage()
         assert image.pixelColor(0, 4).red() == 255  # stays on the left
         assert image.pixelColor(15, 4).red() == 0
+
+
+class TestHeadGuide:
+    """Day 21: the head guide's oval and line drawn over the frame, in the
+    fit's colour -- green with the head placed, amber until."""
+
+    def test_a_good_fit_draws_green_and_a_poor_one_amber(self, preview):
+        from sha256.ui.head_guide import GuideFit, GuideState, HeadGuide
+
+        preview.set_show_landmarks(False)
+        frame = make_frame((40, 40, 40), size=(180, 320))
+        guide = HeadGuide()
+
+        preview.show_frame(frame, PixelFormat.RGB24)
+        plain = render(preview)
+        assert green_pixels(plain) == 0 and amber_pixels(plain) == 0
+
+        preview.show_frame(
+            frame, PixelFormat.RGB24, guide=(guide, GuideFit(GuideState.GOOD, "Good. Hold still."))
+        )
+        good = render(preview)
+        assert green_pixels(good) > 200 and amber_pixels(good) == 0
+
+        preview.show_frame(
+            frame, PixelFormat.RGB24, guide=(guide, GuideFit(GuideState.CLOSER, "Come closer"))
+        )
+        waiting = render(preview)
+        assert amber_pixels(waiting) > 200 and green_pixels(waiting) == 0
+
+    def test_the_oval_sits_where_the_guide_says(self, preview):
+        """The oval's centre and size are fractions of the frame's height:
+        on a 320x180 frame, centred at (160, 83), 79 wide and 112 tall."""
+        from sha256.ui.head_guide import GuideFit, GuideState, HeadGuide
+
+        preview.set_show_landmarks(False)
+        frame = make_frame((40, 40, 40), size=(180, 320))
+        preview.show_frame(
+            frame, PixelFormat.RGB24, guide=(HeadGuide(), GuideFit(GuideState.GOOD, "x"))
+        )
+        pixels = render(preview)
+        red, green, blue = (pixels[:, :, i].astype(np.int16) for i in range(3))
+        oval = ((green - red) > 25) & ((green - blue) > 25)
+        rows = np.where(oval.any(axis=1))[0]
+        cols = np.where(oval.any(axis=0))[0]
+        assert abs(rows.min() - (83 - 56)) <= 4 and abs(cols.min() - (160 - 40)) <= 4
+        assert abs(cols.max() - (160 + 40)) <= 4

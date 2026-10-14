@@ -6475,6 +6475,124 @@ His decisions: the expiry lengths (14 / 30 days); whether the last
 build is unlocked at all; the host; whether step 2 is worth its two days
 against the sum at stake. Nothing here is built until his word.
 
+### Option (b) in plain words, and the host (2026-10-09, still a plan, nothing built)
+
+He asked whether the application could be "deployed" so that a server
+switches it off directly. Two readings were put to him: (a) the whole
+application runs on a rented GPU server and the client gets only the
+video -- safest, but a GPU server per client every month, the network's
+delay inside every call, weeks of work and a paid account in a name;
+(b) the application stays on the client's PC and asks a host for
+permission -- step 1 above. He chose to have (b) explained; this is the
+explanation he asked for, written for a fifteen-year-old.
+
+One refinement proposed on top of step 1, **his decision, not yet
+taken**: tell two cases apart. *No answer* from the host (bad internet)
+keeps the hour's grace, so a call is never cut by a flaky line. *A signed
+"off"* from the host stops the application within five minutes, even in
+the middle of a call. Step 1 as first written only refuses the next
+Start.
+
+**The process, step by step (the text he can hand on):**
+
+*The idea in one sentence.* The app runs on the client's computer, but
+before it starts it reads a small note on our website that says "you may
+run" or "you may not run". We control the note, so we control the app.
+
+*Part 1 -- one-time setup, done once by us.*
+
+1. We make two keys, born together as a pair. The **private key** is
+   like a stamp: only we have it, kept in two safe places, and only it
+   can sign the note. The **public key** is like a picture of the stamp:
+   it is built into every copy of the app, which uses it to check that
+   the note was really stamped by us. It cannot stamp anything, so it is
+   not secret.
+2. We choose a **host**: a place on the internet where the note lives.
+   Because the note is stamped, nobody can fake it, even if they get
+   into the host.
+
+*Part 2 -- making a copy for a client.*
+
+1. We give the copy a neutral name, for example `copy-03`.
+2. We build the app. Inside it we lock in its name, the address of the
+   note, the public key and an end date (for example 30 days).
+3. We add one line to the note: `copy-03: allowed until <date>`.
+4. We stamp the note with the private key and upload it.
+5. We send the client the app and the usage rules.
+
+*Part 3 -- what happens on the client's computer.*
+
+1. **Start:** the app downloads the note, checks the stamp, finds its own
+   name and checks the date. All three fine -- it starts. Otherwise it
+   shows "Could not confirm the licence. Check the internet."
+2. **While running:** every five minutes it checks the note again,
+   quietly. The face, the speed and the quality do not change.
+3. **If the internet drops:** the call keeps going; one hour of grace.
+   After that the app does not start again until it can reach the note.
+
+*Part 4 -- what we can do from our side.*
+
+- **Extend:** change the date in the note, stamp, upload. No new app
+  needed, until the end date built into the app.
+- **Switch one client off:** write `off` next to their name, stamp,
+  upload. Their app stops (at the next Start, or within five minutes if
+  the refinement above is taken). Everyone else keeps working.
+- **Find a leaked copy:** every copy carries its own name, so we know
+  whose copy it is and switch off only that one.
+- **An end date in every version:** even if the note says "allowed",
+  each version stops on its own end date; a new version comes from us.
+
+*Part 5 -- if someone tries to cheat.*
+
+- They turn the internet off: the app does not start.
+- They write their own note saying "allowed": the stamp does not match,
+  the app does not start.
+- They change the app itself: the only way around it, which is why the
+  app is also scrambled (step 2, PyArmor or Nuitka) -- days or weeks of
+  expert work instead of an afternoon.
+
+*What can go wrong for us.*
+
+- The host is down: calls continue for an hour, new Starts wait until
+  the host is back -- so the host must be a reliable one.
+- We lose the private key: no new note can be stamped, and every copy
+  stops at its end date. That is why it is kept in two places.
+
+**The host -- what it is and how it is made.** A host is only a place on
+the internet from which one file is read by its link; no server is
+bought or rented, and one file is free to keep. Recommended: **GitHub
+Pages on the anonymous account he already uses** (no new sign-up, no new
+trace), about ten minutes:
+
+1. On GitHub, a new repository, for example `licence`. It must be
+   **public** -- Pages from a private repository is not free -- which is
+   harmless: it holds only the signed note, never code.
+2. Upload the note to it.
+3. Settings -> Pages -> the `main` branch -> Save.
+4. The note appears at `https://<account>.github.io/licence/licence.json`;
+   that address is what goes into the executable.
+
+Cloudflare Pages or Netlify work the same way and are free too. One rule
+follows from the note being public: **copies get neutral names**
+(`c7f2`, `copy-03`), never a client's real name; who is which stays in
+his own notes only.
+
+**Where the client downloads it, and who adds avatars (answered and
+built 2026-10-09).** The 3.8 GB zip goes on a cloud link on the anonymous
+account (Google Drive or Cloudflare R2; GitHub Releases refuses a file
+over 2 GB) or a USB stick; with the lock built, a leaked link runs
+nothing. A thought for his decision on the expiry: a 30-day expiry *in
+the build* means a 3.8 GB download every month -- a longer build expiry
+(six months, say) with the monthly control in the note's date costs
+nobody a download. **Avatars are the clients' own now, on his word:**
+Menu -> Login and the passphrase are gone; Add avatar and Delete avatar
+are in the Menu for everyone. An avatar is a folder under `avatars/` next
+to `sha256.exe`, on the client's computer only. The cost, said to him: a
+client can also delete the avatars shipped with the package, and a poor
+photograph gives a poorer avatar (the importer's checks and the photo
+guide catch what can be measured; the rest comes back to him as a
+message).
+
 ## The fast version: the same face in fewer milliseconds (planned and built 2026-10-08; his live look pending)
 
 His ask (2026-10-08): "write the plan for what the maximally optimised
@@ -6886,6 +7004,186 @@ frame or two -- the stages are C++ and CUDA either way, and the exe is
 PyInstaller's bytecode of the same interpreter); step 5 on a 4060 Ti /
 5060 Ti-class machine. The stills under `recordings/budget/` were his face
 and are deleted; the JSONs (hashes and timings) stay, gitignored.
+
+## Day 21 (2026-10-14): the friend test's two faults -- the skin's tone, the forehead to the person's own hairline, the head guide
+
+**His report (2026-10-14).** The fast package ran at 27-30 fps on the
+friend's RTX 4070. On his own face everything sat well. On the two
+friends, uncalibrated -- one bald, one with the hair pulled back -- a
+stripe on the forehead: the skin colour differed from the avatar's, and
+the forehead's size was not fitted, theirs being taller. His ask:
+auto-calibration in both versions from now on, no difference between the
+avatar's skin and the person's. His decisions on the plan: the avatar's
+hair is out ("frozen, easily noticed"); the forehead may be stretched
+only moderately, "a medium height"; the forehead should end slightly
+below where the person's hair starts; and during calibration a green
+outline where the head goes, so nobody sits too far or too close -- "a
+simple process for everyone". Then: "start, in order".
+
+**What was true, read off the code and measured first.** The forehead
+reach took the LOWER of the two hairlines less a clearance of 0.04, so
+with the person's hair higher than the portrait's it was always the
+portrait's own hairline: the join sat on the avatar's hair roots, in the
+middle of their bare forehead, their own skin above. The roots are a
+band of darkening skin -- on his portrait the luminance leaves the
+forehead's by 5% at 1.40 of the forehead, 10% at 1.44, 30% (the reader's
+word for hair) at 1.52; on the woman's 10% at 1.90, 30% at 2.06 (the
+reader's own columns, `scratch`). That is the stripe. And the colour
+match was the room's light alone: a plane (a brightness and a gradient
+per channel) over the whole face, the residual at the join faded over a
+fifth of the box -- a face paler or pinker than the portrait's kept the
+avatar's own tone in its middle. The baseline on the woman's capture of
+2026-09-12 20:07 (`jaw_band --capture --render`, the top fifth of the
+mask's rows, grey levels): forehead abs 2.70, step +1.50; on his of
+2026-09-11 10:57: 7.51 / +4.42. No recording of the two friends exists
+yet; the woman's captures (her forehead 84 px against his 47-60) stand
+in for the taller forehead.
+
+### Built 1: the skin's tone (`skin_match`)
+
+Before the plane, the render's skin is given the person's: on the cells
+of the correction's grid that are skin on BOTH sides (the mask's core;
+not the scene's dark cells, not the render's -- its brows, eyes,
+nostrils -- not his feature zone) the mean and the spread of each
+channel are read for the room and the render, and the render gets, per
+channel, a CAST `mean_room / mean_render` and a CONTRAST about the
+room's skin mean `spread_room / (cast * spread_render)` (both within
+0.7..1.4; the contrast 1 when either spread is under 2 levels). The
+plane then fits the light's gradient on its own cells as before; the
+residual as before. The reading is one frame in four (2 ms of the render
+thread's CPU, measured; the apply 0.2 ms a frame), an EMA of 0.66 a
+reading carries the nine numbers (the cast, the contrast, the room's
+skin mean), the first reading taken whole, nothing read while the face
+is held. On the GPU paste it is tensor sums and a device-side `where`
+(the "too few cells" rule, the first-reading rule), nothing waiting; the
+CPU paste the same in numpy. **Proven:** at `skin_match 0` nothing of it
+runs and the frame is the untouched tree's to the byte -- 601/601 on his
+clip (`frame_budget --deterministic --compare`,
+`recordings/budget/tone-base` against `tone-off`).
+
+**Where it is applied took five tries, each on her capture.** (1) A gain
+and an additive offset per channel, on every pixel: her skin matched,
+and the avatar's brown irises turned blue-grey -- the channels' offsets
+differ, and what is a tone on skin is a hue on an iris. (2) Weighted by
+his feature zone (grown and softened): the tone was left off exactly the
+cells it had been read from, so the plane put it back, everywhere. (3)
+The whole tone spared on the dark pixels (each pixel's lightness against
+the render's skin median): the irises brown again, but the avatar's
+stubble left pale over hers (the jaw band's step +5.8 -> +11.1) and the
+brows pale. (4) The offset's luminance everywhere, its chroma by
+lightness: the irises and the stubble right, and her avatar's beard
+ORANGE -- her warmer skin's chroma, added whole to the beard's mid-lit
+hairs. (5) **Kept:** the room's white balance -- the cast MULTIPLIED into
+every pixel, which moves a dark pixel by little and a skin pixel by the
+whole of it, the physics of a colour cast -- and the contrast by each
+pixel's lightness (nothing under 0.7 of the skin's, all of it from 0.9:
+a brown brow's lit hairs read 0.5-0.7 and took her flat-lit face's
+contrast under 1 as a fading). The irises, the brows, the beard keep
+their look; the skin takes the room's tone.
+
+### Built 2: the forehead to the person's own hairline (`_forehead_plan`)
+
+At the settle (the anchor, or the profile's `driver_hairline`), with the
+driver's own forehead height in the crop against the portrait's: the
+driver's oval goes to their hairline less `hairline_clearance`; the
+avatar's clean skin is its hairline less `hair_root_margin` (0.15 of its
+forehead, the measured shadow); the render's rows above 0.3 of a
+forehead over the brow line -- past any brow raise, so the brows are
+never stretched -- are stretched by what it takes for the clean skin to
+reach the join, within [1, `forehead_stretch_max`], 1.25 by default
+("medium"); the portrait's oval goes to the stretched clean skin's top,
+the paste to the lower of the two ovals as ever. A person whose hairline
+cannot be read (bald, or hair past the walk) gets the whole moderate
+stretch and no bound from their side. The stretch is the paste's alone:
+`_warp_face` remaps the render with the rows above the anchor row
+sampled closer to it (the CPU), the grid does the same on the GPU;
+nothing below the row moves, the drive is untouched (the avatar's mouth,
+eyes and brows read the same on both captures' replays, within the
+output tracker's noise). On his face: hairline 1.6, the portrait's 1.52
+-- the join just under his hair, the upper forehead stretched 1.13. On
+the woman's: the cap, the join at 1.31 of her forehead on the avatar's
+clean skin, her own skin above it, matched.
+
+**The clearance under the person's hairline, swept** (the same band):
+
+| `hairline_clearance` | the woman's 200754 | his 105750 |
+|---|---|---|
+| untouched build (the old rule) | 2.70 / +1.50 | 7.51 / +4.42 |
+| 0.04 (the old default) | 4.08 / +3.13 | 8.89 / +6.24 |
+| 0.08 | 3.50 / +2.55 | 8.42 / +5.52 |
+| **0.12 (the default now)** | 2.99 / +1.99 | 7.48 / +4.57 |
+
+At 0.04 the avatar's clean skin lay over the person's own roots; 0.12
+of a forehead is six to ten pixels, still "slightly below where the hair
+starts". His eye may put it back (a portrait option).
+
+The settled build's bands (the cast tone, the clearance 0.12): the
+woman's forehead 2.99 / +1.98, her jaw 10.29 / +8.73 (the untouched
+build 2.70 / +1.50 and 9.88 / +5.77); his forehead 7.47 / +4.41, his jaw
+20.32 / +12.99 (7.51 / +4.42 and 21.70 / +13.17). The band reads the ten
+pixels inside the mask's edge; what the tone changes is the face's
+inside, which the zooms show and the band cannot.
+
+### Built 3: the head guide in Calibrate me (`sha256.ui.head_guide`)
+
+Where the head should be, read off the four good sessions of 2026-09-12:
+
+| session | face (of the frame's height) | centre |
+|---|---|---|
+| his (004157) | 0.547 | 0.50 x 0.51 |
+| the friend's two (185642, 190114) | 0.472, 0.474 | 0.51 x 0.43, 0.49 x 0.42 |
+| the woman's (194044) | 0.435 | 0.57 x 0.42 |
+
+So the target is a mesh 0.48 of the frame's height (0.80..1.25 of it
+allowed: farther is "Come closer", nearer "Move back"), centred within
+0.12 of (0.50, 0.46) ("Put your head in the oval"), frontal within 15
+degrees of yaw and 20 of pitch ("Face the camera"); the oval drawn is a
+head, 0.62 by 0.44 of the frame's height. The preview draws it over
+either view in the fit's colour -- amber with the one line of what to
+fix, green with "Good. Hold still." -- and the window's placing phase
+makes the session at the press but starts its clock only once the fit
+has been good for a second; the line is said once, the steps follow.
+The fit is a pure function (`fit_head`), tested without a window.
+
+### Tests, docs, the frame rate
+
+`test_engine_skin_tone.py` (the cells, the tone, the EMA, the paste at
+0 and 1, the GPU against numpy), `test_engine_forehead_stretch.py` (the
+plan on the day's faces, the stretch in the paste, the GPU against the
+CPU, the settle with a taller forehead), `test_head_guide.py`, the UI
+tests adapted (the placing phase, the oval's pixels, the guide riding
+with the frame); `test_engine_hairline`'s settle tests to the new rule.
+**1394 passed.** `jaw_band.py`'s capture re-render read the engine's
+four-part `last` again (day 20 had broken it). CHANGELOG, USER_GUIDE
+step 3, the in-app instructions (section 2 step 4, the menu, the status
+line), SYSTEM_ARCHITECTURE's paste sentence.
+
+**The frame rate, honestly.** The tone's own cost is measured: a reading
+2.0 ms of the render thread's CPU, the apply 0.22 ms, so 0.65 ms a frame
+at one reading in four (`scratch`, 200 calls each); the stretch is one
+`where` on the grid. The whole-loop numbers of the evening are muddier:
+the morning's run of the first tone build read the render thread at 30.7
+ms p50 (threads, realtime, his clip; 30.5 before the day) with the
+tracker at 8.6 ms; the evening's runs of the settled build read 32-35 ms
+and 26-28 fps with the tracker in its slow mode (12.6-13.1 ms, the
+bimodal cost noted on 2026-10-08) and every stage, the GPU graph
+included, a tenth slower -- the machine's state, not a stage of ours.
+`recordings/budget/final2-*.json`, `cast-alone-*.json`. A clean
+measurement on a fresh machine state is owed; his fps counter on a live
+call is the real number.
+
+### What he will see, and what is open
+
+Start, any face: the log says `skin tone matched -- gain [...], offset
+[...]` at frame 60 and `forehead settled -- the portrait's oval to X of
+its forehead, the driver's to Y of theirs, the render stretched xZ`.
+Calibrate me: the oval, amber then green, then the steps. Open, his
+eye: the stretch on his own forehead (1.13), the clearance 0.12 under
+his hair, the tone on his face in his room; the two friends' recordings
+(Calibrate me's own session folder is the easy ask) for the real proof;
+then his word on the commits, the merge of main into the clone's
+`tensorrt` branch (one touchpoint: the live hairline read, which the
+clone cut to a window) and the two packages.
 
 ## What is left, in his order (written 2026-09-12 night, after the push)
 

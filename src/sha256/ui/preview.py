@@ -23,17 +23,22 @@ paints it; the window decides when.
 from __future__ import annotations
 
 import numpy as np
-from PySide6.QtCore import QPointF, QRect, Qt
+from PySide6.QtCore import QPointF, QRect, QRectF, Qt
 from PySide6.QtGui import QColor, QImage, QPainter, QPaintEvent, QPen, QPixmap
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from sha256.core.enums import PixelFormat
 from sha256.core.types import FaceTrackingResult
+from sha256.ui.head_guide import GuideFit, HeadGuide
 
 __all__ = ["PreviewWidget"]
 
 _LANDMARK_COLOUR = QColor(64, 224, 160)
 _FRAME_BORDER = QColor(255, 255, 255, 40)
+# Day 21: the head guide's oval -- green with the head in it, amber until.
+_GUIDE_GOOD = QColor(64, 224, 96)
+_GUIDE_WAIT = QColor(255, 190, 40)
+_GUIDE_SHADOW = QColor(0, 0, 0, 190)
 
 # Drawing all 478 points at 30 fps is visual noise as much as it is work. Every
 # third point still reads as a mesh on a face and costs a third as much.
@@ -85,6 +90,7 @@ class PreviewWidget(QWidget):
         tracking: FaceTrackingResult | None = None,
         *,
         mirror: bool | None = None,
+        guide: tuple[HeadGuide, GuideFit] | None = None,
     ) -> None:
         """Accept one frame, optionally with its tracking overlay.
 
@@ -92,6 +98,9 @@ class PreviewWidget(QWidget):
         black screen carries words, and words mirrored read backwards (his
         look of 2026-09-11), so the window shows that frame as the other
         side sees it whatever the mirror is set to.
+
+        ``guide`` (day 21, see sha256.ui.head_guide) draws the head guide's
+        oval and its one line over the frame, in the fit's colour.
         """
         image = _to_qimage(data, pixel_format)
         if image is None:
@@ -105,9 +114,43 @@ class PreviewWidget(QWidget):
 
         if self._show_landmarks and tracking is not None and tracking.face_detected:
             self._draw_landmarks(pixmap, tracking, mirrored)
+        if guide is not None:
+            self._draw_guide(pixmap, guide[0], guide[1], mirrored)
 
         self._pixmap = pixmap
         self.update()
+
+    def _draw_guide(self, pixmap: QPixmap, guide: HeadGuide, fit: GuideFit, mirrored: bool) -> None:
+        """The oval where the head should be, and the fit's line under it.
+        Everything is a fraction of the frame's height, so the oval is the
+        same head on 720p and on 1080p; the centre's x is mirrored with
+        the picture."""
+        width = pixmap.width()
+        height = pixmap.height()
+        centre_x = (1.0 - guide.centre[0]) if mirrored else guide.centre[0]
+        colour = _GUIDE_GOOD if fit.good else _GUIDE_WAIT
+        radius_x = guide.oval_width * height / 2.0
+        radius_y = guide.oval_height * height / 2.0
+        centre = QPointF(centre_x * width, guide.centre[1] * height)
+
+        painter = QPainter(pixmap)
+        try:
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, on=True)
+            painter.setPen(QPen(colour, max(3.0, height / 180.0)))
+            painter.drawEllipse(centre, radius_x, radius_y)
+            font = painter.font()
+            font.setPointSizeF(max(10.0, height / 22.0))
+            font.setBold(True)
+            painter.setFont(font)
+            top = centre.y() + radius_y + height * 0.015
+            box = QRectF(0.0, top, float(width), height * 0.12)
+            flags = int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+            painter.setPen(QPen(_GUIDE_SHADOW, 1.0))
+            painter.drawText(box.translated(2.0, 2.0), flags, fit.message)
+            painter.setPen(QPen(colour, 1.0))
+            painter.drawText(box, flags, fit.message)
+        finally:
+            painter.end()
 
     def _draw_landmarks(
         self, pixmap: QPixmap, tracking: FaceTrackingResult, mirrored: bool | None = None
