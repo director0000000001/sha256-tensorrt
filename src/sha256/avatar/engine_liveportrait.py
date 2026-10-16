@@ -2169,7 +2169,7 @@ def _profile_fill_np(
     background columns beyond the drawn face's edge on the profile side
     (``edge``, (H,) int, -1 where none; see :func:`_drawn_near_edge_np`)
     filled with the edge column's own colour."""
-    h, w = face.shape[:2]
+    w = face.shape[1]
     cols = np.arange(w)[None, :]
     e = edge.astype(np.int64)[:, None]
     inset = _PROFILE_FILL_INSET
@@ -7848,7 +7848,7 @@ class LivePortraitEngine:
         face returned is the one to paste (the same object when nothing
         was done)."""
         weight = room * _outline_fit(loaded.options)
-        fill_px = int(round(_profile_fill(loaded.options) * room))
+        fill_px = round(_profile_fill(loaded.options) * room)
         if (weight <= 0.0 and fill_px <= 0) or loaded.background is None or head_pose is None:
             loaded.outline_scale = None
             loaded.outline_shift = None

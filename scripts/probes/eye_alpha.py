@@ -12,7 +12,7 @@ the frame by the same affine the paste used.
 
 Usage::
 
-    uv run python scripts/probes/eye_alpha.py --src src --capture captures/moment-20261016-032542
+    uv run python scripts/probes/eye_alpha.py --src src --capture captures/moment-...
     uv run python scripts/probes/eye_alpha.py --src <worktree>/src --capture ... --option outline_fit=0
 """
 
@@ -179,7 +179,7 @@ def main() -> None:
     for side, points in (("image-left eye", LEFT_EYE), ("image-right eye", RIGHT_EYE)):
         for name, idx in points.items():
             x, y = his[idx]
-            xi, yi = int(round(x)), int(round(y))
+            xi, yi = round(float(x)), round(float(y))
             a = float(alpha[yi, xi]) if 0 <= yi < h and 0 <= xi < w else float("nan")
             p = bool(pasted[yi, xi]) if 0 <= yi < h and 0 <= xi < w else False
             d = ""
