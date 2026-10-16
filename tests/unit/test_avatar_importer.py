@@ -198,6 +198,17 @@ class TestReport:
         assert "face 420 px tall" in text and "error: the eyes must be open" in text
         assert "note: the mouth is open" in text and not report.ok
         assert PortraitReport(width=8, height=8, face_found=False).describe() == "no face found"
+        assert "skin" not in text  # none read
+
+    def test_describe_says_the_photographs_skin_when_read(self):
+        """Day 23: the photograph's skin colour, for the comparison with
+        the person's camera reading."""
+        from sha256.avatar.skin_tone import SkinReading
+
+        report = good_report(skin=SkinReading((110.0, 150.0, 198.0)))
+        assert "skin light-medium skin with a warm, golden undertone, sRGB #C6966E" in (
+            report.describe()
+        )
 
 
 @pytest.mark.skipif(

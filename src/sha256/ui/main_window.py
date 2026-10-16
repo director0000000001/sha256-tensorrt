@@ -27,6 +27,8 @@ window's minimum: nothing on it may ask for more width than it must.
 
 from __future__ import annotations
 
+import html
+import math
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -60,9 +62,17 @@ from sha256.avatar.importer import (
     neural_template,
     remove_avatar,
 )
+from sha256.avatar.skin_tone import compare as compare_skin
 from sha256.calibration import STEPS, CalibrationSession, DriverProfile, roster
 from sha256.calibration.measure import calibrate, describe
-from sha256.calibration.script import total_seconds
+from sha256.calibration.script import (
+    PHASE_COUNT,
+    PHASE_MEASURE,
+    PHASE_READ,
+    READING_TEXT,
+    StepPosition,
+    total_seconds,
+)
 from sha256.core.enums import PipelineState
 from sha256.core.errors import Sha256Error
 from sha256.pipeline.conditioning import QUALITY_NAMES, OutputConditioner
@@ -136,6 +146,44 @@ _CALIBRATION_TICK_MS = 100
 # sat in the green oval for this many ticks -- a second.
 _PLACING_GOOD_TICKS = 10
 _PLACING_TEXT = "Put your head in the green oval"
+# Day 22: the count of three before every movement, drawn large and spoken
+# where a voice exists, one word a second.
+_COUNT_WORDS = {3: "three", 2: "two", 1: "one"}
+_COUNT_FONT_PX = 120
+_READING_FONT_PX = 34
+_GUIDE_WARNING_COLOUR = "#fbbf24"
+
+
+def _calibration_text(
+    placed: StepPosition, phase: str, count: int, steps: int, warning: str = ""
+) -> str:
+    """The calibration's card (day 22), as rich text: the step's number,
+    the instruction -- or, in the read step's measured window, the text
+    to read, large -- the count of three drawn big and centred, the time
+    left, and under it all, while the head is out of the oval, the
+    guide's one line (it never replaces the instruction)."""
+    index, step, left = placed.step_index, placed.step, placed.remaining
+    lines = [f'<div style="font-size:16px; font-weight:400;">{index + 1} / {steps}</div>']
+    if phase == PHASE_MEASURE and step.kind == "read":
+        lines.append(
+            f'<div style="font-size:{_READING_FONT_PX}px; font-weight:500;">'
+            f"{html.escape(READING_TEXT, quote=False)}</div>"
+        )
+    else:
+        lines.append(f"<div>{html.escape(step.instruction, quote=False)}</div>")
+    if phase == PHASE_COUNT:
+        lines.append(f'<div style="font-size:{_COUNT_FONT_PX}px; font-weight:700;">{count}</div>')
+    elif phase == PHASE_READ:
+        lines.append(f"<div>Get ready...  {left:.0f}</div>")
+    else:
+        lines.append(f"<div>NOW  {left:.0f}</div>")
+    if warning:
+        lines.append(
+            f'<div style="color:{_GUIDE_WARNING_COLOUR};">{html.escape(warning, quote=False)}</div>'
+        )
+    return '<div align="center">' + "".join(lines) + "</div>"
+
+
 # The Person menu's entry for no profile at all: the avatar's own values.
 _NO_PERSON = "Nobody (the avatar's own values)"
 
@@ -299,6 +347,7 @@ class MainWindow(QMainWindow):
         self._speaker: Speaker | None = None
         self._speaker_factory: Callable[[], Speaker] = Speaker
         self._spoken_step = -1
+        self._spoken_key: tuple[int, int] | None = None
         self._calibration_timer = QTimer(self)
         self._calibration_timer.setInterval(_CALIBRATION_TICK_MS)
         self._calibration_timer.timeout.connect(self._tick_calibration)
@@ -588,10 +637,11 @@ class MainWindow(QMainWindow):
         # five runs it once at their own camera.
         self._calibrate_action = QAction("Calibrate me", menu)
         self._calibrate_action.setToolTip(
-            f"A guided {total_seconds(STEPS):.0f} seconds -- sit still, blink, talk, smile, "
-            "raise the brows, glance, turn -- measured into your own profile, so the "
-            "avatar follows your face and not the owner's. Records the session on this "
-            "computer; choose again to stop."
+            f"A guided {total_seconds(STEPS):.0f} seconds, slow, each movement on a count "
+            "of three -- sit still, blink, close the eyes, open the mouth, read a short "
+            "text aloud, smile, laugh, raise the brows, glance, turn -- measured into "
+            "your own profile, so the avatar follows your face and not the owner's. "
+            "Records the session on this computer; choose again to stop."
         )
         self._calibrate_action.triggered.connect(self._on_calibrate)
         menu.addAction(self._calibrate_action)
@@ -799,8 +849,17 @@ class MainWindow(QMainWindow):
         """A photograph in, an avatar in the library out -- checked first.
         The guide comes first (day 16, his ask): what the photograph must be
         and the prompts that make one, then the file dialog."""
-        if PhotoGuideDialog(self).exec() != int(PhotoGuideDialog.DialogCode.Accepted):
+        # Day 23: the guide reads the person's skin colour off the camera
+        # while the pipeline runs (the newest snapshot, gated by the head
+        # guide) and keeps it for the comparison with the photograph's.
+        guide = PhotoGuideDialog(
+            self,
+            frames=self._runner.latest if self._runner.is_running else None,
+            guide=self._guide,
+        )
+        if guide.exec() != int(PhotoGuideDialog.DialogCode.Accepted):
             return
+        reading = guide.reading
         photo, _ = QFileDialog.getOpenFileName(
             self, "Choose a photograph", "", "Images (*.png *.jpg *.jpeg *.webp *.bmp)"
         )
@@ -833,11 +892,10 @@ class MainWindow(QMainWindow):
         index = self._avatar_combo.findData(descriptor.id)
         if index >= 0:
             self._avatar_combo.setCurrentIndex(index)  # loads it, like picking it by hand
-        QMessageBox.information(
-            self,
-            "Add avatar",
-            f"{descriptor.manifest.name} added as {descriptor.root}\n\n{report.describe()}",
-        )
+        message = f"{descriptor.manifest.name} added as {descriptor.root}\n\n{report.describe()}"
+        if reading is not None and report.skin is not None:
+            message += f"\n\nSkin: {compare_skin(reading, report.skin)}"
+        QMessageBox.information(self, "Add avatar", message)
 
     def _on_delete_avatar(self) -> None:
         """The avatar chosen in the bar removed from this computer (day 17,
@@ -926,8 +984,10 @@ class MainWindow(QMainWindow):
         answer = QMessageBox.question(
             self,
             "Calibrate me",
-            f"About {total_seconds(STEPS):.0f} seconds of instructions: sit still, blink, "
-            "open your mouth, talk, smile, raise your eyebrows, glance, turn your head.\n\n"
+            f"About {total_seconds(STEPS):.0f} seconds of instructions, each movement on a "
+            "count of three: sit still, blink, close your eyes, open your mouth, read a "
+            "short text aloud, smile, laugh, raise your eyebrows, glance, turn your head. "
+            "A movement too small to measure is asked once more.\n\n"
             "The session is RECORDED -- your camera frames and their tracking -- into\n"
             f"{directory}\n"
             "on this computer only, so your face can be re-measured later without you. "
@@ -944,6 +1004,7 @@ class MainWindow(QMainWindow):
             directory=directory,
             output_tracker_factory=self._output_tracker,
             fps=self._context.settings.camera.target_fps,
+            guide=self._head_in_oval,
         )
         # Day 21: the clock does not start yet -- the head guide is shown
         # and the session starts once the head has sat in it (see
@@ -953,6 +1014,7 @@ class MainWindow(QMainWindow):
         self._guide_fit = None
         self._placing_good = 0
         self._spoken_step = -1
+        self._spoken_key = None
         if self._speaker is None:
             self._speaker = self._speaker_factory()
         self._calibrate_action.setText("Stop calibrating")
@@ -986,6 +1048,7 @@ class MainWindow(QMainWindow):
             session.cancel()
             return False
         self._spoken_step = -1
+        self._spoken_key = None
         return True
 
     def _tick_calibration(self) -> None:
@@ -1000,15 +1063,43 @@ class MainWindow(QMainWindow):
         placed = session.current()
         if placed is None:
             return
-        index, step, left, reading = placed
-        if index != self._spoken_step:
-            self._spoken_step = index
-            if self._speaker is not None:
-                self._speaker.say(step.instruction)
-        phase = "Get ready..." if reading else "NOW"
-        self._instruction.setText(
-            f"{index + 1} / {len(session.steps)}\n{step.instruction}\n{phase}  {left:.0f}"
+        index, step, left, reading = placed[:4]
+        phase = placed.phase or (PHASE_READ if reading else PHASE_MEASURE)
+        count = max(1, math.ceil(left - 1e-6)) if phase == PHASE_COUNT else 0
+        self._say_calibration(index, step.instruction, count)
+        fit = self._guide_fit
+        warning = (
+            fit.message
+            if phase == PHASE_MEASURE and step.measured and fit is not None and not fit.good
+            else ""
         )
+        self._instruction.setText(
+            _calibration_text(placed, phase, count, len(session.steps), warning)
+        )
+
+    def _say_calibration(self, index: int, instruction: str, count: int) -> None:
+        """Day 22: the instruction once as its step begins, then "three",
+        "two", "one", each once, as the count shows it. The Speaker cuts
+        off whatever it was still saying, so nothing queues behind a long
+        instruction."""
+        key = (index, count)
+        if key == self._spoken_key:
+            return
+        new_step = index != self._spoken_step
+        self._spoken_key = key
+        self._spoken_step = index
+        if self._speaker is None:
+            return
+        if new_step:
+            self._speaker.say(instruction)
+        elif count in _COUNT_WORDS:
+            self._speaker.say(_COUNT_WORDS[count])
+
+    def _head_in_oval(self, tracking: Any) -> bool:
+        """Day 22, on the pipeline thread for every frame of a calibration:
+        whether the head sits in the green oval (the session marks the
+        frames that do not)."""
+        return fit_head(tracking, self._guide).good
 
     def _end_calibration_ui(self) -> None:
         self._calibration = None

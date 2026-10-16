@@ -140,7 +140,19 @@ _FRONTAL_PITCH = 10.0
 _FRONTAL_YAW = 15.0
 _NOMINAL_DT = 1.0 / 30.0
 
-CONFOUND_STEPS = ("blink", "eyes_shut", "open", "talk", "smile_closed", "smile_teeth", "gaze")
+CONFOUND_STEPS = (
+    "blink",
+    "eyes_shut",
+    "open",
+    "talk",
+    "read",
+    "smile_closed",
+    "smile_teeth",
+    "gaze",
+)
+# The talking mouth: "talk" in the recordings before day 22, "read" (the
+# fixed text read aloud) since.
+TALK_STEPS = ("talk", "read")
 REST_STEPS = ("rest", "rest_end")
 
 
@@ -516,7 +528,7 @@ def calibrate(
                 "later in a session (no rest-width tracking exists yet)"
             )
         # Talking must still read as motion at these units.
-        talk = _usable(samples, ("talk",))
+        talk = _usable(samples, TALK_STEPS)
         talk_changes = _per_frame_changes(talk, "opening", relative=False)
         if talk_changes:
             unit = result.options["mouth_activity_mar"]
@@ -592,7 +604,7 @@ def calibrate(
         }
         result.rest.update({f"avatar_{k}": v for k, v in av_rest.items()})
 
-        talk = _with_avatar(_usable(samples, ("talk", "open")))
+        talk = _with_avatar(_usable(samples, (*TALK_STEPS, "open")))
         fit = fit_line(
             (s.his["opening"] - rest_opening for s in talk),
             (s.avatar["opening"] - av_rest["opening"] for s in talk if s.avatar),

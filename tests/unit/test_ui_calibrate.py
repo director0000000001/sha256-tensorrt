@@ -36,6 +36,7 @@ class FakeSession:
         self.cancelled = False
         self.finish_calls = 0
         self.finished_flag = False
+        self.position: Any = None  # None: the blink step's instruction phase
         FakeSession.instances.append(self)
 
     def start(self) -> None:
@@ -53,6 +54,8 @@ class FakeSession:
     def current(self):
         from sha256.calibration.script import StepPosition
 
+        if self.position is not None:
+            return self.position
         return StepPosition(2, STEPS[2], 1.5, True)
 
     @property
@@ -253,6 +256,89 @@ class TestTheRun:
             ]
             window._refresh_status()
             assert "Calibrating" in window._status_line.text()
+        finally:
+            window._cancel_calibration()
+            window._on_stop()
+
+    def test_the_count_of_three_is_drawn_large_and_said_once_a_number(
+        self, window, calibratable, monkeypatch
+    ):
+        """Day 22: the instruction, then "3", "2", "1" drawn big and said
+        one word a second -- each once, however many ticks it shows."""
+        from sha256.calibration.script import PHASE_COUNT, PHASE_READ, StepPosition
+        from sha256.ui import main_window as module
+
+        session = self._start(window, monkeypatch)
+        try:
+            blink = STEPS[2]
+            speaker = FakeSpeaker.instances[-1]
+            session.position = StepPosition(2, blink, 2.0, True, PHASE_READ)
+            window._tick_calibration()
+            assert "Get ready" in window._instruction.text()
+            for left, number in ((2.9, 3), (2.5, 3), (1.6, 2), (0.4, 1), (0.1, 1)):
+                session.position = StepPosition(2, blink, left, True, PHASE_COUNT)
+                window._tick_calibration()
+                text = window._instruction.text()
+                assert f"font-size:{module._COUNT_FONT_PX}px" in text
+                assert f">{number}</div>" in text
+                assert blink.instruction in text  # the instruction stays over the count
+                assert "Get ready" not in text
+            assert speaker.said == [module._PLACING_TEXT, blink.instruction, "three", "two", "one"]
+        finally:
+            window._cancel_calibration()
+            window._on_stop()
+
+    def test_the_read_steps_window_shows_the_text_large(self, window, calibratable, monkeypatch):
+        from sha256.calibration.script import (
+            PHASE_COUNT,
+            PHASE_MEASURE,
+            READING_TEXT,
+            StepPosition,
+        )
+        from sha256.ui import main_window as module
+
+        session = self._start(window, monkeypatch)
+        try:
+            index = next(i for i, s in enumerate(STEPS) if s.kind == "read")
+            read = STEPS[index]
+            session.position = StepPosition(index, read, 1.0, True, PHASE_COUNT)
+            window._tick_calibration()
+            assert read.instruction in window._instruction.text()
+            assert READING_TEXT not in window._instruction.text()
+            session.position = StepPosition(index, read, 17.0, False, PHASE_MEASURE)
+            window._tick_calibration()
+            text = window._instruction.text()
+            assert READING_TEXT in text and f"font-size:{module._READING_FONT_PX}px" in text
+            assert "NOW  17" in text
+        finally:
+            window._cancel_calibration()
+            window._on_stop()
+
+    def test_out_of_the_oval_the_guides_line_joins_the_instruction(
+        self, window, calibratable, monkeypatch
+    ):
+        """Day 22: the green oval stays for the whole session; while the
+        head is out of it in a measured window its one line shows under the
+        instruction, which stays, and the clock does not stop."""
+        from sha256.calibration.script import PHASE_MEASURE, PHASE_READ, StepPosition
+
+        session = self._start(window, monkeypatch)
+        try:
+            blink = STEPS[2]
+            assert session.kwargs["guide"](None) is False  # no face: out of the oval
+            session.position = StepPosition(2, blink, 2.0, False, PHASE_MEASURE)
+            window._guide_fit = far_fit()
+            window._tick_calibration()
+            text = window._instruction.text()
+            assert blink.instruction in text and "Come closer" in text
+            window._guide_fit = good_fit()
+            window._tick_calibration()
+            assert "Come closer" not in window._instruction.text()
+            # Not while the instruction is being read: nothing measured yet.
+            session.position = StepPosition(2, blink, 2.0, True, PHASE_READ)
+            window._guide_fit = far_fit()
+            window._tick_calibration()
+            assert "Come closer" not in window._instruction.text()
         finally:
             window._cancel_calibration()
             window._on_stop()

@@ -67,6 +67,7 @@ from sha256.avatar.engine_liveportrait import (
     crop_matrix,
 )
 from sha256.avatar.repository import MANIFEST_FILENAME
+from sha256.avatar.skin_tone import SkinReading, read_skin
 from sha256.core.avatar import AvatarDescriptor, AvatarManifest
 from sha256.core.enums import PixelFormat
 from sha256.core.errors import Sha256Error
@@ -142,6 +143,10 @@ class PortraitReport:
     # The face's points in the picture's pixels (478 x 3), for the
     # preparation and the profile; None from an inspector that has none.
     points: np.ndarray | None = field(default=None, compare=False, repr=False)
+    # Day 23: the photograph's skin colour (the cheeks and the forehead,
+    # the same reader as the camera's), for the comparison with the
+    # person's reading; None when it could not be read.
+    skin: SkinReading | None = None
 
     @property
     def ok(self) -> bool:
@@ -155,7 +160,8 @@ class PortraitReport:
             f"pose {self.pitch:+.1f} / {self.yaw:+.1f} / {self.roll:+.1f} deg "
             "(pitch / yaw / roll), "
             f"eyes {self.eye_ratio:.2f}, mouth {self.mouth_ratio:.3f}, "
-            f"room below the chin {self.room_below_chin:.2f} of the face height",
+            f"room below the chin {self.room_below_chin:.2f} of the face height"
+            + ("" if self.skin is None else f", skin {self.skin.describe()}"),
         ]
         lines.extend(f"error: {e}" for e in self.errors)
         lines.extend(f"note: {w}" for w in self.warnings)
@@ -213,6 +219,8 @@ def inspect_portrait(photo: Path, model_path: Path) -> PortraitReport:
     mouth = lip_gap / mouth_width
     pose = result.head_pose
     yaw, pitch, roll = (pose.yaw, pose.pitch, pose.roll) if pose is not None else (0.0, 0.0, 0.0)
+    skin_bgr = read_skin(image, points)
+    skin = None if skin_bgr is None else SkinReading(skin_bgr)
 
     errors: list[str] = []
     warnings: list[str] = []
@@ -258,6 +266,7 @@ def inspect_portrait(photo: Path, model_path: Path) -> PortraitReport:
         errors=tuple(errors),
         warnings=tuple(warnings),
         points=points,
+        skin=skin,
     )
 
 

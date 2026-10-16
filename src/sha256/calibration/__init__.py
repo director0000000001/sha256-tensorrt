@@ -15,7 +15,8 @@ picture).
 The parts:
 
 * :mod:`.script` -- the guided steps (sit still, blink, open the mouth,
-  talk, smile, raise the brows, glance, turn) and how a recorded clip's
+  read a text aloud, smile, laugh, raise the brows, glance, turn; since
+  day 22 each on a count of three) and how a recorded clip's
   segments map onto them.
 * :mod:`.samples` -- one frame's readings: his (the tracker's), the
   engine's (gates, the extractor's mouth rows) and the avatar's (a second

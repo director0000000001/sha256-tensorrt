@@ -58,7 +58,10 @@ def synthetic_samples(
     samples: list[Sample] = []
     frame = 0
     for step in STEPS:
-        n = round(step.seconds * fps)
+        # The synthetic movements below are shaped to the morning's windows
+        # (day 22); the evening's +5 s on every measured step (his first
+        # session's ask) is not what they test, so the windows stay.
+        n = round((step.seconds - 5.0 if step.measured else step.seconds) * fps)
         for i in range(n):
             phase = i / max(n - 1, 1)
             his = dict(REST)
@@ -76,7 +79,7 @@ def synthetic_samples(
                 his["ear"] = 0.05 if 0.2 < phase < 0.8 else 0.32
             elif step.kind == "open":
                 his["opening"] = 0.005 + 0.12 * abs(math.sin(phase * math.pi * 2))
-            elif step.kind == "talk":
+            elif step.kind in ("talk", "read"):
                 his["opening"] = 0.005 + float(rng.uniform(0.0, 0.06))
                 # Talking moves the brows a little (his: +6..13%): the dead
                 # band's confound, about 0.10 at the 90th percentile.
@@ -184,7 +187,7 @@ class TestRestAndJitter:
         assert result.rest["width"] == pytest.approx(0.40, abs=0.005)
         assert result.rest["brow"] == pytest.approx(0.20, abs=0.005)
         assert result.rest["anchor_ear"] == 0.32  # the engine's own
-        assert result.frames["rest"] == 150 and result.frames["talk"] == 210
+        assert result.frames["rest"] == 180 and result.frames["read"] == 600
 
     def test_the_activity_unit_follows_the_still_jitter_by_the_day_12_rule(self):
         low = calibrate(synthetic_samples(jitter=0.001), HIS_CURRENT)
@@ -267,6 +270,16 @@ class TestGains:
         assert result.options["expression_gain"] == pytest.approx(1.8 / 0.8, abs=0.05)
         change = change_of(result, "expression_gain")
         assert change is not None and change.before == 1.8
+
+    def test_an_old_recordings_talk_step_fits_as_the_read_step_does(self):
+        """Day 22: "read" replaced "talk"; a session recorded before it
+        still measures the talking mouth."""
+        samples = synthetic_samples(talk_gain=0.8)
+        for sample in samples:
+            if sample.step == "read":
+                sample.step = "talk"
+        result = calibrate(samples, HIS_CURRENT)
+        assert result.options["expression_gain"] == pytest.approx(1.8 / 0.8, abs=0.05)
 
     def test_one_calibration_moves_a_gain_by_a_bounded_factor(self):
         _, _, change_lo, change_hi = GAIN_LIMITS["expression_gain"]

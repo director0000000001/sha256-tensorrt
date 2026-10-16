@@ -4693,10 +4693,19 @@ class TestBackgroundWeight:
     """Day 19: the guard comes on with the turn, so a frontal frame's paste
     is untouched by construction."""
 
-    def _loaded(self, background, rest_yaw=None):
+    def _loaded(self, background, rest_yaw=None, rest_pitch=None):
         from types import SimpleNamespace
 
-        return SimpleNamespace(background=background, rest_yaw=rest_yaw)
+        return SimpleNamespace(background=background, rest_yaw=rest_yaw, rest_pitch=rest_pitch)
+
+    def test_a_look_down_brings_the_guard_on_too(self):
+        # day 22: his press at a 40-degree look down, the background under the chin
+        bg = np.array([240.0, 240.0, 240.0], dtype=np.float32)
+        loaded = self._loaded(bg, rest_pitch=-5.0)
+        assert _background_weight(loaded, HeadPose(pitch=-5.0)) == 0.0
+        assert _background_weight(loaded, HeadPose(pitch=-15.0)) == 0.0
+        assert 0.0 < _background_weight(loaded, HeadPose(pitch=-21.0)) < 1.0
+        assert _background_weight(loaded, HeadPose(pitch=-40.0)) == 1.0
 
     def test_nothing_frontal_all_of_it_turned_and_a_ramp_between(self):
         bg = np.array([240.0, 240.0, 240.0], dtype=np.float32)

@@ -214,6 +214,14 @@ DRIVER_OPTION_KEYS: frozenset[str] = frozenset(
         "lip_rest_tracking",
         "hold_pitch_degrees",
         "hold_yaw_degrees",
+        # Day 22 evening: the turn past the knee driven harder (see _turn_boost),
+        # and the clamp's own yaw cap, apart from the fade's (see _turn_cap).
+        "turn_boost",
+        "turn_cap_degrees",
+        # Day 23: the yaw delta scaled per side (see _turn_gains) -- his right
+        # turns drew 0.7-0.8 of his angle, his left ones 1.0-1.1.
+        "turn_gain_left",
+        "turn_gain_right",
         "depth_hold_yaw",
         "motion_smoothing",
         "size_smoothing",
@@ -263,6 +271,16 @@ PORTRAIT_OPTION_KEYS: frozenset[str] = frozenset(
         "skin_match",
         "forehead_stretch_max",
         "hair_root_margin",
+        # Day 22 (2026-10-15): the face's width fitted to the person's.
+        "face_width_fit",
+        "driver_face_width",
+        # Day 23 (2026-10-16): the face's height fitted -- the brows to the person's.
+        "face_height_fit",
+        "driver_face_height",
+        # Day 22 evening: the render's profile side fitted to his outline at a turn.
+        "outline_fit",
+        # Day 23: the avatar's skin carried past the drawn face's profile edge at a turn.
+        "profile_fill_px",
     }
 )
 
@@ -286,6 +304,11 @@ _ANCHOR_SCALARS = (
     "centre_offset",
     "rest_pitch",
     "rest_yaw",
+    # Day 22: what the forehead and the width were settled from, so a
+    # capture's replay settles the same (see seed_anchor).
+    "settle_hairline",
+    "settle_width",
+    "settle_height",
 )
 
 # What counts as a frame worth learning the anchor from (day 5, 2026-09-05).
@@ -1402,6 +1425,9 @@ _HAIRLINE_CEILING = 1.6
 # Fifteen frontal frames, half a second: five settled on the first frames
 # after the freeze, with his head still coming to the camera.
 _HAIRLINE_MIN_SAMPLES = 15
+# Day 22: how far (of the forehead) the median of the last readings must
+# leave the settled hairline before the forehead is planned again.
+_HAIRLINE_FOLLOW = 0.15
 # Past the settle, the hairline is still read on every Nth frontal frame
 # for the calibration's own instrument (frame_readings["hairline"]).
 _HAIRLINE_READ_EVERY = 6
@@ -1581,6 +1607,76 @@ def _hairline_fraction(
     return None
 
 
+# Day 22 (2026-10-15), his three presses: a pale smeared patch at the top of
+# the paste on his forehead -- with the edge match off, a DARK streak in the
+# same place: the avatar's own hair roots. The hairline reader above calls
+# hair a 30% drop of the median over three small patches, and his portrait's
+# roots begin well under that: the row's 5th percentile leaves the forehead's
+# skin by 7% at 1.40 of the forehead (the reader's hairline 1.52), by 20% at
+# 1.45 -- loose strands the median never sees. The roots' margin (0.15 under
+# the reader's hairline, 1.37) left the mask's feather tail (alpha down to
+# 0.01 at +0.04 of the reach) in them, and the edge residual then brightened
+# the strands into the patch. So the portrait's clean skin now ends where
+# the ROOTS begin (:func:`_roots_onset`: the first row, walking up from a
+# third of the forehead, whose 5th percentile over a wide band is
+# _ROOTS_CONTRAST under the skin's median for _ROOTS_RUN_PX), less
+# _ROOTS_CLEARANCE -- or at the reader's hairline less the roots' margin,
+# whichever is lower -- and the clean top is a SOURCE row: the stretch
+# (:func:`_forehead_plan`) maps it to the join instead of taking the margin
+# off after the stretch, which shrank it by the stretch. Read once at load,
+# on the portrait alone (the person's side keeps the hairline reader and the
+# clearance: nothing of theirs is drawn).
+_ROOTS_CONTRAST = 0.07
+_ROOTS_RUN_PX = 4
+_ROOTS_CLEARANCE = 0.10
+_ROOTS_HALF_WIDTH = 0.30  # of the forehead height, to either side of the middle
+
+
+def _roots_onset(lum: np.ndarray, points: np.ndarray) -> float | None:
+    """Where the hair's loose roots begin above the brows on ``lum``, as a
+    fraction of the forehead height -- the first row (walking up from a
+    third of the forehead, over _ROOTS_RUN_PX of rows) whose 5th percentile
+    across a band _ROOTS_HALF_WIDTH wide to either side of the face's middle
+    is _ROOTS_CONTRAST under the clean forehead's median; ``None`` when no
+    such row is met within :data:`_HAIRLINE_SEARCH` foreheads."""
+    pts = np.asarray(points, dtype=np.float32)[:FACE_POINTS, :2]
+    ux, uy, _ = _face_axes(pts)
+    brow_top, forehead_h = _forehead_geometry(pts)
+    centre_x = (pts[_CHEEKS[0]] + pts[_CHEEKS[1]]) / 2.0
+    base = brow_top - ux * float((brow_top - centre_x) @ ux)
+    height, width = lum.shape[:2]
+    half = max(_ROOTS_HALF_WIDTH * forehead_h, 4.0)
+    offsets = np.arange(-half, half + 0.5, 1.0, dtype=np.float32)
+
+    def row(d: float) -> np.ndarray | None:
+        xs = base[0] - uy[0] * d + ux[0] * offsets
+        ys = base[1] - uy[1] * d + ux[1] * offsets
+        inside = (xs >= 0) & (xs <= width - 1) & (ys >= 0) & (ys <= height - 1)
+        if inside.sum() < len(offsets) // 2:
+            return None
+        return np.asarray(lum[ys[inside].round().astype(int), xs[inside].round().astype(int)])
+
+    skin_rows = [row(d) for d in np.arange(0.05 * forehead_h, 0.35 * forehead_h, 1.0)]
+    skin_values = [r for r in skin_rows if r is not None]
+    if not skin_values:
+        return None
+    skin = float(np.median(np.concatenate(skin_values)))
+    floor = (1.0 - _ROOTS_CONTRAST) * max(skin, 1.0)
+    run = 0
+    for d in np.arange(0.35 * forehead_h, _HAIRLINE_SEARCH * forehead_h, 1.0):
+        values = row(float(d))
+        if values is None:
+            run = 0
+            continue
+        if float(np.percentile(values, 5)) < floor:
+            run += 1
+            if run >= _ROOTS_RUN_PX:
+                return float((d - (run - 1)) / forehead_h)
+        else:
+            run = 0
+    return None
+
+
 def _hairline_reach(
     portrait: float | None,
     driver: float | None,
@@ -1667,6 +1763,8 @@ def _forehead_plan(
     margin: float = _HAIR_ROOT_MARGIN,
     stretch_max: float = _FOREHEAD_STRETCH_MAX,
     anchor: float = _STRETCH_ANCHOR,
+    portrait_roots: float | None = None,
+    roots_clearance: float = _ROOTS_CLEARANCE,
 ) -> tuple[float, float, float]:
     """The forehead at the settle (day 21): ``(portrait_reach, driver_reach,
     stretch)`` -- the portrait oval's reach (of its forehead), the driver
@@ -1674,8 +1772,16 @@ def _forehead_plan(
     the two hairlines (fractions of each forehead; ``None`` unread), the two
     foreheads' heights in crop pixels, the clearance under the driver's
     hairline, the roots' margin under the portrait's and the stretch's cap.
+    Day 22: the portrait's clean skin ends at its hairline less the margin
+    or, when its roots were read (``portrait_roots``, see
+    :func:`_roots_onset`), at the roots less ``roots_clearance`` -- the
+    lower of the two -- and that is a SOURCE row: the stretch carries it to
+    the join (``portrait_reach = anchor + stretch * (skin_top - anchor)``).
     The reaches are within [_FOREHEAD_REACH_MIN, _FOREHEAD_REACH_MAX]."""
-    skin_top = _HAIRLINE_CEILING if portrait_hairline is None else portrait_hairline
+    hairline = _HAIRLINE_CEILING if portrait_hairline is None else portrait_hairline
+    skin_top = hairline - margin
+    if portrait_roots is not None:
+        skin_top = min(skin_top, portrait_roots - roots_clearance)
     span = max(skin_top - anchor, 0.1)
     if driver_hairline is None:
         stretch = stretch_max
@@ -1683,8 +1789,8 @@ def _forehead_plan(
     else:
         driver_reach = driver_hairline - clearance
         wanted = driver_reach * driver_forehead / max(portrait_forehead, 1.0)
-        stretch = min(max((wanted + margin - anchor) / span, 1.0), stretch_max)
-    portrait_reach = anchor + stretch * span - margin
+        stretch = min(max((wanted - anchor) / span, 1.0), stretch_max)
+    portrait_reach = anchor + stretch * span
 
     def bound(reach: float) -> float:
         return float(min(max(reach, _FOREHEAD_REACH_MIN), _FOREHEAD_REACH_MAX))
@@ -1720,6 +1826,483 @@ def _driver_hairline(options: dict[str, Any]) -> float | None:
         )
         raise ValueError(msg)
     return value
+
+
+# Day 22 (2026-10-15), the width fit. The crop is sized by the face's
+# HEIGHT (forehead top to chin, see crop_matrix), so in the crop the two
+# faces are the same height and differ in WIDTH alone: his resting face
+# reads 4% narrower than his portrait's (scripts/probes/face_width.py on
+# his 2026-09-12 session: rim 0.788 of the height against the portrait's
+# 0.822; the friend's 0.99, the woman's 1.00). The paste's mask is the
+# portrait's oval AND the driver's, so on a narrower person the driver's
+# oval cuts the render's cheeks off: the join sits on the avatar's cheek
+# skin, inside its own outline, and the avatar's features sit wider in the
+# face than the person's.
+#
+# The fit: once the anchor is frozen, the ratio of the driver's rim width
+# to the portrait's (both along the face's own horizontal, in the crop,
+# read on still frontal frames and taken at the median) scales the render
+# and the portrait's own oval horizontally about the portrait's rim centre,
+# in the paste alone -- the drive, the network, the crop are untouched
+# (see _squeeze_face, _settle_forehead). Bounded moderate: a person wider
+# than the portrait is widened likewise, up to the same bound.
+# ``face_width_fit`` (0..1, 1 default) is how much of the measured
+# difference is applied; 0 is off and byte-identical to before.
+# ``driver_face_width`` (a ratio, from Calibrate me's profile) replaces the
+# live reading, as driver_hairline does the hairline's.
+_FACE_WIDTH_FIT = 1.0
+_FACE_WIDTH_MIN = 0.85
+_FACE_WIDTH_MAX = 1.15
+# Frontal enough to read the width from: a turn foreshortens the rim
+# (measured: 5-7% per 10 degrees of yaw on the 2D rim), a tilt the height.
+_WIDTH_FRONTAL = (10.0, 8.0)
+_WIDTH_MIN_SAMPLES = 8
+# A scale this close to 1 is not applied at all (no resample for nothing).
+_WIDTH_DEADBAND = 0.005
+
+
+def _face_width_fit(options: dict[str, Any]) -> float:
+    """``face_width_fit`` in ``[0, 1]``, default :data:`_FACE_WIDTH_FIT`."""
+    value = float(options.get("face_width_fit", _FACE_WIDTH_FIT))
+    if not 0.0 <= value <= 1.0:
+        msg = f"face_width_fit must be in [0, 1], got {value}"
+        raise ValueError(msg)
+    return value
+
+
+def _driver_face_width(options: dict[str, Any]) -> float | None:
+    """``driver_face_width`` -- the person's rim width over the portrait's
+    (the crop's units), measured by Calibrate me; ``None`` (the default)
+    means the engine reads it live at the anchor. In [0.5, 2]."""
+    raw = options.get("driver_face_width")
+    if raw is None:
+        return None
+    value = float(raw)
+    if not 0.5 <= value <= 2.0:
+        msg = f"driver_face_width must be in [0.5, 2], got {value}"
+        raise ValueError(msg)
+    return value
+
+
+def _rim_width(points: np.ndarray) -> float:
+    """The face rim's extent along the face's own horizontal, in the
+    points' own pixels (the 468 face points or more)."""
+    pts = np.asarray(points, dtype=np.float32)[:FACE_POINTS, :2]
+    ux, _, _ = _face_axes(pts)
+    along = pts[list(_FACE_OVAL)] @ ux
+    return max(float(along.max() - along.min()), 1.0)
+
+
+def _rim_centre_x(points: np.ndarray) -> float:
+    """The rim's middle column, crop pixels -- what the width fit scales about."""
+    pts = np.asarray(points, dtype=np.float32)[:FACE_POINTS, 0]
+    rim = pts[list(_FACE_OVAL)]
+    return float((rim.max() + rim.min()) / 2.0)
+
+
+def _width_scale(ratio: float | None, fit: float) -> float:
+    """The horizontal scale the render and the portrait's oval take: ``fit``
+    of the way from 1 to ``ratio``, within [_FACE_WIDTH_MIN, _FACE_WIDTH_MAX];
+    1 for an unread ratio, an off fit, or a difference inside the dead band."""
+    if ratio is None or fit <= 0.0 or not math.isfinite(ratio):
+        return 1.0
+    scale = min(max(1.0 + fit * (ratio - 1.0), _FACE_WIDTH_MIN), _FACE_WIDTH_MAX)
+    return 1.0 if abs(scale - 1.0) < _WIDTH_DEADBAND else float(scale)
+
+
+def _squeeze_points(points: np.ndarray, centre_x: float, scale: float) -> np.ndarray:
+    """``points`` with their x scaled by ``scale`` about ``centre_x``."""
+    out = np.array(points, dtype=np.float32, copy=True)
+    out[:, 0] = centre_x + (out[:, 0] - centre_x) * scale
+    return out
+
+
+def _squeeze_face(
+    face: np.ndarray,
+    centre_x: float,
+    scale: float,
+    centre_y: float = 0.0,
+    scale_y: float = 1.0,
+) -> np.ndarray:
+    """The rendered crop (H, W, 3) with its columns scaled by ``scale``
+    about ``centre_x`` -- the width fit on the CPU path -- and, day 23,
+    its rows by ``scale_y`` about ``centre_y`` (the height fit), in one
+    resample."""
+    import cv2
+
+    h, w = face.shape[:2]
+    matrix = np.array(
+        [[scale, 0.0, centre_x * (1.0 - scale)], [0.0, scale_y, centre_y * (1.0 - scale_y)]],
+        dtype=np.float32,
+    )
+    squeezed: np.ndarray = cv2.warpAffine(
+        face, matrix, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT
+    )
+    return squeezed
+
+
+def _width_frame_ok(pose: HeadPose | None) -> bool:
+    if pose is None:
+        return False
+    return abs(pose.pitch) <= _WIDTH_FRONTAL[0] and abs(pose.yaw) <= _WIDTH_FRONTAL[1]
+
+
+# Day 23 (2026-10-16), the height fit -- the width fit's vertical twin. The
+# crop makes the two faces the same HEIGHT (forehead top to chin), but not
+# the same shape inside it: a portrait with a taller forehead puts its brows
+# and eyes LOWER than the person's at the same chin. His first shaved
+# avatar, capture 02:33: the avatar's nose, mouth and chin on his, its eyes
+# 10 px under his, its brows 20 (scripts/probes/face_height.py: his brow
+# top to chin 0.843 of the face height, the portrait's 0.805 -> x1.047;
+# his own avatar x1.032, the woman's x1.017). Where the brows sit is where
+# the join is: the forehead starts there, the oval's top is measured from
+# there, and his own brow shows beside the avatar's when they differ.
+#
+# The fit: the ratio of the driver's brow-top-to-chin to the portrait's
+# (along the face's own vertical, in the crop, still frontal frames, the
+# median) scales the render and the portrait's points vertically about
+# the portrait's CHIN ROW -- the chin stays on his, everything above
+# rises -- in the paste alone, in the same resample as the width. The
+# forehead's plan then reads the lifted geometry. ``face_height_fit``
+# (0..1, 1 default) is how much is applied; 0 is off and byte-identical.
+# ``driver_face_height`` (a ratio, from a profile) replaces the reading.
+_FACE_HEIGHT_FIT = 1.0
+_FACE_HEIGHT_MIN = 0.90
+_FACE_HEIGHT_MAX = 1.10
+
+
+def _face_height_fit(options: dict[str, Any]) -> float:
+    """``face_height_fit`` in ``[0, 1]``, default :data:`_FACE_HEIGHT_FIT`."""
+    value = float(options.get("face_height_fit", _FACE_HEIGHT_FIT))
+    if not 0.0 <= value <= 1.0:
+        msg = f"face_height_fit must be in [0, 1], got {value}"
+        raise ValueError(msg)
+    return value
+
+
+def _driver_face_height(options: dict[str, Any]) -> float | None:
+    """``driver_face_height`` -- the person's brow-top-to-chin over the
+    portrait's, both of the face height, from a profile; ``None`` unset."""
+    raw = options.get("driver_face_height")
+    if raw is None:
+        return None
+    value = float(raw)
+    if not 0.5 <= value <= 2.0:
+        msg = f"driver_face_height must be in [0.5, 2], got {value}"
+        raise ValueError(msg)
+    return value
+
+
+def _brow_chin(points: np.ndarray) -> float:
+    """The brow top to the chin along the face's own vertical, in the
+    points' own pixels (the 468 face points or more)."""
+    pts = np.asarray(points, dtype=np.float32)[:FACE_POINTS, :2]
+    _, uy, _ = _face_axes(pts)
+    brow_top, _ = _forehead_geometry(pts)
+    return max(float((pts[_CHIN] - brow_top) @ uy), 1.0)
+
+
+def _chin_row(points: np.ndarray) -> float:
+    """The chin's row, crop pixels -- what the height fit scales about."""
+    return float(np.asarray(points, dtype=np.float32)[_CHIN, 1])
+
+
+def _height_scale(ratio: float | None, fit: float) -> float:
+    """The vertical scale the render and the portrait's points take:
+    ``fit`` of the way from 1 to ``ratio``, within [_FACE_HEIGHT_MIN,
+    _FACE_HEIGHT_MAX]; 1 for an unread ratio, an off fit, or a difference
+    inside the dead band."""
+    if ratio is None or fit <= 0.0 or not math.isfinite(ratio):
+        return 1.0
+    scale = min(max(1.0 + fit * (ratio - 1.0), _FACE_HEIGHT_MIN), _FACE_HEIGHT_MAX)
+    return 1.0 if abs(scale - 1.0) < _WIDTH_DEADBAND else float(scale)
+
+
+def _lift_points(points: np.ndarray, chin_y: float, scale: float) -> np.ndarray:
+    """``points`` with their y scaled by ``scale`` about the row ``chin_y``."""
+    out = np.array(points, dtype=np.float32, copy=True)
+    out[:, 1] = chin_y + (out[:, 1] - chin_y) * scale
+    return out
+
+
+# Day 22 evening, his held press at a turn to his right (yaw -45) and his
+# words: "on the side I turn to, my eye, brow, cheek and lip show -- both
+# sides". The network draws the head less turned than his and narrower on
+# the profile side (see _turn_boost), and the paste follows HIS oval: between
+# the drawn face's silhouette and his own profile the guard keeps nothing
+# (the render there is the photograph's background), so his skin shows,
+# and inside the feather his eye shines through beside the avatar's. The
+# turn boost closes most of the gap in angle; what is left is closed in
+# the PASTE: on every row between the brows and the chin the drawn face's
+# near edge (the first non-background, non-border column from the profile
+# side) is read against the paste's own near edge (his oval with the
+# day-20 room), and the render is scaled horizontally about the paste's
+# far edge so the two meet -- a per-row scale within _OUTLINE_SCALE,
+# smoothed over _OUTLINE_SMOOTH rows, faded to nothing outside the fitted
+# rows, and eased over frames (_OUTLINE_EMA). It comes on with the turn
+# (the room's own gate, nothing within 12 degrees of the rest yaw), so a
+# frontal frame's paste is the one it was to the byte. Prototyped on the
+# press in scripts/probes/outline_fit.py: the near-side gap read -6 px at
+# the median, 19 at the brow, and the avatar's eye landed on his.
+# ``outline_fit`` (portrait option, 0..1, default 1) is how much of the
+# fit is applied; 0 is off.
+_OUTLINE_FIT = 1.0
+# The per-row scale's bounds: source x = x * scale + shift, so 0.88 widens
+# the near side by at most 14% (measured on his session's left turn at
+# +51: his nose stands out further than the avatar's, and a widening of
+# 18% drew the avatar's nose large). The fit never NARROWS (1.0): where
+# the drawn face already reaches past the paste's edge there is nothing
+# of his to cover, and pulling the render in there (as the first build
+# did at a moderate turn, where the drawn edge lies outside the oval's
+# eroded edge) only uncovered him -- his "the face is lost sooner" of
+# the second look.
+_OUTLINE_SCALE = (0.88, 1.0)
+# The paste's edge the drawn face is fitted to is the oval's own hull
+# (alpha over this), not its half-alpha line a shrink and half a feather
+# inside it.
+_OUTLINE_TARGET_ALPHA = 0.05
+# The nose is left alone: on its rows the profile IS the nose, and his
+# nose and the avatar's differ in shape, not in turn -- fitted, the
+# avatar's nose stretched into a blob (his left-turn press of 20:29) and
+# sampled the background as a white sheen on the tip (his right-turn one).
+# The band from under the eyes to under the nostrils reads the identity,
+# ramped over this many rows on either side.
+_OUTLINE_NOSE_RAMP = 12.0
+_NOSE_BOTTOM = 2
+_OUTLINE_SMOOTH = 21  # rows, odd
+_OUTLINE_FADE_ROWS = 40.0
+_OUTLINE_EMA = 0.5  # of the previous frame's map kept
+_OUTLINE_BORDER = 12.0  # below this (max channel) a crop pixel is the warp's black border
+_OUTLINE_MIN_SPAN = 8.0
+# The drawn face's near edge is looked for within this many crop px outside
+# the paste's own near edge (and nowhere past its far edge): the render is
+# the face at his face, and the photograph's own edge against the warp's
+# black border -- a dark grey ramp 45 px into the crop on his press --
+# would otherwise read as the "drawn face" (the prototype took the largest
+# blob; the engine takes the window).
+_OUTLINE_WINDOW = 48
+
+
+def _outline_fit(options: dict[str, Any]) -> float:
+    """``outline_fit`` in ``[0, 1]``, default :data:`_OUTLINE_FIT`."""
+    value = float(options.get("outline_fit", _OUTLINE_FIT))
+    if not 0.0 <= value <= 1.0:
+        msg = f"outline_fit must be in [0, 1], got {value}"
+        raise ValueError(msg)
+    return value
+
+
+def _row_edges(mask: np.ndarray, threshold: float = 0.5) -> tuple[np.ndarray, np.ndarray]:
+    """Per row of ``mask`` (H, W): the first and the last column over
+    ``threshold``, -1 where the row has none."""
+    hit = mask > threshold
+    any_row = hit.any(axis=1)
+    first = np.where(any_row, hit.argmax(axis=1), -1)
+    last = np.where(any_row, mask.shape[1] - 1 - hit[:, ::-1].argmax(axis=1), -1)
+    return first.astype(np.int32), last.astype(np.int32)
+
+
+def _outline_maps(
+    drawn_near: np.ndarray,
+    target_first: np.ndarray,
+    target_last: np.ndarray,
+    *,
+    near_left: bool,
+    first_row: int,
+    last_row: int,
+    weight: float,
+    previous: tuple[np.ndarray, np.ndarray] | None,
+    exclude: tuple[int, int] | None = None,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """The per-row horizontal map ``(scale, shift)`` (each (H,) float32:
+    source x = x * scale + shift, crop pixels) that takes the drawn face's
+    near edge onto the paste's near edge about the paste's far edge, on
+    rows ``first_row``..``last_row``, faded outside, left alone on the
+    rows of ``exclude`` (the nose band, ramped over _OUTLINE_NOSE_RAMP),
+    eased against ``previous`` and weighted by ``weight``; ``None`` when
+    no row fits."""
+    import cv2
+
+    size = len(drawn_near)
+    scale = np.ones(size, dtype=np.float32)
+    shift = np.zeros(size, dtype=np.float32)
+    pivots = np.zeros(size, dtype=np.float32)
+    valid = np.zeros(size, dtype=bool)
+    lo, hi = max(first_row, 0), min(last_row, size - 1)
+    for r in range(lo, hi + 1):
+        d_near = float(drawn_near[r])
+        tl, tr = float(target_first[r]), float(target_last[r])
+        if d_near < 0.0 or tl < 0.0 or tr - tl < _OUTLINE_MIN_SPAN:
+            continue
+        pivot, t_near = (tr, tl) if near_left else (tl, tr)
+        if abs(pivot - t_near) < _OUTLINE_MIN_SPAN:
+            continue
+        s = (pivot - d_near) / (pivot - t_near)
+        scale[r] = min(max(s, _OUTLINE_SCALE[0]), _OUTLINE_SCALE[1])
+        pivots[r] = pivot
+        valid[r] = True
+    if not valid.any():
+        return None
+    idx = np.nonzero(valid)[0]
+    first, last = int(idx[0]), int(idx[-1])
+    # the unfitted rows inside take the nearest fitted row's map
+    for r in range(first, last + 1):
+        if valid[r]:
+            shift[r] = pivots[r] - pivots[r] * scale[r]
+        else:
+            j = idx[np.abs(idx - r).argmin()]
+            scale[r], shift[r] = scale[j], pivots[j] - pivots[j] * scale[j]
+    smooth_scale = np.asarray(
+        cv2.GaussianBlur(scale.reshape(-1, 1), (1, _OUTLINE_SMOOTH), 0), dtype=np.float32
+    ).reshape(-1)
+    smooth_shift = np.asarray(
+        cv2.GaussianBlur(shift.reshape(-1, 1), (1, _OUTLINE_SMOOTH), 0), dtype=np.float32
+    ).reshape(-1)
+    rows = np.arange(size, dtype=np.float32)
+    outside = np.where(rows < first, first - rows, np.where(rows > last, rows - last, 0.0))
+    fade = np.clip(1.0 - outside / _OUTLINE_FADE_ROWS, 0.0, 1.0).astype(np.float32) * float(weight)
+    if exclude is not None:
+        lo_x, hi_x = float(exclude[0]), float(exclude[1])
+        inside = np.where(rows < lo_x, lo_x - rows, np.where(rows > hi_x, rows - hi_x, 0.0))
+        fade = fade * np.clip(inside / _OUTLINE_NOSE_RAMP, 0.0, 1.0).astype(np.float32)
+    out_scale = np.asarray(1.0 + (smooth_scale - 1.0) * fade, dtype=np.float32)
+    out_shift = np.asarray(smooth_shift * fade, dtype=np.float32)
+    if previous is not None:
+        out_scale = np.asarray(
+            _OUTLINE_EMA * previous[0] + (1.0 - _OUTLINE_EMA) * out_scale, dtype=np.float32
+        )
+        out_shift = np.asarray(
+            _OUTLINE_EMA * previous[1] + (1.0 - _OUTLINE_EMA) * out_shift, dtype=np.float32
+        )
+    return out_scale, out_shift
+
+
+def _outline_window(
+    target_first: np.ndarray, target_last: np.ndarray, near_left: bool
+) -> tuple[np.ndarray, np.ndarray]:
+    """Per row, the columns ``(low, high)`` the drawn face's near edge is
+    looked for in: from _OUTLINE_WINDOW outside the paste's near edge to
+    its far edge; an empty window (-1, -2) where the row has no paste."""
+    has = target_first >= 0
+    if near_left:
+        low = np.where(has, target_first - _OUTLINE_WINDOW, -1)
+        high = np.where(has, target_last, -2)
+    else:
+        low = np.where(has, target_first, -1)
+        high = np.where(has, target_last + _OUTLINE_WINDOW, -2)
+    return low.astype(np.int32), high.astype(np.int32)
+
+
+def _drawn_near_edge_np(
+    face: np.ndarray,
+    background: np.ndarray,
+    near_left: bool,
+    window: tuple[np.ndarray, np.ndarray] | None = None,
+) -> np.ndarray:
+    """Per row of the rendered crop (H, W, 3): the first column from the
+    near side, within ``window`` (per-row (low, high) columns, see
+    :func:`_outline_window`; None: the whole row), that is neither the
+    photograph's background nor the crop's black border; -1 where none."""
+    not_background = np.abs(face.astype(np.float32) - background).max(axis=2) >= _BACKGROUND_NEAR
+    not_border = face.max(axis=2) > _OUTLINE_BORDER
+    drawn = not_background & not_border
+    if window is not None:
+        cols = np.arange(face.shape[1])[None, :]
+        drawn &= (cols >= window[0][:, None]) & (cols <= window[1][:, None])
+    first, last = _row_edges(drawn.astype(np.float32))
+    return first if near_left else last
+
+
+# Day 23 (2026-10-16), his press at a turn to his left (+34): "my eye and
+# eyelashes remain". Measured (scripts/probes/eye_alpha.py): the drawn
+# face's far edge ends 5-10 px inside his far eye's outer corner, and his
+# lashes sit in the paste's feather beyond it (alpha 0.88 at the corner,
+# 0.59 five px out, 0.08 ten) -- the same on the 09-18 tree. The room
+# (day 20) pastes the driver's oval only where the render is the drawn
+# face, and there the render is the photograph's background: nothing of
+# the avatar reaches his lashes. So at a turn the render's profile edge is
+# carried outward: on every row, the ``profile_fill_px`` columns beyond
+# the drawn face's edge on the profile side that are the background take
+# the edge column's own colour (the avatar's cheek skin), ramped with the
+# turn gate; the guard then sees drawn face there and the room pastes it,
+# still inside the driver's oval. Off a turn nothing is touched.
+_PROFILE_FILL_PX = 12
+_PROFILE_FILL_MAX = 40
+# The colour carried out is read this many columns INSIDE the drawn edge,
+# and the edge's own columns are overwritten with it too: the edge column
+# is the network's anti-aliased blend of skin and the photograph's light
+# background -- carried out as it was it drew a pale streak down the far
+# temple on his press, and left in place under the filled strip it drew a
+# pale jagged line along it.
+_PROFILE_FILL_INSET = 3
+
+
+def _profile_fill(options: dict[str, Any]) -> int:
+    """``profile_fill_px`` in ``[0, _PROFILE_FILL_MAX]``, default
+    :data:`_PROFILE_FILL_PX`; 0 is off."""
+    value = int(options.get("profile_fill_px", _PROFILE_FILL_PX))
+    if not 0 <= value <= _PROFILE_FILL_MAX:
+        msg = f"profile_fill_px must be in [0, {_PROFILE_FILL_MAX}], got {value}"
+        raise ValueError(msg)
+    return value
+
+
+def _profile_fill_np(
+    face: np.ndarray, background: np.ndarray, edge: np.ndarray, near_left: bool, width_px: int
+) -> np.ndarray:
+    """The rendered crop (H, W, 3) with, on every row, the ``width_px``
+    background columns beyond the drawn face's edge on the profile side
+    (``edge``, (H,) int, -1 where none; see :func:`_drawn_near_edge_np`)
+    filled with the edge column's own colour."""
+    h, w = face.shape[:2]
+    cols = np.arange(w)[None, :]
+    e = edge.astype(np.int64)[:, None]
+    inset = _PROFILE_FILL_INSET
+    if near_left:
+        beyond = (cols < e) & (cols >= e - width_px)
+        rim = (cols >= e) & (cols < e + inset)
+        inside = e + inset
+    else:
+        beyond = (cols > e) & (cols <= e + width_px)
+        rim = (cols <= e) & (cols > e - inset)
+        inside = e - inset
+    is_background = np.abs(face.astype(np.float32) - background).max(axis=2) < _BACKGROUND_NEAR
+    write = (e >= 0) & ((beyond & is_background) | rim)
+    src = np.where(write, np.clip(inside, 0, w - 1), cols)
+    filled: np.ndarray = np.take_along_axis(face, src[:, :, None], axis=1)
+    return filled
+
+
+def _remap_outline(
+    patch: np.ndarray, scale: np.ndarray, shift: np.ndarray, left: int, top: int
+) -> np.ndarray:
+    """``patch`` (h, w, float32; a crop-space map such as the guard's keep,
+    whose first pixel is crop column ``left``, row ``top``) read through
+    the outline fit's per-row map, so it lines up with the render the paste
+    samples through the same map (see _outline_maps)."""
+    import cv2
+
+    h, w = patch.shape[:2]
+    rows = np.clip(np.arange(h) + top, 0, len(scale) - 1)
+    xs = np.arange(w, dtype=np.float32)[None, :] + left
+    map_x = (xs * scale[rows][:, None] + shift[rows][:, None] - left).astype(np.float32)
+    map_y = np.repeat(np.arange(h, dtype=np.float32)[:, None], w, axis=1)
+    out: np.ndarray = cv2.remap(
+        patch, map_x, map_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE
+    )
+    return out
+
+
+def _hairline_drifted(loaded: _Portrait) -> bool:
+    """Day 22: whether the median of the last :data:`_HAIRLINE_MIN_SAMPLES`
+    readings (at least half of them a reading) has left the hairline the
+    forehead was settled from by more than :data:`_HAIRLINE_FOLLOW`."""
+    if loaded.settle_hairline is None or len(loaded.hairline_samples) < _HAIRLINE_MIN_SAMPLES:
+        return False
+    found = [s for s in loaded.hairline_samples if s is not None]
+    if len(found) * 2 < len(loaded.hairline_samples):
+        return False
+    return abs(float(np.median(found)) - loaded.settle_hairline) > _HAIRLINE_FOLLOW
 
 
 def _hairline_frame_ok(pose: HeadPose | None) -> bool:
@@ -2185,6 +2768,9 @@ def _background_guard(options: dict[str, Any]) -> bool:
 # by the guard's keep map in full, so it needs none of the guard's own
 # caution about the frontal jaw.
 _ROOM_YAW = (12.0, 16.0)
+# Day 22 evening: the room reaches no higher than this fraction of the
+# forehead above the brow line (the far brow's end at a turn is within it).
+_ROOM_BROW_MARGIN = 0.2
 
 
 def _room_weight(loaded: _Portrait, head_pose: HeadPose | None) -> float:
@@ -2200,11 +2786,64 @@ def _room_weight(loaded: _Portrait, head_pose: HeadPose | None) -> float:
 def _background_weight(loaded: _Portrait, head_pose: HeadPose | None) -> float:
     """How much of the guard applies this frame: 0.0 within
     :data:`_BACKGROUND_YAW`'s first angle of the rest yaw, 1.0 past its
-    second, linear between; 0.0 without a background or a pose."""
+    second, linear between -- and, day 22, the same over the pitch from the
+    rest pitch (:data:`_BACKGROUND_PITCH`: a look down draws the chin higher
+    in the crop and the photograph's background can show under it); the
+    larger of the two. 0.0 without a background or a pose."""
     if loaded.background is None or head_pose is None:
         return 0.0
     yaw = abs(float(head_pose.yaw) - (loaded.rest_yaw or 0.0))
-    return float(_soft_gate(yaw, _BACKGROUND_YAW))
+    pitch = abs(float(head_pose.pitch) - (loaded.rest_pitch or 0.0))
+    return float(max(_soft_gate(yaw, _BACKGROUND_YAW), _soft_gate(pitch, _BACKGROUND_PITCH)))
+
+
+# Day 22: the photograph's background under the drawn chin. On a look down
+# the network draws the chin higher in the crop and the rows under it are
+# the photograph's white; the guard above is gated by the turn (and now the
+# tilt), and the keep it cuts with wants the background JOINED to the patch's
+# border -- a blob under the chin is not. So the rows below the portrait's
+# own chin have a rule of their own, on every frame, with nothing gated and
+# nothing downloaded: a pixel there within _BACKGROUND_NEAR of the
+# background colour is background, grown by _BACKGROUND_REACH and feathered
+# by _BACKGROUND_SOFT like the guard's cut -- :func:`_chin_keep` on the CPU
+# path, :meth:`LivePortraitEngine._chin_keep_gpu` on the device, applied to
+# the mask before it is warped (CPU) or to the warped alpha through the
+# face's own sampling grid (GPU). Skin under a chin is never within 30 grey
+# levels of a flat white or grey background, so nothing of the face is cut.
+_BACKGROUND_PITCH = (12.0, 20.0)
+
+
+def _tilt_weight(loaded: _Portrait, head_pose: HeadPose | None) -> float:
+    """Day 22: how far the head is tilted from its rest pitch, as the guard
+    counts it: 0.0 within :data:`_BACKGROUND_PITCH`'s first angle, 1.0 past
+    its second, linear between; 0.0 without a pose."""
+    if head_pose is None:
+        return 0.0
+    pitch = abs(float(head_pose.pitch) - (loaded.rest_pitch or 0.0))
+    return float(_soft_gate(pitch, _BACKGROUND_PITCH))
+
+
+def _chin_keep(face: np.ndarray, background: np.ndarray, floor: float) -> np.ndarray | None:
+    """What the mask may keep of ``face`` (a BGR render patch) in the rows
+    from ``floor`` (a patch row, the portrait's chin) down: 0 where the
+    render is the photograph's background, 1 elsewhere and above ``floor``,
+    feathered; ``None`` when no such row holds background."""
+    import cv2
+
+    height = face.shape[0]
+    start = int(max(0, math.floor(floor)))
+    if start >= height:
+        return None
+    distance = np.max(np.abs(face[start:].astype(np.float32) - background), axis=2)
+    flat = (distance < _BACKGROUND_NEAR).astype(np.uint8)
+    if not flat.any():
+        return None
+    outside = np.zeros(face.shape[:2], dtype=np.uint8)
+    outside[start:] = flat
+    reach = 2 * _BACKGROUND_REACH + 1
+    grown = cv2.dilate(outside, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (reach, reach)))
+    keep = cv2.GaussianBlur((1 - grown).astype(np.float32), (_BACKGROUND_SOFT, _BACKGROUND_SOFT), 0)
+    return np.asarray(keep, dtype=np.float32)
 
 
 def _background_colour(portrait: np.ndarray) -> np.ndarray | None:
@@ -3808,6 +4447,80 @@ def _held_depth(loaded: _Portrait, head_pose: HeadPose, z: float) -> float:
     return z if loaded.z_frontal is None else loaded.z_frontal
 
 
+# Day 22 evening, his held press at a turn to his right (tracker yaw -45):
+# the avatar came out at -37, and at his +55 at +37..40 -- the network
+# turns 1:1 to about 35 degrees and saturates past it (the cap is not it:
+# 45, 60 and 90 gave the same -37). With the drawn head 8-18 degrees
+# short, its near-side eye and brow sit inward of his, and his own show
+# through the paste's feather beside them ("my brow and half an eye"). So
+# the yaw delta past _TURN_BOOST_KNEE degrees is driven harder by
+# ``turn_boost`` (an option, default 0 = off, bit-identical): delta +
+# boost * (|delta| - knee), then the clamp as before. Pitch and roll are
+# not touched.
+_TURN_BOOST_KNEE = 30.0
+_TURN_BOOST_MAX = 2.0
+# The boosted yaw needs a higher clamp than hold_yaw_degrees (45, which is
+# also where the expression starts to fade -- day 17's smeared mouth at
+# -48 -- and must stay there): measured on his session's left turn (+55),
+# a delta let through to 75 breaks the picture (a near-profile with the
+# portrait's hair smeared over the far cheek); at 56 (his held press at
+# -45 with boost 1.0) it is whole and reads -44. ``turn_cap_degrees`` is the
+# clamp's own yaw limit; None (the default) keeps it at hold_yaw_degrees.
+_TURN_CAP_MAX = 90.0
+
+
+def _turn_cap(options: dict[str, Any], hold_yaw: float) -> float:
+    """The clamp's yaw cap in degrees: ``turn_cap_degrees`` in
+    ``(0, 90]``, or ``hold_yaw`` when it is not set."""
+    raw = options.get("turn_cap_degrees")
+    if raw is None:
+        return hold_yaw
+    value = float(raw)
+    if not 0.0 < value <= _TURN_CAP_MAX:
+        msg = f"turn_cap_degrees must be in (0, {_TURN_CAP_MAX}], got {value}"
+        raise ValueError(msg)
+    return value
+
+
+def _turn_boost(options: dict[str, Any]) -> float:
+    """``turn_boost`` in ``[0, 2]``, default 0: how much harder the yaw
+    delta past :data:`_TURN_BOOST_KNEE` degrees drives the head."""
+    value = float(options.get("turn_boost", 0.0))
+    if not 0.0 <= value <= _TURN_BOOST_MAX:
+        msg = f"turn_boost must be in [0, {_TURN_BOOST_MAX}], got {value}"
+        raise ValueError(msg)
+    return value
+
+
+# Day 23 (2026-10-16): the turn is not symmetric on him. His session's turn
+# step through the engine, the drawn face read by MediaPipe
+# (scripts/probes/turn_motion.py): to his left the avatar turns 1.0-1.1 of
+# his angle up to the network's own saturation, to his right 0.7-0.8 (his
+# -23 drawn -16, his -32 drawn -26) -- on the 09-18 tree the same, and on
+# the shaved avatar the same, so it is his side (the extractor's reading
+# of his face), not the portrait's. A constant gain per side on the yaw
+# delta, before the clamp: ``turn_gain_left`` for a delta toward his left
+# (yaw +), ``turn_gain_right`` for one toward his right, both 1.0 by
+# default (bit-identical: the block is skipped), each within
+# [_TURN_GAIN_MIN, _TURN_GAIN_MAX]. A constant gain keeps the response
+# monotonic (the clamp at hold_yaw_degrees still bounds the input to the
+# network's monotonic range), where the day-22 knee boost did not.
+_TURN_GAIN_MIN = 0.5
+_TURN_GAIN_MAX = 2.0
+
+
+def _turn_gains(options: dict[str, Any]) -> tuple[float, float]:
+    """``(turn_gain_left, turn_gain_right)``, each 1.0 by default."""
+    gains = []
+    for key in ("turn_gain_left", "turn_gain_right"):
+        value = float(options.get(key, 1.0))
+        if not _TURN_GAIN_MIN <= value <= _TURN_GAIN_MAX:
+            msg = f"{key} must be in [{_TURN_GAIN_MIN}, {_TURN_GAIN_MAX}], got {value}"
+            raise ValueError(msg)
+        gains.append(value)
+    return gains[0], gains[1]
+
+
 _STEEP_POSE_MODES = ("hold", "clamp")
 # "clamp" since day 17 (his "head down, looking to the side, the face must
 # not get lost"): on natural.mkv's tilt step the hold froze 165 of 296
@@ -4377,6 +5090,11 @@ class _Portrait:
         "hairline_portrait",
         "hairline_samples",
         "hairline_settled",
+        "height_centre",
+        "height_driver",
+        "height_last",
+        "height_samples",
+        "height_scale",
         "holding",
         "last",
         "last_dt",
@@ -4392,10 +5110,13 @@ class _Portrait:
         "mar_prev",
         "mask",
         "mask_bbox",
+        "mask_points",
         "mouth_hold",
         "mouth_leak",
         "open_hold",
         "options",
+        "outline_scale",
+        "outline_shift",
         "pivot",
         "portrait_crop",
         "pose_d0",
@@ -4413,10 +5134,14 @@ class _Portrait:
         "rest_mouth_width",
         "rest_pitch",
         "rest_yaw",
+        "roots_portrait",
         "scale_d0",
         "scale_gain",
         "scale_prev",
         "scale_s",
+        "settle_hairline",
+        "settle_height",
+        "settle_width",
         "size_samples",
         "static_in",
         "static_out",
@@ -4431,8 +5156,16 @@ class _Portrait:
         "tone_frames",
         "tone_level",
         "tone_logged",
+        "turn_boost",
+        "turn_gain",
         "vram_mb",
+        "width_centre",
+        "width_driver",
+        "width_last",
         "width_prev",
+        "width_samples",
+        "width_scale",
+        "width_settled",
         "x_c_s",
         "x_s",
         "yaw_pivot",
@@ -4520,6 +5253,37 @@ class _Portrait:
         # clearance under the lower hairline.
         self.hairline_driver: float | None = _driver_hairline(self.options)
         self.hairline_last: float | None = None
+        # Day 22: the width fit -- the profile's ratio (None: read live),
+        # the still frontal readings before the settle, the last reading,
+        # the scale in force (1: none), the portrait rim's middle column it
+        # is taken about, and the portrait's points as the masks see them
+        # (None: crop_points, unsqueezed). See _settle_forehead.
+        self.width_driver: float | None = _driver_face_width(self.options)
+        self.width_samples: list[float] = []
+        self.width_last: float | None = None
+        self.width_scale: float = 1.0
+        self.width_centre: float = 0.0
+        self.mask_points: np.ndarray | None = None
+        self.width_settled: bool = False
+        # Day 23: the height fit beside it (see _brow_chin, _height_scale):
+        # the readings, the last one, the scale in force (1: none) and the
+        # portrait's chin row it is taken about; settled with the width.
+        self.height_driver: float | None = _driver_face_height(self.options)
+        self.height_samples: list[float] = []
+        self.height_last: float | None = None
+        self.height_scale: float = 1.0
+        self.height_centre: float = 0.0
+        # Day 22 evening: the outline fit's per-row map in force (crop
+        # rows; None off a turn) -- see _outline_maps.
+        self.outline_scale: np.ndarray | None = None
+        self.outline_shift: np.ndarray | None = None
+        # Day 22: the portrait's roots (see _roots_onset), and what the
+        # settle was made from -- their hairline and the width ratio -- for
+        # the capture's anchor state, so a replay plans the same forehead.
+        self.roots_portrait: float | None = None
+        self.settle_hairline: float | None = None
+        self.settle_width: float | None = None
+        self.settle_height: float | None = None
         self.hairline_clearance: float = _hairline_clearance(self.options)
         # Day 21: the driver oval's own reach once the forehead is settled
         # (None: the portrait's, as before the settle), the render's stretch
@@ -4787,6 +5551,10 @@ class _Portrait:
         # clamps against (pitch, yaw, roll -- roll unbounded).
         self.steep_clamp: bool = _steep_pose(self.options) == "clamp"
         self.pose_limit: Any = None
+        # Day 22: the turn boost past the knee, a (3, 1) static tensor the
+        # graph reads (0 for pitch and roll); None at a boost of 0.
+        self.turn_boost: Any = None
+        self.turn_gain: Any = None
         # Day 17: the blink's counter on the brows and the mouth corners
         # (see _BLINK_BROW_HOLD), read once at load.
         self.blink_brow_hold: float = _blink_brow_hold(self.options)
@@ -4869,6 +5637,8 @@ class LivePortraitEngine:
         self._paste_wait_ms = 0.0
         self._upload_ms = 0.0
         self._paste_marks = (0.0, 0.0, 0.0)
+        # Day 22: the last frame's channel order, for the GPU paste's chin keep.
+        self._frame_bgr: bool = True
 
     # --- Component ---------------------------------------------------------
 
@@ -5153,7 +5923,8 @@ class LivePortraitEngine:
         if loaded.crop_points is None:
             return
         loaded.forehead_reach = reach
-        loaded.mask = _oval_mask(loaded.crop_points, forehead_reach=reach)
+        points = loaded.crop_points if loaded.mask_points is None else loaded.mask_points
+        loaded.mask = _oval_mask(points, forehead_reach=reach)
         loaded.mask_bbox = _mask_bbox(
             loaded.mask,
             reach_below=int(np.ceil(loaded.chin_drop_max + loaded.chin_reach)),
@@ -5348,7 +6119,9 @@ class LivePortraitEngine:
         if wanted is not None:
             loaded.hair_on = wanted
         if not loaded.hairline_settled or loaded.hair_on:
-            loaded.hairline_portrait = _hairline_fraction(_luminance(portrait), points)
+            lum = _luminance(portrait)
+            loaded.hairline_portrait = _hairline_fraction(lum, points)
+            loaded.roots_portrait = _roots_onset(lum, points)
         # Day 13: the box reaches below the portrait's own chin by the
         # most the per-frame mask may let the jaw down (see _chin_drop).
         # The room the crop actually has below the portrait's chin -- see
@@ -5520,7 +6293,22 @@ class LivePortraitEngine:
             # thresholds, in the extractor's own degrees (see _drive).
             hold_pitch, hold_yaw = _hold_thresholds(loaded.options)
             loaded.pose_limit = torch.tensor(
-                [[hold_pitch], [hold_yaw], [1.0e6]], device=self._device, dtype=torch.float32
+                [[hold_pitch], [_turn_cap(loaded.options, hold_yaw)], [1.0e6]],
+                device=self._device,
+                dtype=torch.float32,
+            )
+            boost = _turn_boost(loaded.options)
+            loaded.turn_boost = (
+                None
+                if boost <= 0.0
+                else torch.tensor([[0.0], [boost], [0.0]], device=self._device, dtype=torch.float32)
+            )
+            # Day 23: the per-side yaw gain (see _turn_gains); None at 1/1.
+            gain_left, gain_right = _turn_gains(loaded.options)
+            loaded.turn_gain = (
+                None
+                if gain_left == 1.0 and gain_right == 1.0
+                else torch.tensor([gain_left, gain_right], device=self._device, dtype=torch.float32)
             )
             loaded.mouth_leak = torch.zeros(1, NUM_KP, 3, device=self._device, dtype=torch.float32)
             # The constant mouth tilt trim lives in the same offset tensor
@@ -5626,6 +6414,9 @@ class LivePortraitEngine:
             loaded.lip_rest_run = 0
             loaded.lip_rest_steps = 0
             loaded.hairline_samples = []
+            loaded.width_samples = []
+            loaded.height_samples = []
+            loaded.width_settled = False
             loaded.driver_reach = None
             loaded.forehead_stretch = 1.0
             loaded.stretch_row = None
@@ -5709,6 +6500,15 @@ class LivePortraitEngine:
             loaded.rest_gaze = None
         else:
             loaded.rest_gaze = (float(gaze[0]), float(gaze[1]))
+        # Day 22: the session's own hairline and width ratio stand in for
+        # the profile's, so the forehead and the width settle at once, as
+        # they stood -- unless the options say otherwise.
+        if loaded.hairline_driver is None and loaded.settle_hairline is not None:
+            loaded.hairline_driver = loaded.settle_hairline
+        if loaded.width_driver is None and loaded.settle_width is not None:
+            loaded.width_driver = loaded.settle_width
+        if loaded.height_driver is None and loaded.settle_height is not None:
+            loaded.height_driver = loaded.settle_height
         # The freeze's own priming of the day-7 smoothing state, and the
         # per-frame state a fresh anchor starts without (see reset_anchor).
         loaded.exp_prev.copy_(loaded.exp_d0)
@@ -5788,6 +6588,10 @@ class LivePortraitEngine:
         readings["tone_cast"] = float(tone[0].mean())
         readings["tone_contrast"] = float(tone[1].mean())
         readings["forehead_stretch"] = float(loaded.forehead_stretch)
+        readings["face_width"] = math.nan if loaded.width_last is None else loaded.width_last
+        readings["face_width_scale"] = float(loaded.width_scale)
+        readings["face_height"] = math.nan if loaded.height_last is None else loaded.height_last
+        readings["face_height_scale"] = float(loaded.height_scale)
         readings["driver_reach"] = (
             math.nan if loaded.driver_reach is None else float(loaded.driver_reach)
         )
@@ -5827,12 +6631,85 @@ class LivePortraitEngine:
                 float(np.median(found)) if len(found) * 2 >= len(loaded.hairline_samples) else None
             )
             source = f"{len(loaded.hairline_samples)} live frames"
-        brow_top, portrait_forehead = _forehead_geometry(loaded.crop_points)
+        # Day 22: the width fit settles with the forehead, once -- the
+        # profile's ratio, else the median of the still frontal readings;
+        # the portrait's points squeezed for the masks, the render in the
+        # frame. A later plan of the forehead (the hairline followed) keeps
+        # the width it has. Day 23: the height fit beside it (see
+        # _brow_chin): the portrait's points lifted about its chin row so
+        # that its brow top lands on the person's -- and the forehead's
+        # plan below reads the LIFTED geometry (its brow row, its
+        # forehead's height), since that is where the render's rows are.
+        if not loaded.width_settled:
+            if loaded.width_driver is not None:
+                ratio: float | None = loaded.width_driver
+                width_source = "the profile"
+            elif len(loaded.width_samples) >= _WIDTH_MIN_SAMPLES:
+                ratio = float(np.median(loaded.width_samples))
+                width_source = f"{len(loaded.width_samples)} still frames"
+            else:
+                ratio = None
+                width_source = f"only {len(loaded.width_samples)} still frames -- not fitted"
+            if loaded.height_driver is not None:
+                tall: float | None = loaded.height_driver
+                height_source = "the profile"
+            elif len(loaded.height_samples) >= _WIDTH_MIN_SAMPLES:
+                tall = float(np.median(loaded.height_samples))
+                height_source = f"{len(loaded.height_samples)} still frames"
+            else:
+                tall = None
+                height_source = f"only {len(loaded.height_samples)} still frames -- not fitted"
+            loaded.width_scale = _width_scale(ratio, _face_width_fit(loaded.options))
+            loaded.width_centre = _rim_centre_x(loaded.crop_points)
+            loaded.height_scale = _height_scale(tall, _face_height_fit(loaded.options))
+            loaded.height_centre = _chin_row(loaded.crop_points)
+            points = loaded.crop_points
+            if loaded.width_scale != 1.0:
+                points = _squeeze_points(points, loaded.width_centre, loaded.width_scale)
+            if loaded.height_scale != 1.0:
+                points = _lift_points(points, loaded.height_centre, loaded.height_scale)
+            loaded.mask_points = None if points is loaded.crop_points else points
+            loaded.width_samples = []
+            loaded.height_samples = []
+            loaded.width_settled = True
+            loaded.settle_width = ratio
+            loaded.settle_height = tall
+            _LOG.info(
+                "Avatar %s: face width -- theirs %s of the portrait's from %s, the render "
+                "and the oval scaled x%.3f about column %.0f (face_width_fit %.2f); brow to "
+                "chin -- theirs %s of the portrait's from %s, scaled x%.3f about the chin "
+                "row %.0f (face_height_fit %.2f)",
+                loaded.descriptor.id,
+                "?" if ratio is None else f"{ratio:.3f}",
+                width_source,
+                loaded.width_scale,
+                loaded.width_centre,
+                _face_width_fit(loaded.options),
+                "?" if tall is None else f"{tall:.3f}",
+                height_source,
+                loaded.height_scale,
+                loaded.height_centre,
+                _face_height_fit(loaded.options),
+            )
+        # The plan's portrait side from the lifted points alone (not the
+        # squeezed ones: the width changes no row, and with the height fit
+        # off the plan's inputs are what they were, to the bit).
+        portrait_points = (
+            loaded.crop_points
+            if loaded.height_scale == 1.0
+            else _lift_points(loaded.crop_points, loaded.height_centre, loaded.height_scale)
+        )
+        brow_top, portrait_forehead = _forehead_geometry(portrait_points)
         driver_forehead = (
             portrait_forehead
             if driver_crop_points is None
             else _forehead_geometry(driver_crop_points)[1]
         )
+        # Day 23: a portrait with no hairline read (a shaved head, a very
+        # high forehead) has no hair roots either -- what the roots reader
+        # met there (his first shaved avatar: "roots" at 0.90 of the
+        # forehead, the scalp's own shading) must not cap the clean skin.
+        roots = None if loaded.hairline_portrait is None else loaded.roots_portrait
         portrait_reach, driver_reach, stretch = _forehead_plan(
             loaded.hairline_portrait,
             driver,
@@ -5841,7 +6718,9 @@ class LivePortraitEngine:
             clearance=loaded.hairline_clearance,
             margin=_hair_root_margin(loaded.options),
             stretch_max=_forehead_stretch_max(loaded.options),
+            portrait_roots=roots,
         )
+        loaded.settle_hairline = driver
         LivePortraitEngine._apply_forehead_reach(loaded, portrait_reach)
         loaded.driver_reach = driver_reach
         loaded.forehead_stretch = stretch
@@ -5853,13 +6732,14 @@ class LivePortraitEngine:
         _LOG.info(
             "Avatar %s: forehead settled -- the portrait's oval to %.2f of its forehead, "
             "the driver's to %.2f of theirs, the render stretched x%.2f above the brows "
-            "(portrait hairline %s, theirs %s from %s, foreheads %.0f / %.0f crop px, "
-            "clearance %.2f, roots' margin %.2f)",
+            "(portrait hairline %s, its roots %s, theirs %s from %s, foreheads %.0f / %.0f "
+            "crop px, clearance %.2f, roots' margin %.2f)",
             loaded.descriptor.id,
             loaded.forehead_reach,
             driver_reach,
             stretch,
             "?" if loaded.hairline_portrait is None else f"{loaded.hairline_portrait:.2f}",
+            "?" if loaded.roots_portrait is None else f"{loaded.roots_portrait:.2f}",
             "?" if driver is None else f"{driver:.2f}",
             source,
             portrait_forehead,
@@ -5904,6 +6784,7 @@ class LivePortraitEngine:
         scene = frame.data
         height, width = scene.shape[:2]
         bgr = frame.pixel_format is PixelFormat.BGR24
+        self._frame_bgr = bgr
         # 2026-10-08: on CUDA the face stays on the GPU from the graph to the
         # paste (see _paste_gpu); on the CPU -- the tests' fixtures -- the
         # frame path is the one it was, to the byte.
@@ -5988,6 +6869,15 @@ class LivePortraitEngine:
             still = _pose_still(loaded.pose_recent, tracking.head_pose)
             if not still:
                 self._restart_anchor(loaded)
+            # Day 22: his rim's width over the portrait's, this frame (the
+            # calibration's instrument, frame_readings["face_width"]), and
+            # kept for the settle on still frontal frames (see _rim_width).
+            if loaded.crop_points is not None and _width_frame_ok(tracking.head_pose):
+                loaded.width_last = _rim_width(crop_points) / _rim_width(loaded.crop_points)
+                loaded.height_last = _brow_chin(crop_points) / _brow_chin(loaded.crop_points)
+                if still and not loaded.hairline_settled:
+                    loaded.width_samples.append(loaded.width_last)
+                    loaded.height_samples.append(loaded.height_last)
             if _should_hold(loaded, tracking.head_pose) and loaded.last is not None:
                 face = loaded.last[0]
                 # Whatever his mouth does while held is not seen; the first
@@ -6082,6 +6972,8 @@ class LivePortraitEngine:
                     # when the hair worker needs it.
                     face = face_dev.permute(2, 0, 1)
                     face = (face.flip(0) if bgr else face).float()
+                    if loaded.width_scale != 1.0 or loaded.height_scale != 1.0:
+                        face = self._squeeze_face_gpu(face, loaded)
                     if loaded.hair_on:
                         # The newest matte folded in now, for this frame's
                         # paste; this frame's face to the worker after the
@@ -6095,6 +6987,14 @@ class LivePortraitEngine:
                 else:
                     face_rgb = face_dev.cpu().numpy()
                     face = cv2.cvtColor(face_rgb, cv2.COLOR_RGB2BGR) if bgr else face_rgb
+                    if loaded.width_scale != 1.0 or loaded.height_scale != 1.0:
+                        face = _squeeze_face(
+                            face,
+                            loaded.width_centre,
+                            loaded.width_scale,
+                            loaded.height_centre,
+                            loaded.height_scale,
+                        )
                     # Day 17 (C1b): this render to the hair segmenter's
                     # thread, and the newest matte folded in -- see
                     # _update_hair.
@@ -6142,6 +7042,17 @@ class LivePortraitEngine:
                 loaded.hairline_last = reading
                 if not loaded.hairline_settled:
                     loaded.hairline_samples.append(reading)
+                elif loaded.hairline_driver is None:
+                    # Day 22: the forehead FOLLOWS their hairline -- his hand
+                    # pulling the hair back raised it a third of a forehead
+                    # and the settled join stayed where it was, a band of
+                    # his own skin above it. The last readings are kept,
+                    # and when their median leaves the settled hairline by
+                    # _HAIRLINE_FOLLOW the plan is made again from them.
+                    loaded.hairline_samples.append(reading)
+                    del loaded.hairline_samples[:-_HAIRLINE_MIN_SAMPLES]
+                    if _hairline_drifted(loaded):
+                        loaded.hairline_settled = False
             loaded.chin_drop = chin_drop
             if not loaded.hairline_settled and loaded.anchor_seen >= loaded.anchor_wanted:
                 self._settle_forehead(loaded, crop_points)
@@ -6150,14 +7061,31 @@ class LivePortraitEngine:
             # in -- and, under an open mouth, the portrait's own let down to
             # meet it; see _frame_mask.
             assert loaded.mask is not None
+            # Day 22: at a strong turn (press 181432, yaw -40) or a look
+            # down the paste reached 12 frame px under his chin -- the reach
+            # under the chin (mask_chin_reach, his 0.04) drawing the avatar's
+            # light chin underside over his dark one, a pale blob. The reach
+            # fades out with the turn or the tilt (the guard's own gates);
+            # nothing frontal. (Pulling his oval's jaw in as well, by 0.06 of
+            # the face width, was tried on the press and took the join 26 px
+            # up: his stubbled chin showed under the avatar's, the day-12
+            # ledge. The reach alone is the blob's own height.)
+            tilt = max(
+                _tilt_weight(loaded, tracking.head_pose),
+                _background_weight(loaded, tracking.head_pose),
+            )
             mask, driver_oval, portrait_oval = _frame_masks(
                 loaded.mask,
                 crop_points,
                 jaw_shrink=_mask_jaw_shrink(loaded.options),
-                portrait_crop_points=loaded.crop_points,
+                portrait_crop_points=(
+                    loaded.crop_points if loaded.mask_points is None else loaded.mask_points
+                ),
                 chin_drop=chin_drop,
                 forehead_reach=loaded.forehead_reach,
-                chin_reach=loaded.chin_reach,
+                # Day 22: the reach under the chin fades out with the turn
+                # or the tilt (see above).
+                chin_reach=loaded.chin_reach * (1.0 - tilt),
                 # Day 17, his first look: with the avatar's hair on, his own
                 # oval must not stop the paste at HIS hairline -- a band of
                 # his hair showed between the avatar's forehead and its hair
@@ -6175,7 +7103,24 @@ class LivePortraitEngine:
             loaded.guard_weight = _background_weight(loaded, tracking.head_pose)
             # Day 20: past the portrait's own oval at a turn, the driver's
             # -- pasted where the render is the drawn face (see _turn_room).
-            extra = _turn_room(portrait_oval, driver_oval, _room_weight(loaded, tracking.head_pose))
+            room = _room_weight(loaded, tracking.head_pose)
+            extra = _turn_room(portrait_oval, driver_oval, room)
+            if extra is not None:
+                # Day 22 evening, his "the avatar's hair above the forehead"
+                # and the smear on the far side of a turn: since day 21 his
+                # oval reaches HIS hairline, above the portrait's clean skin,
+                # and at a turn the room pasted that strip -- the render's
+                # hair, which the guard (background only) keeps. The room
+                # is for the far brow and eye (day 20): nothing above the
+                # brow line less _ROOM_BROW_MARGIN of the forehead.
+                brow_top, forehead = _forehead_geometry(crop_points)
+                ceiling = int(max(0, round(float(brow_top[1]) - _ROOM_BROW_MARGIN * forehead)))
+                extra[:ceiling] = 0.0
+            # Day 22 evening: the render's profile side fitted to his
+            # outline at a turn (see _outline_maps).
+            face = self._fit_outline(
+                loaded, face, mask, extra, crop_points, tracking.head_pose, room, on_gpu
+            )
             loaded.last = (face, to_frame, mask, extra)
             self.last_timings = {
                 "crop_ms": (cropped - started) * 1000.0,
@@ -6731,6 +7676,22 @@ class LivePortraitEngine:
         # drawing, the expression goes on, and the head is drawn at the
         # steepest angle a frontal portrait can still carry while his own
         # goes further. The EMA state above keeps the real reading.
+        if loaded.turn_boost is not None:
+            # Day 22: the yaw past the knee driven harder (see _turn_boost).
+            delta = pose_now - loaded.pose_d0
+            past = torch.clamp(delta.abs() - _TURN_BOOST_KNEE, min=0.0)
+            pose_now = loaded.pose_d0 + delta + loaded.turn_boost * past * delta.sign()
+        if loaded.turn_gain is not None:
+            # Day 23: the yaw delta scaled by the side it turns to (see
+            # _turn_gains); pitch and roll untouched.
+            # The extractor's yaw runs the other way from the tracker's: a
+            # delta under 0 here is a turn to HIS LEFT (tracker yaw +),
+            # measured on his session (turn_motion.py with one gain set).
+            yaw_delta = pose_now[1:2] - loaded.pose_d0[1:2]
+            gain = torch.where(yaw_delta < 0.0, loaded.turn_gain[0], loaded.turn_gain[1])
+            pose_now = torch.cat(
+                [pose_now[0:1], loaded.pose_d0[1:2] + yaw_delta * gain, pose_now[2:3]], dim=0
+            )
         if loaded.steep_clamp and loaded.pose_limit is not None:
             pose_now = loaded.pose_d0 + torch.maximum(
                 torch.minimum(pose_now - loaded.pose_d0, loaded.pose_limit), -loaded.pose_limit
@@ -7031,14 +7992,26 @@ class LivePortraitEngine:
         keep = None
         if loaded.background is not None and (weight > 0.0 or extra is not None):
             keep = _background_keep(face_patch, loaded.background)
+            if keep is not None and loaded.outline_scale is not None:
+                assert loaded.outline_shift is not None
+                # Day 22 evening: the keep through the outline fit's map,
+                # as the render is (see _outline_maps).
+                keep = _remap_outline(keep, loaded.outline_scale, loaded.outline_shift, bx0, by0)
         if keep is not None and weight > 0.0:
             mask_patch = mask_patch * (1.0 - weight * (1.0 - keep))
         if extra is not None:
             # Day 20: the room past the portrait's oval, the drawn face only.
             extra_patch = extra[by0:by1, bx0:bx1, 0]
             mask_patch = mask_patch + (extra_patch if keep is None else extra_patch * keep)
+        if loaded.background is not None and loaded.crop_points is not None:
+            # Day 22: the background under the drawn chin, every frame.
+            chin_keep = _chin_keep(
+                face_patch, loaded.background, float(loaded.crop_points[_CHIN, 1]) - by0
+            )
+            if chin_keep is not None:
+                mask_patch = mask_patch * chin_keep
 
-        placed = self._warp_face(face_patch, shifted, size, loaded, by0)
+        placed = self._warp_face(face_patch, shifted, size, loaded, by0, bx0)
         mask = cv2.warpAffine(mask_patch, shifted, size, flags=cv2.INTER_LINEAR)[:, :, None]
 
         region = output[y0:y1, x0:x1].astype(np.float32)
@@ -7102,6 +8075,204 @@ class LivePortraitEngine:
         output[y0:y1, x0:x1] = cv2.add(region, cv2.multiply(delta, alpha3), dtype=cv2.CV_8U)
         return output
 
+    def _fit_outline(
+        self,
+        loaded: _Portrait,
+        face: Any,
+        mask: np.ndarray,
+        extra: np.ndarray | None,
+        crop_points: np.ndarray,
+        head_pose: HeadPose | None,
+        room: float,
+        on_gpu: bool,
+    ) -> Any:
+        """Day 22 evening: the per-row map that fits the drawn face's near
+        edge to the paste's at a turn, kept on ``loaded`` for the paste
+        (see _outline_maps); cleared off a turn, so a frontal frame's
+        paste is untouched. Day 23: before the map, the render's profile
+        edge carried outward over the background (see _profile_fill); the
+        face returned is the one to paste (the same object when nothing
+        was done)."""
+        weight = room * _outline_fit(loaded.options)
+        fill_px = int(round(_profile_fill(loaded.options) * room))
+        if (weight <= 0.0 and fill_px <= 0) or loaded.background is None or head_pose is None:
+            loaded.outline_scale = None
+            loaded.outline_shift = None
+            return face
+        near_left = float(head_pose.yaw) - (loaded.rest_yaw or 0.0) < 0.0
+        paste = mask[:, :, 0] if extra is None else np.maximum(mask[:, :, 0], extra[:, :, 0])
+        target_first, target_last = _row_edges(paste, _OUTLINE_TARGET_ALPHA)
+        window = _outline_window(target_first, target_last, near_left)
+        if on_gpu:
+            drawn_near = self._drawn_near_edge_gpu(face, loaded.background, near_left, window)
+            if fill_px > 0:
+                face = self._profile_fill_gpu(
+                    face, loaded.background, drawn_near, near_left, fill_px
+                )
+        else:
+            drawn_near = _drawn_near_edge_np(np.asarray(face), loaded.background, near_left, window)
+            if fill_px > 0:
+                face = _profile_fill_np(
+                    np.asarray(face), loaded.background, drawn_near, near_left, fill_px
+                )
+        if weight <= 0.0:
+            loaded.outline_scale = None
+            loaded.outline_shift = None
+            return face
+        # Day 23: the band starts at the eyes' top, not the brows' -- fitted
+        # from the brows, his press at a turn to his right drew the brow
+        # smeared sideways (the brow row wanted 19 px of widening, the eye
+        # row 6); the fade above the first row still eases the eyes' scale
+        # out over _OUTLINE_FADE_ROWS, so the brow takes little of it.
+        brow_row = int(crop_points[[159, 386], 1].min()) - 4
+        chin_row = int(crop_points[_CHIN, 1])
+        eye_row = float(crop_points[list(_LEFT_EYE_CORNERS + _RIGHT_EYE_CORNERS), 1].mean())
+        nose_band = (int(eye_row) + 4, int(crop_points[_NOSE_BOTTOM, 1]) + 4)
+        previous = (
+            None
+            if loaded.outline_scale is None or loaded.outline_shift is None
+            else (loaded.outline_scale, loaded.outline_shift)
+        )
+        maps = _outline_maps(
+            drawn_near,
+            target_first,
+            target_last,
+            near_left=near_left,
+            first_row=brow_row,
+            last_row=chin_row,
+            weight=weight,
+            previous=previous,
+            exclude=nose_band,
+        )
+        if maps is None:
+            loaded.outline_scale = None
+            loaded.outline_shift = None
+        else:
+            loaded.outline_scale, loaded.outline_shift = maps
+        return face
+
+    def _drawn_near_edge_gpu(
+        self,
+        face: Any,
+        background: np.ndarray,
+        near_left: bool,
+        window: tuple[np.ndarray, np.ndarray] | None = None,
+    ) -> np.ndarray:
+        """:func:`_drawn_near_edge_np` on the device: ``face`` (3, H, W)
+        float in the frame's channel order; one (H,) download."""
+        torch = self._torch
+        colour = torch.as_tensor(
+            np.ascontiguousarray(
+                background if self._frame_bgr else background[::-1], dtype=np.float32
+            ),
+            device=face.device,
+        )[:, None, None]
+        not_background = (face - colour).abs().amax(0) >= _BACKGROUND_NEAR
+        not_border = face.amax(0) > _OUTLINE_BORDER
+        drawn = not_background & not_border
+        if window is not None:
+            cols = torch.arange(int(face.shape[2]), device=face.device)[None, :]
+            low = torch.as_tensor(window[0], device=face.device)[:, None]
+            high = torch.as_tensor(window[1], device=face.device)[:, None]
+            drawn = drawn & (cols >= low) & (cols <= high)
+        width = int(drawn.shape[1])
+        if near_left:
+            first = drawn.float().argmax(dim=1)
+        else:
+            first = width - 1 - drawn.flip(1).float().argmax(dim=1)
+        found = drawn.any(dim=1)
+        edge = torch.where(found, first, torch.full_like(first, -1))
+        return np.asarray(edge.cpu().numpy(), dtype=np.int32)
+
+    def _profile_fill_gpu(
+        self, face: Any, background: np.ndarray, edge: np.ndarray, near_left: bool, width_px: int
+    ) -> Any:
+        """:func:`_profile_fill_np` on the device: ``face`` (3, H, W) float
+        in the frame's channel order; the edge uploaded (one (H,) tensor)."""
+        torch = self._torch
+        _, h, w = face.shape
+        colour = torch.as_tensor(
+            np.ascontiguousarray(
+                background if self._frame_bgr else background[::-1], dtype=np.float32
+            ),
+            device=face.device,
+        )[:, None, None]
+        cols = torch.arange(w, device=face.device)[None, :]
+        e = torch.as_tensor(edge.astype(np.int64), device=face.device)[:, None]
+        inset = _PROFILE_FILL_INSET
+        if near_left:
+            beyond = (cols < e) & (cols >= e - width_px)
+            rim = (cols >= e) & (cols < e + inset)
+            inside = e + inset
+        else:
+            beyond = (cols > e) & (cols <= e + width_px)
+            rim = (cols <= e) & (cols > e - inset)
+            inside = e - inset
+        is_background = (face - colour).abs().amax(0) < _BACKGROUND_NEAR
+        write = (e >= 0) & ((beyond & is_background) | rim)
+        src = torch.where(write, inside.clamp(0, w - 1), cols).expand(3, h, w)
+        return face.gather(2, src)
+
+    def _chin_keep_gpu(self, face: Any, background: np.ndarray, floor: float, bgr: bool) -> Any:
+        """:func:`_chin_keep` on the device: ``face`` is (3, H, W) float in
+        the frame's channel order, ``background`` the photograph's BGR
+        colour; ``None`` when ``floor`` is past the patch. Grown by a max
+        pool, feathered by a box blur of the guard's width -- no download."""
+        import torch.nn.functional as functional
+
+        torch = self._torch
+        height = int(face.shape[1])
+        start = int(max(0, math.floor(floor)))
+        if start >= height:
+            return None
+        colour = torch.as_tensor(
+            np.ascontiguousarray(background if bgr else background[::-1], dtype=np.float32),
+            device=face.device,
+        )[:, None, None]
+        flat = (face[:, start:] - colour).abs().amax(0) < _BACKGROUND_NEAR
+        if not bool(flat.any()):
+            return None
+        outside = torch.zeros((1, 1, height, int(face.shape[2])), device=face.device)
+        outside[0, 0, start:] = flat.float()
+        reach = 2 * _BACKGROUND_REACH + 1
+        grown = functional.max_pool2d(outside, reach, stride=1, padding=reach // 2)
+        soft = functional.avg_pool2d(
+            1.0 - grown,
+            _BACKGROUND_SOFT,
+            stride=1,
+            padding=_BACKGROUND_SOFT // 2,
+            count_include_pad=False,
+        )
+        return soft[0, 0]
+
+    def _squeeze_face_gpu(self, face: Any, loaded: _Portrait) -> Any:
+        """Day 22: the rendered face (3, H, W) on the device, its columns
+        scaled by ``loaded.width_scale`` about ``loaded.width_centre`` --
+        the width fit, before the hair, the hold and the paste (see
+        :func:`_squeeze_face` for the CPU picture). A bilinear resample of
+        the render alone; the drive is not touched."""
+        import torch.nn.functional as functional
+
+        torch = self._torch
+        _, h, w = face.shape
+        scale = float(loaded.width_scale)
+        tall = float(loaded.height_scale)
+        # align_corners=True: pixel x is at normalised 2x/(w-1) - 1.
+        cx = loaded.width_centre * 2.0 / max(w - 1, 1) - 1.0
+        cy = loaded.height_centre * 2.0 / max(h - 1, 1) - 1.0
+        theta = torch.tensor(
+            [
+                [1.0 / scale, 0.0, cx * (1.0 - 1.0 / scale)],
+                [0.0, 1.0 / tall, cy * (1.0 - 1.0 / tall)],
+            ],
+            device=face.device,
+            dtype=torch.float32,
+        )[None]
+        grid = functional.affine_grid(theta, [1, 3, int(h), int(w)], align_corners=True)
+        return functional.grid_sample(
+            face[None], grid, mode="bilinear", padding_mode="zeros", align_corners=True
+        )[0]
+
     @staticmethod
     def _warp_face(
         face_patch: np.ndarray,
@@ -7109,6 +8280,7 @@ class LivePortraitEngine:
         size: tuple[int, int],
         loaded: _Portrait,
         patch_top: int,
+        patch_left: int = 0,
     ) -> np.ndarray:
         """The face patch warped into the paste box, float32: ``warpAffine``
         as ever -- or, with the forehead stretched (day 21,
@@ -7122,7 +8294,8 @@ class LivePortraitEngine:
 
         stretch = loaded.forehead_stretch
         row = loaded.stretch_row
-        if stretch <= 1.0 or row is None:
+        outline = loaded.outline_scale is not None and loaded.outline_shift is not None
+        if (stretch <= 1.0 or row is None) and not outline:
             warped: np.ndarray = cv2.warpAffine(
                 face_patch, shifted, size, flags=cv2.INTER_LINEAR
             ).astype(np.float32)
@@ -7133,11 +8306,23 @@ class LivePortraitEngine:
         )
         source_x = (inverse[0, 0] * xs + inverse[0, 1] * ys + inverse[0, 2]).astype(np.float32)
         source_y = (inverse[1, 0] * xs + inverse[1, 1] * ys + inverse[1, 2]).astype(np.float32)
-        anchor = float(row - patch_top)
-        above = source_y < anchor
-        source_y = np.where(above, anchor - (anchor - source_y) / stretch, source_y).astype(
-            np.float32
-        )
+        if stretch > 1.0 and row is not None:
+            anchor = float(row - patch_top)
+            above = source_y < anchor
+            source_y = np.where(above, anchor - (anchor - source_y) / stretch, source_y).astype(
+                np.float32
+            )
+        if outline:
+            # Day 22 evening: the per-row horizontal map (crop coordinates;
+            # see _outline_maps) -- the row read from the source row.
+            assert loaded.outline_scale is not None and loaded.outline_shift is not None
+            rows = np.clip(np.rint(source_y + patch_top), 0, len(loaded.outline_scale) - 1)
+            rows = rows.astype(np.int32)
+            scale_map = loaded.outline_scale[rows]
+            shift_map = loaded.outline_shift[rows]
+            source_x = ((source_x + patch_left) * scale_map + shift_map - patch_left).astype(
+                np.float32
+            )
         remapped: np.ndarray = cv2.remap(
             face_patch, source_x, source_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT
         ).astype(np.float32)
@@ -7216,6 +8401,9 @@ class LivePortraitEngine:
         if loaded.background is not None and (weight > 0.0 or extra is not None):
             face_patch = face[:, by0:by1, bx0:bx1].to(torch.uint8).permute(1, 2, 0).cpu().numpy()
             keep = _background_keep(np.ascontiguousarray(face_patch), loaded.background)
+            if keep is not None and loaded.outline_scale is not None:
+                assert loaded.outline_shift is not None
+                keep = _remap_outline(keep, loaded.outline_scale, loaded.outline_shift, bx0, by0)
         if keep is not None and weight > 0.0:
             mask_patch = mask_patch * (1.0 - weight * (1.0 - keep))
         if extra is not None:
@@ -7258,6 +8446,12 @@ class LivePortraitEngine:
             # (see _warp_face) -- the forehead drawn taller.
             anchor = float(loaded.stretch_row - by0)
             sy = torch.where(sy < anchor, anchor - (anchor - sy) / loaded.forehead_stretch, sy)
+        if loaded.outline_scale is not None and loaded.outline_shift is not None:
+            # Day 22 evening: the per-row horizontal map (see _outline_maps).
+            scale_rows = self._upload("outline_scale", loaded.outline_scale, device)
+            shift_rows = self._upload("outline_shift", loaded.outline_shift, device)
+            rows = torch.clamp(torch.round(sy + by0), 0, scale_rows.shape[0] - 1).long()
+            sx = (sx + bx0) * scale_rows[rows] + shift_rows[rows] - bx0
         grid = torch.stack(
             [sx * (2.0 / max(pw - 1, 1)) - 1.0, sy * (2.0 / max(ph - 1, 1)) - 1.0], dim=-1
         )[None]
@@ -7270,6 +8464,25 @@ class LivePortraitEngine:
         )[0].round_()  # the uint8 warp rounds
         alpha = self._upload("alpha", alpha_np, device)[None]
         blend = alpha if blend_np is None else self._upload("blend", blend_np, device)[None]
+        if loaded.background is not None and loaded.crop_points is not None:
+            # Day 22: the background under the drawn chin, every frame -- the
+            # keep made on the device and sampled by the face's own grid.
+            chin_keep = self._chin_keep_gpu(
+                face[:, by0:by1, bx0:bx1],
+                loaded.background,
+                float(loaded.crop_points[_CHIN, 1]) - by0,
+                self._frame_bgr,
+            )
+            if chin_keep is not None:
+                sampled = functional.grid_sample(
+                    chin_keep[None, None],
+                    grid,
+                    mode="bilinear",
+                    padding_mode="border",
+                    align_corners=True,
+                )[0]
+                alpha = alpha * sampled
+                blend = blend * sampled if blend is not alpha else alpha
 
         region = self._upload("region", output[y0:y1, x0:x1], device).permute(2, 0, 1).float()
         enqueued = now()
