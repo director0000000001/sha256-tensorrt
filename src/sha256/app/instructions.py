@@ -55,10 +55,18 @@ _FIRST_TIME = """\
      so your head fills it -- not too far from the camera, not too
      close, in the middle, facing it. It turns green and says "Good.
      Hold still."; a second later the instructions begin. Follow them
-     for about a minute and a half (sit still, blink, close your eyes,
-     open your mouth, talk, smile, raise your eyebrows, glance left and
-     right, turn your head). Each one is read aloud and shown with a few
-     seconds to get ready, then a countdown while you do it. At the end the
+     for about four and a half minutes (sit still, blink, close your eyes halfway
+     and then fully, open your mouth a little and then wide, read a
+     short text aloud, smile a little, smile, smile with your teeth,
+     laugh, raise your eyebrows a little and then high, glance left and
+     right, turn your head). Each one is read aloud and shown for three
+     seconds, then a big 3, 2, 1 is counted on the screen -- start on
+     the end of the count -- then a countdown while you do it. For the
+     reading, the text appears when the count ends: read all of it at
+     your own pace (20 seconds). Keep your head in the green oval the
+     whole time; if it leaves, a line under the instruction says what
+     to fix. A movement too small to measure is asked once more, right
+     after it. At the end the
      application asks your name, keeps your profile under it and reloads
      the avatar with it. This is what makes the avatar follow YOUR face
      rather than someone else's.
@@ -122,11 +130,11 @@ _THE_MENU = """\
                               picture cuts (long, or very tall) fades
                               out. Try it and look; it can look worse
                               than off on some pairs of faces.
-  Quality -> Native / 1080p / 720p / 480p / 360p
+  Quality -> Native / 1080p / 720p / 480p / 360p / 240p
                               The quality of the published picture. Lower
                               hides small defects of the avatar, like a
                               cheaper webcam would: 480p looks like an
-                              ordinary webcam, 360p like a poor line.
+                              ordinary webcam, 360p like a poor line, 240p worse.
                               Native is the camera's own size.
   That looked wrong           Choose it DURING anything that looks wrong.
                               It saves the last ten seconds of tracking
@@ -141,8 +149,9 @@ _THE_MENU = """\
                               me adds you to this list; choose your name
                               when you sit down. Nobody runs the avatar
                               with its own values.
-  Calibrate me                The guided minute and a half of section 2
-                              (the oval first, then the steps), measured
+  Calibrate me                The guided four and a half minutes of section 2
+                              (the oval first, then the steps, each on a
+                              count of three), measured
                               into your own profile. The session
                               is recorded (your camera frames and their
                               tracking) under recordings/ on this
@@ -153,10 +162,17 @@ _THE_MENU = """\
                               recording.
   Add avatar                  Makes a new avatar from one photograph: a
                               window first tells what the photograph must
-                              be, with prompts for an image generator,
-                              then the file is chosen, checked and added
-                              to the Avatar list. The avatar is kept on
-                              this computer only, in the avatars folder.
+                              be, with three prompts for an image
+                              generator (the face with hair; the same
+                              face SHAVED -- the one to add; the shaved
+                              one with the lips parted), then the file is
+                              chosen, checked and added to the Avatar
+                              list. "Read my skin from the camera" (with
+                              the camera running) puts your own skin
+                              colour, in words and as a code, into every
+                              prompt in place of "[your skin color]". The
+                              avatar is kept on this computer only, in
+                              the avatars folder.
   Delete avatar               Removes the avatar chosen in the bar from
                               this computer, for good --
                               its photograph, settings and profile. It
@@ -180,7 +196,9 @@ _STATUS_LINE = """\
   "Calibrating -- follow the instruction above"
         Calibrate me is running. Until the oval on the picture is green
         the instruction is the one thing to fix: come closer, move back,
-        put your head in the oval, face the camera.
+        put your head in the oval, face the camera. During the steps the
+        same line shows under the instruction whenever the head leaves
+        the oval.
   "BLACK SCREEN -- the other side sees 'Camera battery died' (...)"
         The black screen is on: by the button, or because the face was
         lost.

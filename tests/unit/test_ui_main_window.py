@@ -286,8 +286,8 @@ class TestAddAndDeleteAvatar:
         window._on_add_avatar()
         assert not opened
 
-    def test_the_guide_carries_the_requirements_and_both_prompts(self, qtbot):
-        from sha256.avatar.photo_guide import PARTED_LIPS_PROMPT, PORTRAIT_PROMPT
+    def test_the_guide_carries_the_requirements_and_the_three_prompts(self, qtbot):
+        from sha256.avatar.photo_guide import BALD_PROMPT, PARTED_LIPS_PROMPT, PORTRAIT_PROMPT
         from sha256.ui.photo_guide_dialog import PhotoGuideDialog
 
         dialog = PhotoGuideDialog()
@@ -295,8 +295,76 @@ class TestAddAndDeleteAvatar:
         text = dialog.text
         assert "STRAIGHT at the camera" in text and "BELOW THE CHIN" in text
         assert PORTRAIT_PROMPT.strip() in text and PARTED_LIPS_PROMPT.strip() in text
+        assert BALD_PROMPT.strip() in text and "Add the SHAVED one (prompt 2)" in text
+        assert len(dialog._copy_buttons) == 3
         dialog._copy(PORTRAIT_PROMPT)
         assert dialog._copied.text() == "Copied."
+        assert dialog.reading is None
+
+    def test_without_the_camera_the_skin_button_says_so(self, qtbot):
+        from sha256.ui.photo_guide_dialog import PhotoGuideDialog
+
+        dialog = PhotoGuideDialog()
+        qtbot.addWidget(dialog)
+        dialog._on_read()
+        assert "Start the camera first" in dialog._status.text()
+        assert not dialog._timer.isActive() and dialog.reading is None
+
+    def test_the_skin_is_read_off_the_camera_into_the_prompts(self, qtbot):
+        """Day 23, his idea: the button reads the skin colour from the
+        frames whose head sits in the guide, and every prompt then says it."""
+        from types import SimpleNamespace
+
+        from sha256.avatar.photo_guide import PORTRAIT_PROMPT
+        from sha256.avatar.skin_tone import FRAMES_WANTED, SKIN_PLACEHOLDER
+        from sha256.core.enums import PixelFormat
+        from sha256.core.types import FaceTrackingResult, FrameMetadata, LandmarkSet, VideoFrame
+        from sha256.ui.photo_guide_dialog import PhotoGuideDialog
+
+        rng = np.random.default_rng(5)
+        points = np.zeros((478, 3), dtype=np.float32)
+        points[:, 0] = rng.uniform(0.35, 0.65, 478)  # a face 0.48 of the frame tall,
+        points[:, 1] = rng.uniform(0.22, 0.70, 478)  # centred at (0.5, 0.46): in the guide
+        points[50] = (0.40, 0.50, 0.0)
+        points[280] = (0.60, 0.50, 0.0)
+        points[151] = (0.50, 0.30, 0.0)
+        frame = np.empty((480, 640, 3), dtype=np.uint8)
+        frame[:] = (198, 150, 110)  # RGB24: a light-medium skin
+        metadata = FrameMetadata(frame_id=1, capture_timestamp=0.0, source_id="test")
+        snapshot = SimpleNamespace(
+            source=VideoFrame(data=frame, pixel_format=PixelFormat.RGB24, metadata=metadata),
+            tracking=FaceTrackingResult(
+                metadata=metadata,
+                face_detected=True,
+                landmarks=LandmarkSet(points=points, scheme="mediapipe_478"),
+            ),
+            frame=None,
+            frame_id=1,
+        )
+        dialog = PhotoGuideDialog(frames=lambda: snapshot)
+        qtbot.addWidget(dialog)
+        dialog._on_read()
+        assert dialog._timer.isActive() and not dialog._read_button.isEnabled()
+        for _ in range(FRAMES_WANTED):
+            dialog._tick()
+        assert not dialog._timer.isActive() and dialog._read_button.isEnabled()
+        reading = dialog.reading
+        assert reading is not None and reading.hex == "#C6966E"
+        assert reading.frames == FRAMES_WANTED
+        assert "light-medium skin with a warm, golden undertone, sRGB #C6966E" in dialog.text
+        assert "Your skin on the camera" in dialog._status.text()
+        dialog._copy(PORTRAIT_PROMPT)
+        assert dialog._copied.text() == "Copied, with your skin."
+        assert SKIN_PLACEHOLDER in dialog.text  # the requirements' own mention stays
+
+        # No face for ten seconds: nothing read, the person told what to do.
+        empty = PhotoGuideDialog(frames=lambda: None)
+        qtbot.addWidget(empty)
+        empty._on_read()
+        empty._deadline = 0.0
+        empty._tick()
+        assert not empty._timer.isActive() and empty.reading is None
+        assert "No steady face seen" in empty._status.text()
 
     def test_adding_an_avatar_imports_refreshes_and_selects_it(
         self, window, monkeypatch, tmp_path, guide_accepted
