@@ -49,22 +49,25 @@ from sha256.utils.timing import now
 
 _LOG = get_logger(__name__)
 
-OutputQuality = Literal["native", "1080p", "720p", "480p", "360p"]
+OutputQuality = Literal["native", "1080p", "720p", "480p", "360p", "240p"]
 
 # Per level: the height the picture is taken down to before it is scaled
 # back (never up -- a frame already smaller than the level keeps its size),
 # and the JPEG quality it is passed through at that size. ``native`` touches
 # nothing. The qualities were chosen on a real frame of his (recordings/
 # day15-quality-sheet.png): 480p/50 reads as an ordinary webcam, 360p/40 as
-# a poor connection, and 1080p/90 and 720p/65 as the same camera on a
-# slightly thinner line (on a 720p source neither resizes; the JPEG alone
-# is the step, 3.5-3.8 ms a frame; 480p 2.6 ms, 360p 1.6 ms).
+# a poor connection, 240p/30 as a line about to drop (day 22), and 1080p/90
+# and 720p/65 as the same camera on a slightly thinner line (on a 720p source
+# neither resizes; the JPEG alone is the step, 3.5-3.8 ms a frame; 480p 2.6 ms, 360p 1.6 ms).
 QUALITY_LEVELS: dict[str, tuple[int | None, int | None]] = {
     "native": (None, None),
     "1080p": (1080, 90),
     "720p": (720, 65),
     "480p": (480, 50),
     "360p": (360, 40),
+    # Day 22 (2026-10-15), his ask after the first look at the width fit:
+    # one step under 360p, so what is left of a join hides in the line.
+    "240p": (240, 30),
 }
 QUALITY_NAMES: tuple[str, ...] = tuple(QUALITY_LEVELS)
 

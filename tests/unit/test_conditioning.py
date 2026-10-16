@@ -71,7 +71,7 @@ class TestQuality:
         data = checkerboard()
         assert apply_quality(data, "native") is data
 
-    @pytest.mark.parametrize("quality", ["1080p", "720p", "480p", "360p"])
+    @pytest.mark.parametrize("quality", ["1080p", "720p", "480p", "360p", "240p"])
     def test_every_other_level_keeps_the_size_and_is_a_new_picture(self, quality):
         data = portrait_like()
         out = apply_quality(data, quality)
@@ -79,7 +79,7 @@ class TestQuality:
         assert out is not data
         assert np.abs(out.astype(int) - data.astype(int)).mean() > 0.2
 
-    @pytest.mark.parametrize("quality", ["480p", "360p"])
+    @pytest.mark.parametrize("quality", ["480p", "360p", "240p"])
     def test_a_lower_quality_loses_the_fine_detail(self, quality):
         data = checkerboard()
         out = apply_quality(data, quality)
@@ -92,7 +92,7 @@ class TestQuality:
         """His first look at a plain down-and-up scale: "nothing changed".
         The ladder has to be visible, step by step, on a face-like picture."""
         data = portrait_like()
-        names = ("native", "1080p", "720p", "480p", "360p")
+        names = ("native", "1080p", "720p", "480p", "360p", "240p")
         levels = [sharpness(apply_quality(data, q)) for q in names]
         assert levels == sorted(levels, reverse=True), levels
         assert levels[-1] < 0.5 * levels[0]
@@ -109,7 +109,7 @@ class TestQuality:
             OutputConditioner(quality="best")
 
     def test_the_names_are_the_ones_the_settings_and_the_window_use(self):
-        assert QUALITY_NAMES == ("native", "1080p", "720p", "480p", "360p")
+        assert QUALITY_NAMES == ("native", "1080p", "720p", "480p", "360p", "240p")
 
 
 class TestFailureFrame:

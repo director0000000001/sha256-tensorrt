@@ -166,7 +166,7 @@ class OutputSettings(_Section):
     """What leaves the pipeline for the virtual camera, after the avatar is
     rendered -- see ``sha256.pipeline.conditioning``."""
 
-    quality: Literal["native", "1080p", "720p", "480p", "360p"] = Field(
+    quality: Literal["native", "1080p", "720p", "480p", "360p", "240p"] = Field(
         default="native",
         description=(
             "The published picture is scaled down to this height and back up to "
