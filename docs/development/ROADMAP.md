@@ -7154,6 +7154,625 @@ then his word on the commits, the merge of main into the clone's
 `tensorrt` branch (one touchpoint: the live hairline read, which the
 clone cut to a window) and the two packages.
 
+## Day 22 (2026-10-15): the calibration "that will surely work on anyone" -- the width fit (always on) and the slow session
+
+His order, the night before: the calibration must "simply put itself in
+the person's face shape"; the guided process SLOW and dead simple ("on
+the count of three, laugh"; a text to read for twenty seconds); both in
+main and in the tensorrt clone; no glasses, no big beards among the
+users. And the day's goal past that: expressions 1:1 (a 40% blink is a
+40% blink, a slight smile a slight smile), and the mouth's SHAPE on "O"
+like the person's own. The plan, in order: (1) the always-on width fit,
+(2) the session his way, (3) the 1:1 curves per expression, (4) the
+mouth's rounding, (5) the merge, (6) the packages and a friend's sitting.
+Parts 1 and 2 were built today; nothing committed, nothing pushed.
+
+### Part 1, built: the face's width fitted to the person's
+
+**The measurement first** (`scripts/probes/face_width.py`: the rim's
+extent along the face's own horizontal over the face height, the
+tracker's 2D points, frontal frames only, the median):
+
+| face | rim width / height | against his portrait (0.822) |
+|---|---|---|
+| his 2026-09-12 00:41 session (845 frontal frames) | 0.789 | **x0.959** |
+| the friend's 19:40 session (1911) | 0.815 | x0.991 |
+| the woman's capture 200754 (265) | 0.824 | x1.002 |
+| his day-9 clip `driving.mkv`, read live by the engine | -- | **x0.935** |
+
+The 2D rim is NOT yaw-invariant: 5-7% per 10 degrees of yaw, and
+one-sided (the index peaks at a negative yaw, the tracker's zero being
+off the geometric frontal), so the live reading takes still frames
+within 8 degrees of yaw and 10 of pitch, like the hairline's. A 3D
+measure from the mesh's z was tried and is no better (the side points'
+3D distance drifts 6-9% over the same yaws). The person's resting yaw
+is their habit and the render turns with it, so a reading at rest
+against the portrait is what the paste needs.
+
+**The fit** (engine): once the anchor is frozen, the median ratio of the
+still frontal frames (or `driver_face_width` from the profile, when
+Calibrate me has written one -- part 3's job) is the horizontal scale
+of the render and of the portrait's own oval, about the portrait rim's
+centre column, within 0.85..1.15, times `face_width_fit` (0..1, 1). The
+render is resampled once right after the network (`_squeeze_face_gpu`:
+one `grid_sample` over the 512 crop; `_squeeze_face` on the CPU path,
+one `warpAffine`); the portrait's points are squeezed for the masks
+(`mask_points`) and the mask rebuilt at the settle; the driver's oval,
+the drive, the network and the crop are untouched. A difference under
+0.5% is not applied at all. `frame_readings["face_width"]` is the
+frame's own ratio, `face_width_scale` the scale in force.
+
+**The proofs** (`frame_budget.py --deterministic --option skin_match=0`,
+`driving.mkv` 300..900, 601 frames, against the untouched engine's run):
+
+| run | result |
+|---|---|
+| `face_width_fit=0` | **601 of 601 byte-identical** |
+| the default (x0.935 on this clip) | 28 identical (the frames before the settle), 573 differ |
+| the stills at 450/600/800, fit on against off | 12.4% of the frame's pixels differ, p99 of them 38 levels, mean 0.6 -- the whole paste box moved inward |
+
+Looked at (his face, the zooms deleted): the mouth and the moustache sit
+narrower, nearer his own proportions; the cheeks' join is under his
+beard on this clip either way. His live look is the real judge.
+
+Tests: `tests/unit/test_engine_width_fit.py` (the options, the scale's
+bounds and dead band, the geometry, the CPU squeeze, the GPU squeeze
+against the CPU one within a grey level, the settle from the samples /
+the profile / too few samples, the readings). Full suite 1452 passed.
+
+### Part 2, built (Opus 5.5 from the spec; verified by the suite and a read of the diff): the session his way
+
+`calibration/script.py`: three phases per step -- the instruction (3 s,
+on screen and spoken), the count "3", "2", "1" (one a second, drawn
+large, spoken), the measured window; "On three: ..." wording; the new
+steps `eyes_half`, `open_small`, `read` (20 s, `READING_TEXT`, English,
+full of o/a/e/m sounds; replaces `talk`), `smile_small`, `laugh`,
+`brows_half` -- the graded levels part 3 measures the 1:1 curves from;
+186 s in all. `session.py`: the green oval judged every frame
+(`guide_ok` in the samples and `tracking.npz`; the clock never pauses);
+a step whose movement was too small (the `*_MIN_RANGE` thresholds, half
+for the "a little" steps, a smile +5% of the resting width) is repeated
+once, right after it, "Once more: ...". `main_window.py`: the card with
+the count, the text, the amber guide line. `measure.py`: `read` read as
+`talk` (one change). The name is still asked at the end.
+
+### His first look (18:00-18:14), three presses, and what each was
+
+Screenshots first: a pale smeared patch at the top of the paste on his
+forehead; at a turn to his right his own brow and half an eye beside the
+avatar's (to the left it worked); a band under the chin; and "lower than
+360p would be good". Then three "That looked wrong" presses (181314: hands
+on the head pulling the hair back, frontal-ish; 181328: head turned to his
+right and down; 181432: a 40-degree turn -- a capture's `pose` is stored
+(yaw, pitch, roll), and reading it as (pitch, yaw, roll) cost an hour of
+"tilt" rules that the press never exercised). The replay could not plan
+the forehead or the width from these (turned frames read no hairline, and
+the capture did not carry the settle) -- `--option driver_hairline=1.71
+--option driver_face_width=0.969`, the live log's own values, stood in,
+and the capture carries them from now on (`settle_hairline`,
+`settle_width`).
+
+| fault | measured | built |
+|---|---|---|
+| the forehead patch | with `edge_match=0` the patch is a DARK streak: the avatar's hair roots. On the portrait crop the row's p5 leaves the skin by 7% at 1.40 F, 20% at 1.45; the reader's hairline 1.52, the clean top 1.37; the mask's feather tail reaches +0.04 F past the reach (alpha 0.01 at 1.41) | `_roots_onset` at load; the clean top = min(hairline - margin, roots - 0.10), a source row; the stretch carries it. Replay 181314: the patch gone, the join shows his own shine above it |
+| the hairline raised by his hand | the settle is once; `hairline_last` was read every 6th frame and used by nothing | the forehead follows: 15 readings kept, a new plan past 0.15 F of drift; the width settles once |
+| the band under the chin (a 40-degree turn) | NOT the photograph's background (the composite's last paste rows read (159,155,148) over his (38,46,66); nothing within 40 of the background (243,243,237)): the portrait's chin underside, a light shadow, over his dark one, drawn by the reach under the chin (`mask_chin_reach` 0.04 = the blob's 12 rows) | the chin reach fades out with the turn or the tilt (12..20 deg from the rest pose); the jaw shrink by the pose (0.06) was tried and dropped: the join went 26 px up, his stubble under the avatar's chin (the day-12 ledge); the guard on a tilt too; the chin's own keep for a real background blob (every frame, no download) |
+| the far eye at a turn to the right | not reproduced: 181328 at widths 1.0 / 0.969 / 0.9 covers his eye corner; the screenshot was likely mid-motion | nothing; his HELD press in that pose is the next measurement |
+| lower than 360p | -- | 240p (240 rows, JPEG 30) |
+
+Proof (`frame_budget.py --deterministic --option skin_match=0`, 601
+frames, the final engine against the untouched one): 26 identical, 575
+differ -- the 26 are the frames before the settle, less frames 300 and
+317 where the chin keep found background under the chin; `face_width_fit=0`
+the same 26/575 now (the roots' clean top moves everyone's join). Unit
+suite 1468 passed.
+
+### His second look (19:00-19:10): "left and right are mixed up", and his first session on the slow script
+
+His words: the fix went to the opposite side's turn, it was fine before;
+and the session's turn (and some steps) give too little time -- five
+seconds more on every step. The seconds: done (every measured window +5,
+about 266 s in all; his own turn window had ended with his head still at
+-39 degrees). The sides: nothing built today is side-specific -- the
+width fit is about the rim's centre, the roots are the portrait's, the
+chin reach fades on |yaw - rest yaw| either way. Measured on his own
+session's turn step (frames 3080/3096 at +30/+51 yaw -- his LEFT, the
+face toward the image's right on the unmirrored camera -- and 3115/3124 at
+-25/-39, his RIGHT), the untouched engine against today's, deterministic,
+`frame_budget --stills`: on both sides the two builds draw the same face
+to the eye (197 of 225 frames differ by the day's paste changes, none of
+them a side). What IS visible at his RIGHT turn, in BOTH builds: the
+avatar's eyes pushed to the far corner, the whites showing -- the gaze
+drive over-driven at a turn -- and that is older than today (day 21's
+build he never saw live; day 20 was "PERFECT" on the far brow, not on
+the eyes). His new profile (`roy`, blink 1.00x, gaze 0.99x, brow 0.93x,
+talk 1.29x -> expression_gain 1.163, driver_hairline 1.819) does not
+touch it either (gaze_gain kept). Not reproduced by a replay yet: a
+HELD press at his right turn is still the measurement to take; the
+capture now carries the settle, so the replay will be the session.
+Stills deleted.
+
+### His held press at the right turn (19:18): the avatar turns less than he does
+
+The press (191804, tracker yaw -42, held still, the capture carrying the
+settle so the replay IS the session: 5659 px differ from `seen.png`):
+no sliver of his brow at the far side -- but at the NEAR side his own eye
+shows through the paste's feather beside the avatar's, 40 px inward of
+his. The avatar's head is turned LESS than his, measured by the output
+tracker on the renders:
+
+| frame | him | avatar |
+|---|---|---|
+| the held press | -45.1 | -37.0 |
+| session f3115 / f3124 (his right) | -36.9 / -42.9 | -29.6 / -35.8 |
+| session f3070 (his left) | +37.6 | +36.9 |
+| session f3080 / f3096 (his left) | +54.3 / +54.9 | +40.0 / +36.9 |
+
+1:1 to about 35 degrees, then it saturates. The clamp is not the limit
+(hold_yaw_degrees 45, 60, 90 all give -37 on the press): the network
+answers the extractor's delta with less turn past ~35. Built, both OFF
+by default (bit-identical): `turn_boost` (the yaw delta past 30 degrees
+driven harder: delta + boost x (|delta| - 30), before the clamp) and
+`turn_cap_degrees` (the clamp's own yaw cap, apart from hold_yaw_degrees
+which stays the expression fade's start -- day 17's smeared mouth at -48
+must keep fading). Measured on the press and the session:
+
+| run | the press (-45) | session right -37 / -43 | session left +54 / +55 |
+|---|---|---|---|
+| boost 0.5, cap 45 | -38 | -32.9 / -37.5 | 39.9 / 36.9 (capped) |
+| boost 1.0, cap 75 | **-44.4** (the near eye on his) | -35.2 / **-45.4** | 64.2 / BROKEN (a near-profile, the portrait's hair smeared over the far cheek: the network past a delta of ~70) |
+| boost 1.5, cap 75 | -49.4 | -- | -- |
+
+So the boost wants a cap the network can carry: 56 of delta was whole,
+~75 was not. Measured with the cap at 60 and the boost at 1.0 on the
+session: the right -34.9 / -45.5 at his -36.9 / -42.9, the LEFT +50.4 /
++47.0 at his +54.3 / +54.9 -- whole, the far cheek clean (the tracker
+reads the drawn head pitched -11..-15 there, a lean the eye half sees).
+SET IN HIS AVATAR'S metadata.json: `turn_boost` 1.0, `turn_cap_degrees`
+60; the engine defaults stay off (the woman's avatar untouched until a
+recording of hers at a turn says the same). Why the left "worked" for him: at his left turn the hair
+falls over the near temple and his own eye under the feather is dark on
+dark; at the right turn the temple is bare.
+
+### His goal, stated (19:40): the face must sit at larger turns, no border, no hair above the forehead
+
+His words after the boost: on the side he turns to, his eye, brow, cheek
+and lip still show -- both sides; "this is our goal: fix it in every
+variant; the avatar must sit so that no border-like line gives it away;
+sometimes a little of the avatar's hair shows above the forehead".
+
+**The turn, measured again.** The boost was live (the avatar reloaded at
+19:38 with turn_boost 1.0 / cap 60) and the press's replay IS the
+session. What remains at -45: the drawn face's near (profile) edge sits
+inside his by 6 px at the median and 19 px at the brow row (the
+prototype `scripts/probes/outline_fit.py`, the drawn silhouette = the
+render's non-background, non-border columns, against the paste's own
+extent per row). Between the two edges the guard keeps nothing (the
+render is the photograph's background) and his skin shows; within the
+feather his eye shines through beside the avatar's.
+
+**Built: the outline fit** (`outline_fit`, default on; the paste only).
+Per row between the brows and the chin, the render is scaled
+horizontally about the paste's far edge so its near edge lands on the
+paste's near edge: scale within 0.75..1.35, smoothed over 21 rows, faded
+over 40 rows beyond, eased over frames (half the previous map), weighted
+by the room's turn gate (nothing within 12 degrees of the rest yaw).
+On the device: one (H,) download per turned frame (the near edge per
+row by an argmax, looked for within 48 px outside the paste's own near
+edge -- the photograph's edge against the warp's black border read as
+"drawn" 45 px into the crop before the window); the map folded into the
+GPU grid's x and the CPU remap's. The prototype on the press: the
+avatar's near eye moved onto his, the ghost of his eye at the feather
+went with it.
+
+Two faults on the first engine run, both measured on the session's turn
+frames: (1) a thin WHITE line along the near cheek on the moving turn --
+the guard's keep (the background cut) was computed on the unwarped
+render and multiplied into the mask, while the render was sampled
+through the map, so the background the warp pulled in at the profile
+was not cut; the keep now goes through the same per-row map. (2) At his
+left profile (+51) the avatar's nose drew large: his nose stands out
+further than the avatar's, and widening the near side to his outline
+(18% there) widened the nose with it; the scale is bounded to 14% of
+widening now (0.88..1.15), the rest of the gap left to the keep -- his
+own nose tip at the profile, not the avatar's blown up. The maps on the
+settled frames: right turn gaps 3-13 px, scales 0.91-1.05; left 6-25 px,
+0.85-0.93 before the bound.
+
+**Verified** (the keep through the map, the bounds): his held press --
+the avatar's near eye on his, no ghost; the session's turn frames both
+sides -- the white line gone, the nose at the left profile the avatar's
+own size, the profile on his. Frontal: 601 of 601 identical to the
+paste-only build (the fit is gated by the turn). Still open from his
+goal: the avatar's HAIR at the top of the far side at a turn (the paste
+reaches his hairline there and the render has the portrait's hair --
+the drawn skin's own top edge should bound it, as the near edge now
+bounds the side); the seam's invisibility (texture / grain at the join);
+and his live look at all of today.
+
+### His third look (20:17): "now it is broken at the side, the face is lost sooner -- fix it or go back to the pushed version"
+
+No error and no lost face in the log after 20:17; the fault is visual.
+The whole turn of his session rendered through the two-thread pipeline
+(`frame_budget --mode threads --pace lockstep`, frames 2950..3130,
+stills every 10) showed it: on the far side of every turn past ~25
+degrees, and worst coming back from +50 (frame 3100), a SMEAR of the
+avatar's hair and temple over his forehead and far cheek. The cause is
+two days meeting: day 21 lifted the person's oval to THEIR hairline
+(1.7-1.8 of his forehead, above the portrait's clean skin at 1.3-1.5),
+and day 20's room pastes the person's oval beyond the portrait's at a
+turn wherever the render is not the background -- the render's hair
+included. Frontal, the room is off and nothing showed; the day-20
+build never had the lifted oval, so it never had the smear. Built: the
+room reaches no higher than 0.2 of a forehead above the brow line
+(`_ROOM_BROW_MARGIN`). Also the outline fit widens only (the first
+build narrowed the render at moderate turns, where the drawn edge lies
+outside the oval's eroded edge, uncovering him) and fits to the oval's
+hull. The strip after: the smear gone both sides, the face on his at
+every frame from -4 through +50 and back to -47. Frontal 601 frames
+identical to the previous final. Suite 1477.
+
+### His fourth look (20:29-20:30): the nose at a turn
+
+Two presses, +32 and -32. Turning left the avatar's nose lost its shape
+(a smooth blob); turning right a white sheen lay on his nose. Replayed
+with `outline_fit` 1 and 0 (`recordings/day22-nose-*`, deleted): with
+the fit off the nose is the avatar's own on both; with it on, the blob
+and the sheen. On the nose's rows the near edge the fit reads is the
+avatar's nose tip and the target is his -- a difference of SHAPE, not of
+turn -- so the fit stretched the nose and, at the tip, sampled the
+photograph's background. Built: the band from under the eyes
+(the eye corners' row + 4) to under the nostrils (landmark 2 + 4) reads
+the identity, ramped over 12 rows; the cheek, eye and brow rows above
+and the jaw below stay fitted. The replays of the two presses and of the
+held -45 press are the proof (the near eye still covered at -45).
+
+### His fifth look (20:50): dark blotches at the join while turning -- parked
+
+His screenshot (near frontal, turning left to right): dark, shadow-like
+blotches at the paste's border -- the forehead's top at the hairline on
+both sides, and the right temple -- never in the middle of the face. His
+dots: the avatar's skin light and pink, a thin darker line (the join),
+then his own skin, darker. Seen and confirmed at zoom. The analysis (not
+measured yet): his face is lit from the front with nothing from the
+sides, so his temple and hairline sit in shadow while the render is lit
+evenly; the edge match's plane fits the whole face's mean and the
+residual is read from a 10 px band on a quarter-scale grid, neither of
+which follows a side-shadow gradient at the edge, and the correction's
+inertia (day 11) drags the previous frames' field over a moving head --
+hence "in moments while turning". A phone light from the side did not
+help much. His decision: at 240p and 360p it does not show, so it is
+bypassed for now and he will come back to it.
+
+The plan for then, cheapest first: (1) a wider feather at the sides and
+the top (30-40 px for 16); (2) the edge residual on a finer grid near
+the edge; (3) a gradient-domain (Poisson) blend at the join, the "heavy
+option" of day 21 -- the avatar's interior brightness following his edge
+brightness smoothly; (4) light from the side on his end. Measured on the
+session's turn frames with `jaw_band.py`'s forehead band (and a temple
+band to add), (1) and (2) by replay first.
+
+### What is next (parts 3-6)
+
+3. **The 1:1 curves**: per expression, the avatar's response at the
+   session's levels (eyes half / shut, mouth a little / wide, smile
+   small / closed / teeth, brows a little / high) read by the output
+   tracker on the render, against the person's -- a few-point curve per
+   expression in the profile in place of one gain, applied in the drive
+   with the replay proof; also `driver_face_width` written by
+   `measure.py` from `frame_readings["face_width"]` over the still step.
+   Honest limit: the output tracker's own noise is a few %, so "1:1"
+   means within ~5%.
+4. **The mouth's rounding on "O"**: on the read step, the output
+   tracker's mouth width AND opening per frame against his; first the
+   question whether the drive carries the corners pulled in at all.
+5. The merge into the tensorrt clone (the calibration code is shared,
+   no TensorRT touchpoint; the engine's squeeze is torch on either).
+6. Both packages; a friend sits for the proof.
+
+## Day 23 (2026-10-16): his ideas for the avatar -- the skin colour from the camera, the shaved head
+
+He recorded his ideas so as not to lose them and pasted the transcript.
+Five points; each answered against the code before anything was built,
+then built on his answers (Gemini or ChatGPT make the photographs; the
+application does NOT call a generator -- the button gives the colour and
+the prompt carries it; he will check yesterday's +5 s himself).
+
+### His five ideas, and what each is worth
+
+1. **Five seconds more per calibration task.** Done on day 22 evening on
+   his word (266 s). If the current build is still tight, another 5 s is
+   one line.
+2. **"The skin colour and the lighting must not change" in the avatar's
+   prompts.** The old 22-variant prompts (`AVATAR_PROMPTS.txt`, the
+   photograph engine) already say it. The neural avatar is ONE
+   photograph, made from words, and its prompt described the person in
+   a bracketed line -- so the idea lands exactly there: the placeholder
+   becomes the MEASURED colour. The honest limit: the avatar's colour is
+   the starting point, not the end -- the room's light and the camera's
+   white balance differ per call, so day 21's live `skin_match` stays;
+   but the nearer the avatar's colour, the less the cast has to do
+   (bounded 0.7..1.4; a large cast moves the irises and brows too). The
+   blotches of his fifth look are a side-lit gradient and texture, not
+   colour -- no prompt fixes those.
+3. **The same avatar, completely bald.** The strongest idea. The three
+   hair faults of days 21-22 -- the pale patch (the roots), the smear over
+   the far cheek at a turn, the hair above the forehead -- all come from
+   hair the portrait HAS. The engine joins the avatar's face to the
+   person's forehead under THEIR hairline and keeps their hair, so the
+   avatar's hair is never drawn on purpose, only by accident. With a
+   shaved portrait nothing of it can show, and the forehead plan has the
+   whole scalp as clean skin: `_forehead_plan` with no hairline read uses
+   the ceiling 1.6 F (less the margin 0.15), the roots reader has
+   nothing to find. His refinement: make the face WITH hair first (the
+   generator makes a better face from words that way) and shave it
+   after, from that photograph, so it stays the same face; the
+   parted-lips variant from the shaved one.
+4. **A button that reads the person's skin colour and fills the
+   prompt.** The pieces existed: the engine reads the room's skin mean
+   every fourth frame for the tone match; the Add avatar window already
+   copies prompts; `check_avatar_photos.py` reads a photograph's skin.
+   Built, see below. The reading is the CAMERA's, light and white
+   balance included -- the right thing to match -- so it must be taken
+   in the light the calls will have.
+5. **The face's measurements in the prompt, so the avatar's eyes, mouth
+   and forehead match the person's.** As numbers: no -- generators do
+   not follow numeric proportions ("eye spacing 0.46 of the face width").
+   As WORDS ("a broad forehead, wide-set eyes, a narrow jaw, full lips")
+   they follow roughly. The realistic form: the importer and the
+   calibration already measure the proportions (his face 0.96 of his
+   portrait's width; the eye spacing, nose length, mouth width, jaw
+   width of the checker) -> words in the prompt -> three or four
+   candidates generated -> the importer scores each against the person's
+   numbers and ranks them. The gain is real (the width fit and the
+   forehead stretch, both artefact sources, shrink). What no prompt
+   gives: the expressions 1:1 -- that stays part 3 of day 22 (the
+   response curves). NOT BUILT -- his word next.
+
+### Built (uncommitted with the day-22 tree)
+
+- `sha256/avatar/skin_tone.py`: `read_skin` (both cheeks, points 50/280,
+  and the forehead's middle, 151; patches of a twentieth of the face
+  width; cells under 0.55 of the patch's median lightness and above its
+  95th percentile dropped; per-channel medians), `SkinSampler` (the
+  median over 30 frames), `SkinReading` (sRGB hex; CIELAB; the ITA
+  angle `atan((L-50)/b)` into the bands very light / light /
+  light-medium / medium (tan) / brown / deep brown; the undertone from
+  the hue angle: warm above 60 deg, cool under 45, neutral between --
+  rough, words for a prompt), `fill_prompt` (every `[your skin color]`),
+  `compare` (CIE76 distance; close <= 8, noticeably different <= 16, far
+  beyond: "generate again").
+- `photo_guide.py`: three prompts -- the face with hair (from words, the
+  skin line "Render the skin in exactly this colour, under neutral white
+  balance"), the SAME face shaved (attach prompt 1's photograph; "no hair
+  at all on the scalp, no stubble on the scalp, no hairline anywhere; the
+  skin of the scalp the same colour as the forehead"), the shaved one
+  with the lips barely parted (attach prompt 2's). The guide says which
+  one to add (the shaved one) and why.
+- `photo_guide_dialog.py`: "Read my skin from the camera". With the
+  pipeline running the window hands in `runner.latest` and the head
+  guide; the button polls at 30 Hz, reads only frames whose head sits in
+  the guide (the placing phase's gate: close enough, centred, facing),
+  30 readings or 10 s; then the whole text re-rendered with the words in
+  place, the Copy buttons copy the filled prompts ("Copied, with your
+  skin."). Without the camera: "Start the camera first". Nothing steady
+  in 10 s: told what to do (half the frames still give a reading).
+- `importer.py`: `PortraitReport.skin` by the same reader on the
+  photograph, in the report's text; the window's "added" message
+  compares it with the dialog's reading when one was taken.
+- Tests: `test_skin_tone.py` (23), the window tests (the three prompts,
+  the reading from a synthetic frame + 478 points in the guide, the
+  no-camera and the timeout paths), the importer's describe. Docs:
+  CHANGELOG, USER_GUIDE, instructions.py.
+
+### What to check when his first shaved avatar exists
+
+- The importer's hairline reader on a bald scalp (`_hairline_fraction`):
+  None is the good answer (the engine takes the ceiling); a false
+  "hairline" at the scalp's edge against the background would cap the
+  forehead's clean skin -- read the import report's line.
+- The roots reader at load (`_roots_onset`): on a bald scalp it must
+  find nothing; if the scalp's shading at the top reads as "roots", the
+  log at load says so and the plan must ignore it.
+- The forehead stretch: with the whole scalp as source, the stretch
+  should come out near 1.0 for him (his hairline 1.82 F of his forehead;
+  the portrait's clean top now ~1.45 F) -- read `settle` in the log.
+- The hair's smear at turns (his third look of day 22): gone by
+  construction; confirm on the session's turn strip.
+- The colour: the import report's distance against his reading; then
+  the tone log at frame 60 (the cast should sit nearer 1.0 than with the
+  old portrait).
+
+### His first shaved avatar (02:21-02:33): the switch that kills the pipeline, and the brows 20 px low
+
+**The load failure first.** "engine failed to load 'baldnew': CUDA error:
+operation failed due to a previous error during capture", then the same
+for woman_person. The log has it on 2026-09-05 and 2026-09-14 too: an
+avatar chosen WHILE THE PIPELINE RUNS. The UI thread loads the new avatar
+and records its CUDA graph (`_capture`, the default global capture mode);
+the render thread keeps drawing the old avatar, and its next GPU call
+("operation not permitted when stream is capturing", today at
+`_drawn_near_edge_gpu`'s `torch.as_tensor`) kills the render loop AND
+invalidates the recording; the process's graph recording stays poisoned,
+so every later load fails too. Never worked; an avatar chosen before
+Start (or after Stop) loads fine. THE FIX, on his word, not built: one
+lock in the engine shared by `animate` and `load_avatar`/`unload_avatar`,
+so the render thread waits the one or two seconds of the load (pixels
+untouched). The workaround told him: close, open, choose, then Start.
+
+**His press (02:33, `baldnew2`, yaw -3.5 / pitch -5.6).** His words: "my
+brow and its brow are apart; its face is probably shorter; its brow is
+lower than mine". Measured on the capture (MediaPipe on camera.png and
+seen.png, frame rows; `scripts/probes/face_rows.py` re-renders the same
+numbers from the capture, "fit off" below):
+
+| row | his | avatar (fit off) | avatar, fit x1.047 |
+|---|---|---|---|
+| brow | 278 | 298 (+20) | 286 (+8) |
+| eye | 318 | 327 (+9) | 317 (-1) |
+| nose | 412 | 409 (-3) | 403 (-9) |
+| mouth | 453 | 451 (-3) | 446 (-7) |
+| chin | 530 | 525 (-6) | 523 (-7) |
+
+The lower face on his, the upper face lower. The crop is sized by the
+mesh's face HEIGHT (forehead top to chin), so the two faces share a
+height; a portrait whose forehead takes more of it puts its brows and
+eyes lower at the same chin. `scripts/probes/face_height.py`: his brow
+top to chin 0.843 of the face height over 300 still frames, the
+portrait's 0.805 -> x1.047 (his own avatar x1.032, the woman's x1.017);
+the eyes x0.997 -- the avatar's own brows sit close to its eyes (0.109
+of the face height against his 0.138; the photograph's). Checked that
+the offset is the pair's geometry and not the moment's anchor: the
+capture re-rendered with an anchor learned from its own frame instead of
+the session's gives the same rows (+19 / +9 / -2 / -4 / -4).
+
+**Built: the height fit** (`_brow_chin`, `_height_scale`, `_lift_points`;
+`face_height_fit` 0..1 default 1, bounds 0.90..1.10, `driver_face_height`
+from a profile; readings `face_height`, `face_height_scale`; the capture
+carries `settle_height`). The width fit's vertical twin: the ratio of
+the driver's brow-top-to-chin to the portrait's, still frontal frames,
+the median, settled with the width; the render and the portrait's points
+scaled vertically about the portrait's CHIN ROW in the same resample as
+the width (`_squeeze_face` / `_squeeze_face_gpu` take both axes); the
+forehead's plan reads the LIFTED brow and forehead (its stretch row, its
+height), since that is where the render's rows are. The off path is the
+old one to the bit by construction (the resample skipped when both
+scales are 1, the plan fed the unlifted points). The basis is the BROWS,
+not the eyes: the brow row is where the join starts and where his own
+brow shows beside the avatar's; the eyes then land within a few px
+either way (this pair: x1.047 puts the eyes on his and the brows 8 px
+low -- the rest is the photograph's own brow; his own avatar on the same
+capture: fit off brow +10 / eye +2.5, fit x1.032 brow +2 / eye -4). The
+nose and mouth rise 4-9 px above his under the paste (unseen), the chin
+2-7 px (watch the jaw join live). Tests `test_engine_height_fit.py`
+(15); suite 1513. A replay cannot read the fit (its frames are one frame
+repeated; the still gate gives one sample): give it
+`--option driver_face_height=...` from face_height.py.
+
+**Built: the shaved forehead.** The roots reader DID find "roots" on the
+shaved scalp (0.90 of the forehead -- the scalp's shading) and capped the
+clean skin at 0.93, stretched x1.25, so the avatar's forehead ended ~25
+px under his hairline with his own skin above it. A portrait with no
+hairline read now ignores the roots reader: the plan takes 1.45 of its
+forehead (the ceiling 1.6 less the margin), no stretch, and with the
+lift the portrait's forehead (47 -> 49 crop px) reaches his oval's 1.70
+of his (38-40 px). His word was "the forehead is cut too much, enlarge
+it": this is that.
+
+**NOT built (his word: "it's the photo's fault"):** the brow band lift
+for the last 8 px, and the prompt line "eyebrows set high above the
+eyes". The lock for the avatar switch waits for his word too.
+
+### His look at the height fit (03:1x): "fixed" -- and the turn: "on 09-18 the face followed me further"
+
+His words: on the 09-18 push, looking to the sides sat very well; now
+the face does not follow as far when he turns; fix only that and it is
+ideal. Bisected by measurement, not memory: the 09-18 push (ee5d837) in
+a worktree with the models and the portrait linked in, and the SAME
+movement through both trees -- his session's turn step
+(calibration-20261015-190122, frames 3024-3200, left to +51 then right
+to -52), the output read by MediaPipe every fourth frame
+(`scripts/probes/turn_motion.py`; a held press: `turn_compare.py`).
+
+| his yaw | 09-18 drawn | today, boost 1.0 cap 60 | today, boost off |
+|---|---|---|---|
+| +24 | +28 | +31 | +29 |
+| +30 | +33 | +42 | +35 |
+| +35 | +37 | +54 | +37 |
+| +40 | +37 | +54 | +37 |
+| +45 | +39 | face lost | +39 |
+| +50 | +37 | +47..+49 | +40 |
+| -39 | -35 | -46 | -34 |
+| -46 | -36 | -57 | -36 |
+| -52 | -35 | -55 | -38 |
+
+The 09-18 drive: 1:1 to about 30 degrees, saturating at 37, monotonic,
+the pitch within a degree or two of his. Day 22's `turn_boost` 1.0 +
+`turn_cap_degrees` 60 (his metadata, copied into every avatar imported
+since -- baldnew, baldnew2): the avatar runs AHEAD of him at 30-40
+degrees (x1.4-1.5), its pitch dips to -9 at his -5, the tracker loses
+the drawn face at 45, and at 50 it has come BACK to 48 -- a turn that
+overshoots and retreats while he keeps turning, which is what "does not
+follow me further" looked like. Day 22 measured the endpoints only (his
+-43/-55) and missed the band. On the held press 191804 (his -42): 09-18
+-36 / pitch -5, today's boost -46 / pitch -9, today's boost off -37 /
+pitch -6; the height fit off or on changes none of it.
+
+DONE: the two keys removed from the three avatars' metadata (the engine
+defaults were off all along); today's tree without them reproduces the
+09-18 curve on the same frames, with the shaved avatar too (37-40 at
+45-50, the pitch within two degrees). The paste at a 50-degree turn
+reaches past his rim by 46-58 px today against 49-55 on 09-18 (the eye
+row), the brow row the same -- day 22's outline fit and room stay. The
+worktree and its junctions removed after the measurement.
+
+If he wants more range than the network's own 37 later: a gentle gain
+measured over the WHOLE band with turn_motion.py (monotonic or nothing),
+not the endpoints.
+
+### His two presses (03:25): "the brow and eye stretch when I turn right; my eye and lashes remain when I turn left"
+
+Presses 032522 (his yaw -23, a turn to his right) and 032542 (+34, to
+his left), both on his own avatar, after the boost's removal. Measured
+on each (MediaPipe on camera.png and on the re-rendered output; the
+paste's own alpha at his eye points: `scripts/probes/eye_alpha.py`,
+which takes `--src` so the 09-18 worktree answers the same questions):
+
+**The right turn.** The avatar turns 0.68 of his (-15.6 at -22.6) -- the
+same on the 09-18 tree (-15.0) and on the shaved avatar (-25.9 at -31.6
+on the session): his side, not the portrait's. Its eyes sit 5-11 px to
+the image's right of his. Day 22's outline fit then scaled every row
+from the brows down toward the paste's edge: the brow row wanted 19 px,
+the eye row 6, and the brow smeared sideways (the zoom shows it; with
+`outline_fit=0` it is gone). FIXED: the fitted band starts at the eyes'
+top (points 159/386 less 4 rows), not the brows; the 40-row fade above
+leaves the brow little of the eyes' scale. A per-side yaw gain was built
+and measured (`turn_gain_right` 1.3: the session's right turn 0.96-0.98
+of his up to 39 degrees then the network's own saturation, monotonic;
+the press -20.7 at -22.6, the eyes within 5 px of his; 1.5 overshoots)
+-- but at 1.3 the avatar's far eye corner renders darker (the network's
+own; faint on the 09-18 tree, visible at 1.3), so it is NOT in his
+profile: his word on the 09-18 turns was good, and this is that drive.
+One line in configs/drivers/roy.json turns it on. (A first build applied
+the gain to the wrong side: the extractor's yaw is signed the other way
+round from the tracker's -- a delta under 0 is his left -- found by
+setting one gain and watching which side moved on turn_motion.py.)
+
+**The left turn.** The avatar turns 1:1 (+34.9 at +34.4) and its eyes
+sit within 4 px of his; what remained was his far eye's OUTER CORNER and
+lashes, in the paste's feather beyond the drawn face's edge: alpha 0.88
+at the corner, 0.59 five px out, 0.08 ten; the drawn face ends 5-10 px
+inside his lashes there (the avatar's face is narrower than his at the
+far eye at this angle), the same on the 09-18 tree (0.98 / 0.66 / 0.10),
+which he liked at the time. The width fit's 3% squeeze of the portrait's
+oval took 4-5 px more off the corner (pasted to 768 against 773). The
+room (day 20) pastes the driver's oval only where the render is the
+drawn face, and there the render is the photograph's grey background.
+Tried: ONE scale for the outline fit's whole band (the median) -- it
+smeared nothing, and did nothing for the eye either (the band's median
+is 1); dropped. BUILT: the profile fill (`profile_fill_px`, default 12,
+0 off; `_profile_fill_np` / `_profile_fill_gpu` in `_fit_outline`, before
+the map): at a turn, on every row the background columns within 12 px
+beyond the drawn face's profile edge take the edge column's own colour
+(the avatar's cheek skin, read 3 columns inside the edge, and the edge's
+own 3 columns overwritten with it -- `_PROFILE_FILL_INSET`: the edge
+pixels are the network's pale blend with the grey background; carried
+out as they were they drew a pale streak down the far temple, left in
+place under the strip a pale jagged line along it), the width ramped
+with the turn gate, so the
+guard sees drawn face there and the room pastes it, inside the driver's
+oval as before; frontal frames untouched (gate 0 -> the same object).
+Measured on the press: the lash box (18x26 px at his far corner) mean
+luminance 70 before, 92 after with the inset (119 with the pale edge
+colour; his lashes 68, the avatar's skin ~150); the outer corner now
+pasted; a faint dark remnant stays at 775-780 where the feather is
+0.59 -> 0.08. On the session's turn the paste reaches 13
+px further on the profile side at 50 degrees and nothing else moved.
+NEXT if his eye still sees the remnant: the feather on the profile side
+narrowed or pushed outward at a turn (the day-20 `_PROFILE_PUSH`), so
+the filled strip lands at full alpha. Tests: test_engine_turn_gain.py
+(7: the gains, the fill CPU/GPU, a row without an edge).
+
 ## What is left, in his order (written 2026-09-12 night, after the push)
 
 Everything above is on origin/main at c5eda18. What he wants next, in

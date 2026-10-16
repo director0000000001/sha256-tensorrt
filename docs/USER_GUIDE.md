@@ -31,11 +31,19 @@ All of this page, and every button explained, is inside the app too:
 3. Open **Menu → Calibrate me**. Say yes. An oval appears on the picture:
    sit so your head fills it — not too far from the camera, not too close,
    in the middle, facing it. It turns green and says *Good. Hold still.*;
-   a second later the instructions begin. Follow them for about a minute
-   and a half (sit still, blink, open your mouth, talk, smile, raise your
-   eyebrows, glance left and right, turn your head). Each one is read
-   aloud and shown with a few seconds to get ready, then a countdown while
-   you do it. At the end the app asks your name, keeps
+   a second later the instructions begin. Follow them for about four and a half
+   minutes (sit still, blink, close your eyes halfway and then fully,
+   open your mouth a little and then wide, read a short text aloud, smile
+   a little, smile, smile with your teeth, laugh, raise your eyebrows a
+   little and then high, glance left and right, turn your head). Each one
+   is read aloud and shown for three seconds, then a big **3, 2, 1** is
+   counted on the screen — start on the end of the count — then a
+   countdown while you do it. For the reading, the text appears on the
+   screen when the count ends: read all of it, at your own pace (20
+   seconds). Keep your head in the green oval the whole time; if it
+   leaves, a line under the instruction says what to fix. A movement too
+   small to measure is asked **once more** right after it. At the end the
+   app asks your name, keeps
    your profile under it (`configs/drivers/`), reloads the avatar with it
    and shows what it measured. This is what makes the avatar follow
    *your* face rather than the owner's. The session is recorded under
@@ -65,7 +73,7 @@ All of this page, and every button explained, is inside the app too:
   gets its join lower. Try it and look: it can look worse than off on some
   pairs of faces, and your own hair past the avatar's edge stays yours.
 - **Menu → Quality**: 480p makes the picture look like an ordinary webcam and
-  hides small defects; 360p looks like a poor line.
+  hides small defects; 360p looks like a poor line, 240p like one about to drop.
 - **Menu → That looked wrong**: choose it *during* anything that looks wrong. It
   saves the last ten seconds of tracking (numbers, no picture) plus the
   frame on screen and the camera frame at that instant, under `captures/`,
@@ -80,9 +88,22 @@ the application -- no login. An avatar is a folder under `avatars/` next
 to the application, on this computer only; nothing is uploaded. A
 good photograph: one face looking straight at the camera, eyes open, lips
 closed or barely parted (a grin becomes the avatar's resting face), even
-light, no glasses, hair off the forehead, and room below the chin. The app
-checks all of these and says what it found; it pads and scales the picture
-itself and keeps the original beside it.
+light, no glasses, a SHAVED head (or at least hair off the forehead), and
+room below the chin. The app checks all of these and says what it found;
+it pads and scales the picture itself and keeps the original beside it.
+
+The window that opens first carries three prompts for an image generator
+(Gemini, ChatGPT), in the order they are made: the face with hair, from
+words; the same face with the head shaved, made from that photograph --
+**add this one as the avatar** (the app joins the avatar's face to your
+own forehead and keeps your own hair, so the avatar's hair only gets in
+the way); and, optional, the shaved one with the lips barely parted.
+Every prompt says `[your skin color]`. With the camera running, press
+**Read my skin from the camera**, look at the camera in the light your
+calls will have, and hold still for a second: your skin's words and
+colour code take the placeholder's place in all three prompts, and the
+Copy buttons copy them filled. When the photograph is added, the app
+reads its skin colour too and says how far it is from yours.
 
 ## If something does not work
 
