@@ -160,7 +160,11 @@ _THE_MENU = """\
                               runs the entry reads "Stop calibrating":
                               choosing it cancels and deletes the
                               recording.
-  Add avatar                  Makes a new avatar from one photograph: a
+  Login / Owner               The owner's passphrase (set on the owner's
+                              computer with sha256 --set-owner). Unlocks
+                              Add avatar and Delete avatar; without it
+                              neither is in the menu.
+  Add avatar                  The owner only. Makes a new avatar from one photograph: a
                               window first tells what the photograph must
                               be, with three prompts for an image
                               generator (the face with hair; the same
@@ -173,7 +177,7 @@ _THE_MENU = """\
                               prompt in place of "[your skin color]". The
                               avatar is kept on this computer only, in
                               the avatars folder.
-  Delete avatar               Removes the avatar chosen in the bar from
+  Delete avatar               The owner only. Removes the avatar chosen in the bar from
                               this computer, for good --
                               its photograph, settings and profile. It
                               asks first; stop the application before.

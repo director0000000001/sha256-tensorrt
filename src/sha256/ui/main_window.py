@@ -56,6 +56,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from sha256.app.owner import OWNER_FILENAME, OwnerAccess
 from sha256.avatar.importer import (
     AvatarImportError,
     import_portrait,
@@ -356,6 +357,9 @@ class MainWindow(QMainWindow):
         # ticks in a row the fit has been good.
         self._guide = HeadGuide()
         self._guide_fit: GuideFit | None = None
+        # Day 15, back on 2026-10-16 (his ask): his passphrase, and what
+        # it unlocks (see sha256.app.owner). Read after the menu is built.
+        self._owner = OwnerAccess(context.paths.configs / OWNER_FILENAME)
         self._placing_good = 0
 
         self._populate_avatars()
@@ -648,25 +652,38 @@ class MainWindow(QMainWindow):
 
         menu.addSeparator()
 
-        # Day 15, his ask: new faces are added from the app -- a photograph
-        # in, an avatar out (see sha256.avatar.importer for what is checked
-        # on the way). 2026-10-09, his ask: no Login any more -- whoever
-        # uses the application adds and deletes avatars on their computer.
+        # Day 15, his ask: new faces are added from the app, by him alone:
+        # "Login" takes his passphrase (set on his machine with
+        # `sha256 --set-owner`, never from the window); only then do Add
+        # avatar and Delete avatar appear. Lifted 2026-10-09, back on
+        # 2026-10-16 (his ask, "temporarily": a copy went missing on a
+        # friend's computer).
+        self._login_action = QAction("Login", menu)
+        self._login_action.setToolTip(
+            "The owner's passphrase; unlocks Add avatar and Delete avatar."
+        )
+        self._login_action.triggered.connect(self._on_login)
+        menu.addAction(self._login_action)
+
+        # A photograph in, an avatar out (see sha256.avatar.importer for
+        # what is checked on the way).
         self._add_avatar_action = QAction("Add avatar", menu)
         self._add_avatar_action.setToolTip(
             "Make an avatar from a photograph: one face, looking straight at the "
             "camera, eyes open, lips closed or barely parted, room below the chin."
         )
         self._add_avatar_action.triggered.connect(self._on_add_avatar)
+        self._add_avatar_action.setVisible(False)
         menu.addAction(self._add_avatar_action)
 
-        # Day 17, his ask: an avatar can be removed too -- the one chosen
-        # in the bar, after a question, with the pipeline stopped.
+        # Day 17, his ask: the owner can remove an avatar too -- the one
+        # chosen in the bar, after a question, with the pipeline stopped.
         self._delete_avatar_action = QAction("Delete avatar", menu)
         self._delete_avatar_action.setToolTip(
             "Remove the avatar chosen in the bar from this computer, for good."
         )
         self._delete_avatar_action.triggered.connect(self._on_delete_avatar)
+        self._delete_avatar_action.setVisible(False)
         menu.addAction(self._delete_avatar_action)
 
         menu.addSeparator()
@@ -842,6 +859,34 @@ class MainWindow(QMainWindow):
         models_root = self._context.paths.resolve_relative(settings.models.root_path)
         return models_root / DEFAULT_MODEL_RELATIVE_PATH
 
+    def _refresh_owner_state(self) -> None:
+        unlocked = self._owner.is_unlocked
+        self._add_avatar_action.setVisible(unlocked)
+        self._delete_avatar_action.setVisible(unlocked)
+        self._login_action.setText("Owner" if unlocked else "Login")
+        self._login_action.setEnabled(not unlocked)
+
+    def _on_login(self) -> None:
+        """His passphrase, asked for; a copy without the file has no Login
+        (the window never sets one -- see sha256.app.owner)."""
+        if not self._owner.is_configured:
+            QMessageBox.warning(
+                self,
+                "Login",
+                "No owner passphrase is set on this computer "
+                f"(configs/{OWNER_FILENAME}); it is set with sha256 --set-owner.",
+            )
+            return
+        entered, ok = QInputDialog.getText(
+            self, "Login", "The owner's passphrase:", QLineEdit.EchoMode.Password
+        )
+        if not ok:
+            return
+        if not self._owner.unlock(entered):
+            QMessageBox.warning(self, "Login", "That is not the passphrase.")
+            return
+        self._refresh_owner_state()
+
     def _on_instructions(self) -> None:
         InstructionsDialog(self).exec()
 
@@ -849,6 +894,8 @@ class MainWindow(QMainWindow):
         """A photograph in, an avatar in the library out -- checked first.
         The guide comes first (day 16, his ask): what the photograph must be
         and the prompts that make one, then the file dialog."""
+        if not self._owner.is_unlocked:
+            return
         # Day 23: the guide reads the person's skin colour off the camera
         # while the pipeline runs (the newest snapshot, gated by the head
         # guide) and keeps it for the comparison with the photograph's.
@@ -901,6 +948,8 @@ class MainWindow(QMainWindow):
         """The avatar chosen in the bar removed from this computer (day 17,
         his ask): the pipeline stopped, one question first; the manager
         lets it go, the library is re-read, the bar refilled."""
+        if not self._owner.is_unlocked:
+            return
         avatar_id = self._avatar_combo.currentData()
         if avatar_id is None:
             QMessageBox.information(self, "Delete avatar", "Choose the avatar in the bar first.")
