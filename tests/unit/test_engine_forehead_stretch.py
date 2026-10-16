@@ -52,8 +52,10 @@ class TestPlan:
         assert driver == pytest.approx(1.6 - _HAIRLINE_CLEARANCE)
         # the avatar's clean skin reaches exactly the join: both ovals meet there
         assert portrait == pytest.approx(driver, abs=1e-6)
-        wanted = (1.6 - _HAIRLINE_CLEARANCE) + _HAIR_ROOT_MARGIN - _STRETCH_ANCHOR
-        assert stretch == pytest.approx(wanted / (1.52 - _STRETCH_ANCHOR))
+        # day 22: the clean skin (the hairline less the margin) is a source
+        # row the stretch carries to the join
+        wanted = (1.6 - _HAIRLINE_CLEARANCE) - _STRETCH_ANCHOR
+        assert stretch == pytest.approx(wanted / (1.52 - _HAIR_ROOT_MARGIN - _STRETCH_ANCHOR))
         assert 1.0 < stretch < _FOREHEAD_STRETCH_MAX
 
     def test_a_taller_forehead_gets_the_cap_and_the_join_on_the_avatars_clean_skin(self):
@@ -62,7 +64,7 @@ class TestPlan:
         assert stretch == _FOREHEAD_STRETCH_MAX
         assert driver == pytest.approx(1.7 - _HAIRLINE_CLEARANCE)
         assert portrait == pytest.approx(
-            _STRETCH_ANCHOR + _FOREHEAD_STRETCH_MAX * (1.52 - _STRETCH_ANCHOR) - _HAIR_ROOT_MARGIN
+            _STRETCH_ANCHOR + _FOREHEAD_STRETCH_MAX * (1.52 - _HAIR_ROOT_MARGIN - _STRETCH_ANCHOR)
         )
         # in crop pixels the portrait's oval stops under the driver's hairline
         assert portrait * 60.0 < driver * 80.0
@@ -78,7 +80,7 @@ class TestPlan:
         portrait, driver, stretch = _forehead_plan(1.52, None, 50.0, 50.0)
         assert stretch == _FOREHEAD_STRETCH_MAX and driver == _FOREHEAD_REACH_MAX
         assert portrait == pytest.approx(
-            _STRETCH_ANCHOR + _FOREHEAD_STRETCH_MAX * (1.52 - _STRETCH_ANCHOR) - _HAIR_ROOT_MARGIN
+            _STRETCH_ANCHOR + _FOREHEAD_STRETCH_MAX * (1.52 - _HAIR_ROOT_MARGIN - _STRETCH_ANCHOR)
         )
 
     def test_an_unread_portrait_hairline_counts_as_the_ceiling(self):
@@ -262,7 +264,7 @@ class TestSettleWithTheDriversForehead:
         assert loaded.stretch_row == pytest.approx(brow_top[1] - _STRETCH_ANCHOR * forehead)
         assert loaded.driver_reach == pytest.approx(1.7 - _HAIRLINE_CLEARANCE)
         assert loaded.forehead_reach == pytest.approx(
-            _STRETCH_ANCHOR + _FOREHEAD_STRETCH_MAX * (1.52 - _STRETCH_ANCHOR) - _HAIR_ROOT_MARGIN
+            _STRETCH_ANCHOR + _FOREHEAD_STRETCH_MAX * (1.52 - _HAIR_ROOT_MARGIN - _STRETCH_ANCHOR)
         )
         # a re-centre forgets the plan
         engine._loaded[loaded.descriptor.id] = loaded
