@@ -13,7 +13,8 @@ the frame by the same affine the paste used.
 Usage::
 
     uv run python scripts/probes/eye_alpha.py --src src --capture captures/moment-...
-    uv run python scripts/probes/eye_alpha.py --src <worktree>/src --capture ... --option outline_fit=0
+    uv run python scripts/probes/eye_alpha.py --src <worktree>/src --capture ... \
+        --option outline_fit=0
 """
 
 from __future__ import annotations
