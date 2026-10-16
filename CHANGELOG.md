@@ -64,6 +64,17 @@ Versions below `1.0.0` carry no API stability guarantee.
 
 ### Changed
 
+- **2026-10-16, his ask: Add avatar and Delete avatar behind the owner's
+  Login again, "temporarily".** A copy of the application went missing on
+  a friend's computer, so the two entries that change the library are
+  back behind a passphrase (`sha256.app.owner`, as on day 15: salted and
+  stretched, kept in `configs/local.owner.json`, never in the repository).
+  What differs from day 15: the window never SETS a passphrase -- a copy
+  without the file simply has no Login (it says so) -- the owner sets it
+  on his machine with `sha256 --set-owner` (asked twice, unseen), and the
+  portable build copies the file into the package, so every copy carries
+  the same gate. A gate in the window, not a vault: the files can still
+  be copied; the lock plan in the ROADMAP is the real answer.
 - **Day 23 (2026-10-16), his two presses at 03:25: the brow that stretched
   at a turn to his right, and the eye and lashes that remained at one to
   his left.** (1) The stretch was the outline fit's per-row map (day 22)

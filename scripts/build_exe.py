@@ -128,6 +128,12 @@ def lay_out(avatars: list[str], switch_url: str | None) -> Path:
     if avatars:
         local += f'\n[avatars]\ndefault_avatar_id = "{avatars[0]}"\n'
     (configs / "local.toml").write_text(local, encoding="utf-8")
+    # 2026-10-16, his ask: the owner's passphrase travels with the package
+    # (the salted key only, see sha256.app.owner), so Add avatar and
+    # Delete avatar stay behind Login on every copy.
+    owner = REPO_ROOT / "configs" / "local.owner.json"
+    if owner.is_file():
+        shutil.copy2(owner, configs / "local.owner.json")
 
     shutil.copy2(REPO_ROOT / "docs" / "USER_GUIDE.md", PORTABLE / "USER_GUIDE.md")
     # The window's background photograph, when this checkout has one (it is

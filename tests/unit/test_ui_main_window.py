@@ -219,22 +219,60 @@ def guide_accepted(monkeypatch):
     )
 
 
+def _unlock(window) -> None:
+    """The owner logged in, the way the tests below need him."""
+    window._owner.set_passphrase("open sesame")
+    window._refresh_owner_state()
+
+
 class TestAddAndDeleteAvatar:
     """Day 15: the import is checked and the library re-read. Day 16: the
-    photo guide comes first. 2026-10-09, his ask: no Login any more -- Add
-    avatar and Delete avatar are in the menu for whoever uses the app."""
+    photo guide comes first. 2026-10-16, his ask: Add avatar and Delete
+    avatar behind the owner's passphrase again (the window never sets
+    one; a copy without the file has no Login)."""
 
-    def test_add_and_delete_are_there_without_a_login(self, window):
+    def test_add_and_delete_are_hidden_until_the_owner_logs_in(self, window, monkeypatch):
+        from sha256.ui import main_window as module
+
         entries = [action.text() for action in window._menu.actions() if not action.isSeparator()]
-        assert "Add avatar" in entries and "Delete avatar" in entries
-        assert "Login" not in entries and "Owner" not in entries
-        assert window._add_avatar_action.isVisible()
-        assert window._delete_avatar_action.isVisible()
-        assert not hasattr(window, "_owner") and not hasattr(window, "_login_action")
+        assert "Login" in entries
+        assert not window._add_avatar_action.isVisible()
+        assert not window._delete_avatar_action.isVisible()
+        assert not window._owner.is_configured
+        # no file on this computer: Login says so and sets nothing
+        warned: list[str] = []
+        monkeypatch.setattr(module.QMessageBox, "warning", lambda *a, **k: warned.append(a[2]))
+        window._on_login()
+        assert warned and "No owner passphrase" in warned[0]
+        assert not window._owner.is_configured and not window._add_avatar_action.isVisible()
+        # the file set (sha256 --set-owner): the right passphrase unlocks
+        window._owner.set_passphrase("open sesame")
+        window._owner.lock()
+        window._refresh_owner_state()
+        monkeypatch.setattr(module.QInputDialog, "getText", lambda *a, **k: ("nope", True))
+        window._on_login()
+        assert not window._owner.is_unlocked and not window._add_avatar_action.isVisible()
+        assert "not the passphrase" in warned[-1]
+        monkeypatch.setattr(module.QInputDialog, "getText", lambda *a, **k: ("open sesame", True))
+        window._on_login()
+        assert window._owner.is_unlocked
+        assert window._add_avatar_action.isVisible() and window._delete_avatar_action.isVisible()
+        assert window._login_action.text() == "Owner" and not window._login_action.isEnabled()
+
+    def test_locked_the_buttons_do_nothing(self, window, monkeypatch):
+        from sha256.ui import main_window as module
+
+        opened: list[int] = []
+        monkeypatch.setattr(module.PhotoGuideDialog, "exec", lambda self: opened.append(1) or 0)
+        monkeypatch.setattr(module.QMessageBox, "question", lambda *a, **k: opened.append(2) or 0)
+        window._on_add_avatar()
+        window._on_delete_avatar()
+        assert not opened
 
     def test_deleting_an_avatar_asks_removes_and_refills_the_bar(self, window, monkeypatch):
         """Day 17, his ask: the avatar chosen in the bar is removed after a
         question, with the pipeline stopped."""
+        _unlock(window)
         from sha256.ui import main_window as module
 
         library = window._context.paths.avatars
@@ -263,6 +301,7 @@ class TestAddAndDeleteAvatar:
         assert window._context.avatars.active_id != "avatar_001"
 
     def test_delete_wants_an_avatar_chosen(self, window, monkeypatch):
+        _unlock(window)
         from sha256.ui import main_window as module
 
         library = window._context.paths.avatars
@@ -274,6 +313,7 @@ class TestAddAndDeleteAvatar:
         assert (library / "avatar_001").is_dir()
 
     def test_the_guide_can_be_declined(self, window, monkeypatch):
+        _unlock(window)
         from sha256.ui import main_window as module
 
         monkeypatch.setattr(
@@ -369,6 +409,7 @@ class TestAddAndDeleteAvatar:
     def test_adding_an_avatar_imports_refreshes_and_selects_it(
         self, window, monkeypatch, tmp_path, guide_accepted
     ):
+        _unlock(window)
         from sha256.ui import main_window as module
 
         library = window._context.paths.avatars
@@ -406,6 +447,7 @@ class TestAddAndDeleteAvatar:
     def test_a_refused_photograph_is_reported_and_nothing_changes(
         self, window, monkeypatch, tmp_path, guide_accepted
     ):
+        _unlock(window)
         from sha256.avatar.importer import AvatarImportError
         from sha256.ui import main_window as module
 
@@ -460,6 +502,7 @@ class TestTheBarAndTheMenu:
             "Re-centre",
             "Person",
             "Calibrate me",
+            "Login",
             "Add avatar",
             "Delete avatar",
             "Instructions",

@@ -27,6 +27,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Wire the application, print a diagnostic report, and exit without a UI.",
     )
     parser.add_argument(
+        "--set-owner",
+        action="store_true",
+        help="Ask for the owner's passphrase (twice, unseen) and store it in "
+        "configs/local.owner.json; Login in the application takes it from then on.",
+    )
+    parser.add_argument(
         "--log-level",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         help="Override the configured log level.",
@@ -37,6 +43,8 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     """Process entry point. Returns a process exit code."""
     args = _build_parser().parse_args(argv)
+    if args.set_owner:
+        return _set_owner()
 
     # Imported here, not at module scope: `--check` must work on a machine or CI
     # runner where Qt cannot open a display.
@@ -78,6 +86,29 @@ def main(argv: list[str] | None = None) -> int:
         return run_ui(context)
     finally:
         context.shutdown()
+
+
+def _set_owner() -> int:
+    """The owner's passphrase set from the terminal, unseen, twice (day 15,
+    back on 2026-10-16): the window never sets one."""
+    import getpass
+
+    from sha256.app.owner import OWNER_FILENAME, OwnerAccess
+    from sha256.config.paths import AppPaths
+
+    first = getpass.getpass("The owner's passphrase: ")
+    again = getpass.getpass("Once more: ")
+    if first != again:
+        print("The two entries differ; nothing was set.")
+        return 2
+    owner = OwnerAccess(AppPaths.resolve().configs / OWNER_FILENAME)
+    try:
+        owner.set_passphrase(first)
+    except ValueError as exc:
+        print(exc)
+        return 2
+    print(f"Passphrase set and kept in {owner.path}.")
+    return 0
 
 
 def _print_diagnostics(context: object) -> None:
